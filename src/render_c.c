@@ -3,9 +3,11 @@
 #include <string.h>
 #include <stdint.h>
 #include <stddef.h>
+#include <stdio.h>
 
 #include "framebuffer.h"
 #include "render_types.h"
+#include "tables_c.h"
 
 #define SCREENWIDTH  320
 #define SCREENHEIGHT 200
@@ -1342,6 +1344,637 @@ static int l_draw_planes(lua_State *L)
     return 0;
 }
 
+
+static lua_Integer render_get_int_field(
+    lua_State *L,
+    int object,
+    const char *field
+)
+{
+    object = lua_absindex(L, object);
+    lua_getfield(L, object, field);
+    lua_Integer value = luaL_checkinteger(L, -1);
+    lua_pop(L, 1);
+    return value;
+}
+
+static int render_get_bool_field(
+    lua_State *L,
+    int object,
+    const char *field
+)
+{
+    object = lua_absindex(L, object);
+    lua_getfield(L, object, field);
+    int value = lua_toboolean(L, -1);
+    lua_pop(L, 1);
+    return value;
+}
+
+static void render_set_int_field(
+    lua_State *L,
+    int object,
+    const char *field,
+    lua_Integer value
+)
+{
+    object = lua_absindex(L, object);
+    lua_pushinteger(L, value);
+    lua_setfield(L, object, field);
+}
+
+static void render_set_table_int(
+    lua_State *L,
+    int table,
+    lua_Integer key,
+    lua_Integer value
+)
+{
+    table = lua_absindex(L, table);
+
+    lua_pushinteger(L, key);
+    lua_pushinteger(L, value);
+    lua_settable(L, table);
+}
+
+static void render_set_visplane_span(
+    lua_State *L,
+    Visplane *plane,
+    int bottom,
+    int x,
+    lua_Integer value
+)
+{
+    if (value < INT16_MIN || value > INT16_MAX) {
+        luaL_error(
+            L,
+            "visplane span value out of int16 range"
+        );
+        return;
+    }
+
+    if (x < 0 || x >= RENDER_SCREENWIDTH) {
+    luaL_error(L, "visplane span index out of range");
+    return;
+}
+
+    if (bottom)
+        plane->bottom[x] = (int16_t)value;
+    else
+        plane->top[x] = (int16_t)value;
+}
+
+/*
+ * Chama res:get_column(texture, column).
+ * Deixa a string retornada no topo da pilha.
+ */
+static void render_get_column(
+    lua_State *L,
+    int res,
+    lua_Integer texture,
+    lua_Integer column
+)
+{
+    res = lua_absindex(L, res);
+
+    lua_getfield(L, res, "get_column");
+    lua_pushvalue(L, res);
+    lua_pushinteger(L, texture);
+    lua_pushinteger(L, column);
+    lua_call(L, 3, 1);
+}
+
+/*
+ * Chama l_draw_column usando os campos atuais do renderer.
+ */
+static void render_call_draw_column(
+    lua_State *L,
+    int self,
+    int fb
+)
+{
+    self = lua_absindex(L, self);
+    fb = lua_absindex(L, fb);
+
+    lua_pushcfunction(L, l_draw_column);
+
+    lua_pushvalue(L, fb);
+
+    lua_getfield(L, self, "dc_x");
+    lua_getfield(L, self, "dc_yl");
+    lua_getfield(L, self, "dc_yh");
+    lua_getfield(L, self, "dc_iscale");
+    lua_getfield(L, self, "dc_texturemid");
+    lua_getfield(L, self, "dc_source");
+    lua_getfield(L, self, "dc_colormap");
+
+    lua_getfield(L, self, "centery");
+    lua_getfield(L, self, "viewwidth");
+    lua_getfield(L, self, "detailshift");
+    lua_getfield(L, self, "viewwindowx");
+    lua_getfield(L, self, "viewwindowy");
+
+    lua_call(L, 13, 0);
+}
+
+/*
+ * render_c.render_seg_loop(self)
+ *
+ * Migração de render_seg_loop para C.
+ */
+static int l_render_seg_loop(lua_State *L)
+{
+    int self = lua_absindex(L, 1);
+    int tables_idx = lua_absindex(L, 2);
+
+    luaL_checktype(L, self, LUA_TTABLE);
+
+    Table *tables = (Table *)luaL_checkudata(
+        L, tables_idx, TABLE_MT
+    );
+
+    luaL_argcheck(
+        L, tables->ready, 2, "tables not initialized"
+    );
+
+    /* Recursos e framebuffer. */
+    lua_getfield(L, self, "res");
+    int res = lua_absindex(L, -1);
+
+    lua_getfield(L, self, "fb");
+    int fb = lua_absindex(L, -1);
+
+    /* Tabelas utilizadas no loop. */
+    lua_getfield(L, self, "ceilingclip");
+    int ceilingclip = lua_absindex(L, -1);
+
+    lua_getfield(L, self, "floorclip");
+    int floorclip = lua_absindex(L, -1);
+
+    lua_getfield(L, self, "xtoviewangle");
+    int xtoviewangle_table = lua_absindex(L, -1);
+
+    lua_getfield(L, self, "walllights");
+    int walllights = lua_absindex(L, -1);
+
+    lua_getfield(L, self, "maskedtexturecol");
+    int maskedtexturecol = lua_absindex(L, -1);
+
+    /* Planos utilizados para marcar teto e chão. */
+    lua_getfield(L, self, "ceilingplane");
+    int ceilingplane_idx = lua_absindex(L, -1);
+
+    lua_getfield(L, self, "floorplane");
+    int floorplane_idx = lua_absindex(L, -1);
+
+    Visplane *ceilingplane = NULL;
+    Visplane *floorplane = NULL;
+
+    if (!lua_isnil(L, ceilingplane_idx))
+        ceilingplane = check_visplane(L, ceilingplane_idx);
+
+    if (!lua_isnil(L, floorplane_idx))
+        floorplane = check_visplane(L, floorplane_idx);
+
+
+    /* Estado inicial do loop. */
+    lua_Integer rw_x =
+        render_get_int_field(L, self, "rw_x");
+
+    lua_Integer rw_stopx =
+        render_get_int_field(L, self, "rw_stopx");
+
+    lua_Integer rw_start =
+        render_get_int_field(L, self, "rw_start");
+
+    lua_Integer rw_distance =
+        render_get_int_field(L, self, "rw_distance");
+
+    lua_Integer rw_scale =
+        render_get_int_field(L, self, "rw_scale");
+
+    lua_Integer rw_scalestep =
+        render_get_int_field(L, self, "rw_scalestep");
+
+    lua_Integer topfrac =
+        render_get_int_field(L, self, "topfrac");
+
+    lua_Integer topstep =
+        render_get_int_field(L, self, "topstep");
+
+    lua_Integer bottomfrac =
+        render_get_int_field(L, self, "bottomfrac");
+
+    lua_Integer bottomstep =
+        render_get_int_field(L, self, "bottomstep");
+
+    lua_Integer viewheight =
+        render_get_int_field(L, self, "viewheight");
+
+    int segtextured =
+        render_get_bool_field(L, self, "segtextured");
+
+    int markceiling =
+        render_get_bool_field(L, self, "markceiling");
+
+    int markfloor =
+        render_get_bool_field(L, self, "markfloor");
+
+    lua_Integer midtexture =
+        render_get_int_field(L, self, "midtexture");
+
+    lua_Integer toptexture =
+        render_get_int_field(L, self, "toptexture");
+
+    lua_Integer bottomtexture =
+        render_get_int_field(L, self, "bottomtexture");
+
+    int has_maskedtexture =
+    render_get_bool_field(L, self, "maskedtexture");
+
+    int has_maskedtexturecol =
+        render_get_bool_field(L, self, "maskedtexturecol");
+
+    lua_Integer detailshift =
+        render_get_int_field(L, self, "detailshift");
+
+    lua_Integer viewwidth =
+        render_get_int_field(L, self, "viewwidth");
+
+    lua_Integer centery =
+        render_get_int_field(L, self, "centery");
+
+    lua_Integer viewwindowx =
+        render_get_int_field(L, self, "viewwindowx");
+
+    lua_Integer viewwindowy =
+        render_get_int_field(L, self, "viewwindowy");
+
+    lua_Integer extralight =
+        render_get_int_field(L, self, "extralight");
+
+    lua_Integer fixedcolormap_idx;
+
+    lua_getfield(L, self, "fixedcolormap");
+    fixedcolormap_idx = lua_absindex(L, -1);
+
+    lua_Integer texturecolumn = 0;
+    lua_Integer rw_centerangle = 0;
+    lua_Integer rw_offset = 0;
+
+    if (segtextured) {
+        rw_centerangle =
+            render_get_int_field(L, self, "rw_centerangle");
+
+        rw_offset =
+            render_get_int_field(L, self, "rw_offset");
+    }
+
+    lua_Integer pixhigh = 0;
+    lua_Integer pixhighstep = 0;
+    lua_Integer pixlow = 0;
+    lua_Integer pixlowstep = 0;
+
+    if (toptexture != 0) {
+        pixhigh = render_get_int_field(L, self, "pixhigh");
+        pixhighstep = render_get_int_field(L, self, "pixhighstep");
+    }
+
+    if (bottomtexture != 0) {
+        pixlow = render_get_int_field(L, self, "pixlow");
+        pixlowstep = render_get_int_field(L, self, "pixlowstep");
+    }
+
+    lua_Integer rw_midtexturemid = 0;
+    lua_Integer rw_toptexturemid = 0;
+    lua_Integer rw_bottomtexturemid = 0;
+
+    if (midtexture != 0) {
+        rw_midtexturemid =
+            render_get_int_field(L, self, "rw_midtexturemid");
+    }
+
+    if (toptexture != 0) {
+        rw_toptexturemid =
+            render_get_int_field(L, self, "rw_toptexturemid");
+    }
+
+    if (bottomtexture != 0) {
+        rw_bottomtexturemid =
+            render_get_int_field(L, self, "rw_bottomtexturemid");
+    }
+
+    int has_fixedcolormap =
+        !lua_isnil(L, fixedcolormap_idx) &&
+        lua_toboolean(L, fixedcolormap_idx);
+
+    /*
+     * Loop principal.
+     */
+    while (rw_x < rw_stopx) {
+        int x = (int)rw_x;
+
+        lua_Integer ceiling =
+            render_table_int(L, ceilingclip, rw_x);
+
+        lua_Integer floor =
+            render_table_int(L, floorclip, rw_x);
+
+        /*
+         * yl = shar(topfrac + HEIGHTUNIT - 1, HEIGHTBITS)
+         */
+        lua_Integer yl = fixed_shr(
+            topfrac + HEIGHTUNIT - 1,
+            HEIGHTBITS
+        );
+
+        if (yl < ceiling + 1)
+            yl = ceiling + 1;
+
+        /*
+         * Marca o teto no visplane.
+         */
+        if (markceiling && ceilingplane) {
+            lua_Integer top = ceiling + 1;
+            lua_Integer bottom = yl - 1;
+
+            if (bottom >= floor)
+                bottom = floor - 1;
+
+            if (top <= bottom) {
+                render_set_visplane_span(
+                    L, ceilingplane, 0, x, top
+                );
+
+                render_set_visplane_span(
+                    L, ceilingplane, 1, x, bottom
+                );
+            }
+        }
+
+        /*
+         * yh = shar(bottomfrac, HEIGHTBITS)
+         */
+        lua_Integer yh = fixed_shr(
+            bottomfrac,
+            HEIGHTBITS
+        );
+
+        if (yh >= floor)
+            yh = floor - 1;
+
+        /*
+         * Marca o chão no visplane.
+         */
+        if (markfloor && floorplane) {
+            lua_Integer top = yh + 1;
+            lua_Integer bottom = floor - 1;
+
+            if (top <= ceiling)
+                top = ceiling + 1;
+
+            if (top <= bottom) {
+                render_set_visplane_span(
+                    L, floorplane, 0, x, top
+                );
+
+                render_set_visplane_span(
+                    L, floorplane, 1, x, bottom
+                );
+            }
+        }
+
+        /*
+         * Calcula coluna da textura e iluminação.
+         */
+        if (segtextured) {
+
+            lua_Integer xtoviewangle =
+                render_table_int(
+                    L, xtoviewangle_table, rw_x
+                );
+
+            uint32_t angle = (uint32_t)as_i32(
+                rw_centerangle + xtoviewangle
+            );
+
+            angle >>= ANGLETOFINESHIFT;
+            angle &= (FINEANGLES / 2) - 1;
+
+            /* Acesso direto ao array C. */
+            int32_t tanv = tables->finetangent[angle];
+
+            texturecolumn = fixed_shr(
+                rw_offset -
+                render_fixed_mul(tanv, (int32_t)rw_distance),
+                FRACBITS
+            );
+
+            uint32_t light_index =
+                (uint32_t)rw_scale >> LIGHTSCALESHIFT;
+
+            if (light_index >= MAXLIGHTSCALE)
+                light_index = MAXLIGHTSCALE - 1;
+
+            if (has_fixedcolormap) {
+                lua_pushvalue(L, fixedcolormap_idx);
+                lua_setfield(L, self, "dc_colormap");
+            } else {
+                lua_Integer lightlevel = render_table_int(
+                    L,
+                    walllights,
+                    light_index
+                );
+
+                lua_getfield(L, res, "colormap");
+                lua_pushvalue(L, res);
+                lua_pushinteger(L, lightlevel);
+                lua_call(L, 2, 1);
+
+                lua_setfield(L, self, "dc_colormap");
+            }
+
+            render_set_int_field(
+                L, self, "dc_x", rw_x
+            );
+
+            lua_Integer iscale = 0;
+
+            if (rw_scale != 0)
+                iscale = 4294967295LL / rw_scale;
+
+            render_set_int_field(
+                L, self, "dc_iscale", iscale
+            );
+        }
+
+        /*
+         * Parede média: textura ocupa todo o intervalo.
+         */
+        if (midtexture != 0) {
+            render_set_int_field(L, self, "dc_yl", yl);
+            render_set_int_field(L, self, "dc_yh", yh);
+
+            render_set_int_field(
+                L, self, "dc_texturemid",
+                rw_midtexturemid
+            );
+
+            render_get_column(
+                L, res, midtexture, texturecolumn
+            );
+
+            lua_setfield(L, self, "dc_source");
+
+            render_call_draw_column(L, self, fb);
+
+            render_set_table_int(
+                L, ceilingclip, rw_x, viewheight
+            );
+
+            render_set_table_int(
+                L, floorclip, rw_x, -1
+            );
+        } else {
+            /*
+             * Textura superior.
+             */
+            if (toptexture != 0) {
+                lua_Integer mid = fixed_shr(
+                    pixhigh,
+                    HEIGHTBITS
+                );
+
+                pixhigh += pixhighstep;
+
+                if (mid >= floor)
+                    mid = floor - 1;
+
+                if (mid >= yl) {
+                    render_set_int_field(
+                        L, self, "dc_yl", yl
+                    );
+
+                    render_set_int_field(
+                        L, self, "dc_yh", mid
+                    );
+
+                    render_set_int_field(
+                        L, self, "dc_texturemid",
+                        rw_toptexturemid
+                    );
+
+                    render_get_column(
+                        L, res, toptexture, texturecolumn
+                    );
+
+                    lua_setfield(L, self, "dc_source");
+
+                    render_call_draw_column(L, self, fb);
+
+                    render_set_table_int(
+                        L, ceilingclip, rw_x, mid
+                    );
+                } else {
+                    render_set_table_int(
+                        L, ceilingclip, rw_x, yl - 1
+                    );
+                }
+            } else if (markceiling) {
+                render_set_table_int(
+                    L, ceilingclip, rw_x, yl - 1
+                );
+            }
+
+            /*
+             * Textura inferior.
+             */
+            if (bottomtexture != 0) {
+                lua_Integer mid = fixed_shr(
+                    pixlow + HEIGHTUNIT - 1,
+                    HEIGHTBITS
+                );
+
+                pixlow += pixlowstep;
+
+                lua_Integer current_ceiling =
+                    render_table_int(L, ceilingclip, rw_x);
+
+                if (mid <= current_ceiling)
+                    mid = current_ceiling + 1;
+
+                if (mid <= yh) {
+                    render_set_int_field(
+                        L, self, "dc_yl", mid
+                    );
+
+                    render_set_int_field(
+                        L, self, "dc_yh", yh
+                    );
+
+                    render_set_int_field(
+                        L, self, "dc_texturemid",
+                        rw_bottomtexturemid
+                    );
+
+                    render_get_column(
+                        L, res, bottomtexture, texturecolumn
+                    );
+
+                    lua_setfield(L, self, "dc_source");
+
+                    render_call_draw_column(L, self, fb);
+
+                    render_set_table_int(
+                        L, floorclip, rw_x, mid
+                    );
+                } else {
+                    render_set_table_int(
+                        L, floorclip, rw_x, yh + 1
+                    );
+                }
+            } else if (markfloor) {
+                render_set_table_int(
+                    L, floorclip, rw_x, yh + 1
+                );
+            }
+
+            /*
+             * Armazena a coluna da textura mascarada.
+             */
+            if (has_maskedtexture && has_maskedtexturecol) {
+
+                render_set_table_int(
+                    L,
+                    maskedtexturecol,
+                    rw_x - rw_start,
+                    texturecolumn
+                );
+            }
+        }
+
+        /*
+         * Avança para a próxima coluna.
+         */
+        rw_scale += rw_scalestep;
+        topfrac += topstep;
+        bottomfrac += bottomstep;
+        rw_x++;
+    }
+
+    /*
+     * Persiste os valores atualizados no renderer.
+     */
+    render_set_int_field(L, self, "rw_x", rw_x);
+    render_set_int_field(L, self, "rw_scale", rw_scale);
+    render_set_int_field(L, self, "topfrac", topfrac);
+    render_set_int_field(L, self, "bottomfrac", bottomfrac);
+    render_set_int_field(L, self, "pixhigh", pixhigh);
+    render_set_int_field(L, self, "pixlow", pixlow);
+
+    return 0;
+}
+
 /* ---------------------------------------------------------
  * Registro do módulo
  * --------------------------------------------------------- */
@@ -1354,6 +1987,7 @@ static const luaL_Reg render_functions[] = {
     {"find_plane", l_find_plane},
     {"check_plane", l_check_plane},
     {"draw_planes", l_draw_planes},
+    {"render_seg_loop", l_render_seg_loop},
     {NULL, NULL}
 };
 

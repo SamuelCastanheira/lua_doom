@@ -7,25 +7,13 @@
 #include <lua.h>
 #include <lauxlib.h>
 
-#define TABLE_MT "tables_c.Table"
+#include "tables_c.h"
 
-#define FINEANGLES 8192
-#define FINEMASK 8191
-#define ANGLETOFINESHIFT 19
 #define FRACUNIT 65536
-#define SLOPERANGE 2048
 #define ANG90 1073741824
 #define DBITS 5
 
-#define FINESINE_SIZE (FINEANGLES * 5 / 4)
 
-typedef struct {
-    int32_t finesine[FINESINE_SIZE];
-    int32_t finetangent[FINEANGLES / 2];
-    uint32_t tantoangle[SLOPERANGE + 1];
-
-    bool ready;
-} Table;
 
 
 /* =========================================================
@@ -87,20 +75,20 @@ static void init_tables(Table *tb)
 
     const double pi = acos(-1.0);
 
-    int32_t nsin = (FINEANGLES / 4) * 5;
+    int32_t nsin = (TABLE_FINEANGLES / 4) * 5;
 
     for (int i = 0; i < nsin; i++) {
-        double a = (i + 0.5) * pi * 2.0 / FINEANGLES;
+        double a = (i + 0.5) * pi * 2.0 / TABLE_FINEANGLES;
 
         tb->finesine[i] =
             trunc_i32(FRACUNIT * sin(a));
     }
 
-    int32_t half = FINEANGLES / 2;
-    int32_t quarter = FINEANGLES / 4;
+    int32_t half = TABLE_FINEANGLES / 2;
+    int32_t quarter = TABLE_FINEANGLES / 4;
 
     for (int i = 0; i < half; i++) {
-        double a = (i - quarter + 0.5) * pi * 2.0 / FINEANGLES;
+        double a = (i - quarter + 0.5) * pi * 2.0 / TABLE_FINEANGLES;
 
         double v = FRACUNIT * tan(a);
 
@@ -115,9 +103,9 @@ static void init_tables(Table *tb)
         tb->finetangent[i] = trunc_i32(v);
     }
 
-    for (int i = 0; i <= SLOPERANGE; i++) {
+    for (int i = 0; i <= TABLE_SLOPERANGE; i++) {
         double ang =
-            atan((double)i / SLOPERANGE)
+            atan((double)i / TABLE_SLOPERANGE)
             / (pi * 2.0)
             * 4294967295.0;
 
@@ -135,7 +123,7 @@ static void init_tables(Table *tb)
 static int32_t fine_sin(const Table *tb, int32_t angle)
 {
     uint32_t i =
-        ((uint32_t)angle >> ANGLETOFINESHIFT) & FINEMASK;
+        ((uint32_t)angle >> TABLE_ANGLETOFINESHIFT) & TABLE_FINEMASK;
 
     return tb->finesine[i];
 }
@@ -143,8 +131,8 @@ static int32_t fine_sin(const Table *tb, int32_t angle)
 static int32_t fine_cos(const Table *tb, int32_t angle)
 {
     uint32_t i =
-        (((uint32_t)angle >> ANGLETOFINESHIFT)
-        + (FINEANGLES / 4)) & FINEMASK;
+        (((uint32_t)angle >> TABLE_ANGLETOFINESHIFT)
+        + (TABLE_FINEANGLES / 4)) & TABLE_FINEMASK;
 
     return tb->finesine[i];
 }
@@ -152,14 +140,14 @@ static int32_t fine_cos(const Table *tb, int32_t angle)
 static int64_t slope_div(int32_t num, int32_t den)
 {
     if (den < 512)
-        return SLOPERANGE;
+        return TABLE_SLOPERANGE;
 
     uint32_t shifted_den = ((uint32_t)den) >> 8;
 
     int64_t ans = idiv((int64_t)num * 8, shifted_den);
 
-    if (ans > SLOPERANGE)
-        return SLOPERANGE;
+    if (ans > TABLE_SLOPERANGE)
+        return TABLE_SLOPERANGE;
 
     return (int64_t)ans;
 }
@@ -233,7 +221,7 @@ static int l_get_finesine(lua_State *L)
     Table *tb = check_ready_table(L, 1);
     lua_Integer i = luaL_checkinteger(L, 2);
 
-    luaL_argcheck(L, i >= 0 && i < FINESINE_SIZE, 2,
+    luaL_argcheck(L, i >= 0 && i < TABLE_FINESINE_SIZE, 2,
                   "finesine index out of range");
 
     lua_pushinteger(L, tb->finesine[i]);
@@ -246,7 +234,7 @@ static int l_get_finetangent(lua_State *L)
     Table *tb = check_ready_table(L, 1);
     lua_Integer i = luaL_checkinteger(L, 2);
 
-    luaL_argcheck(L, i >= 0 && i < FINEANGLES / 2, 2,
+    luaL_argcheck(L, i >= 0 && i < TABLE_FINEANGLES / 2, 2,
                   "finetangent index out of range");
 
     lua_pushinteger(L, tb->finetangent[i]);
@@ -259,7 +247,7 @@ static int l_get_tantoangle(lua_State *L)
     Table *tb = check_ready_table(L, 1);
     lua_Integer i = luaL_checkinteger(L, 2);
 
-    luaL_argcheck(L, i >= 0 && i <= SLOPERANGE, 2,
+    luaL_argcheck(L, i >= 0 && i <= TABLE_SLOPERANGE, 2,
                   "tantoangle index out of range");
 
     lua_pushinteger(L, tb->tantoangle[i]);
@@ -321,11 +309,11 @@ int luaopen_tables_c(lua_State *L)
     lua_pushinteger(L, DBITS);
     lua_setfield(L, -2, "DBITS");
 
-    lua_pushinteger(L, FINEANGLES);
-    lua_setfield(L, -2, "FINEANGLES");
+    lua_pushinteger(L, TABLE_FINEANGLES);
+    lua_setfield(L, -2, "TABLE_FINEANGLES");
 
-    lua_pushinteger(L, FINEMASK);
-    lua_setfield(L, -2, "FINEMASK");
+    lua_pushinteger(L, TABLE_FINEMASK);
+    lua_setfield(L, -2, "TABLE_FINEMASK");
 
     lua_pop(L, 1);
 
