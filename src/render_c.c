@@ -1,11 +1,11 @@
 #include <lua.h>
 #include <lauxlib.h>
 #include <string.h>
-
 #include <stdint.h>
 #include <stddef.h>
 
 #include "framebuffer.h"
+#include "render_types.h"
 
 #define SCREENWIDTH  320
 #define SCREENHEIGHT 200
@@ -43,6 +43,7 @@
 #define INT_MIN  -2147483647
 #define PIXELS  SCREENWIDTH * SCREENHEIGHT
 
+
 /*
  * Converte para int32 preservando o comportamento
  * de overflow da implementação Lua as_i32().
@@ -72,6 +73,392 @@ static int64_t arithmetic_shift_right(int64_t value, int bits)
 static int32_t fixed_shr(int64_t value, int bits)
 {
     return (int32_t)arithmetic_shift_right(as_i32(value), bits);
+}
+
+#define VISPLANE_MT "render_c.Visplane"
+#define VISPLANE_SPAN_MT "render_c.VisplaneSpan"
+
+typedef struct {
+    Visplane *plane;
+    int bottom;
+} VisplaneSpan;
+
+static Visplane *check_visplane(lua_State *L, int index)
+{
+    return (Visplane *)luaL_checkudata(L, index, VISPLANE_MT);
+}
+
+static VisplaneSpan *check_visplane_span(lua_State *L, int index)
+{
+    return (VisplaneSpan *)luaL_checkudata(
+        L, index, VISPLANE_SPAN_MT
+    );
+}
+
+/* Acesso a pl.top[x] e pl.bottom[x]. */
+
+static int l_visplane_span_index(lua_State *L)
+{
+    VisplaneSpan *span = check_visplane_span(L, 1);
+    lua_Integer x = luaL_checkinteger(L, 2);
+
+    if (x < 0 || x >= RENDER_SCREENWIDTH) {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    int16_t value = span->bottom
+        ? span->plane->bottom[x]
+        : span->plane->top[x];
+
+    lua_pushinteger(L, value);
+    return 1;
+}
+
+static int l_visplane_span_newindex(lua_State *L)
+{
+    VisplaneSpan *span = check_visplane_span(L, 1);
+    lua_Integer x = luaL_checkinteger(L, 2);
+    lua_Integer value = luaL_checkinteger(L, 3);
+
+    if (x < 0 || x >= RENDER_SCREENWIDTH) {
+        return luaL_error(L, "visplane span index out of range");
+    }
+
+    if (value < INT16_MIN || value > INT16_MAX) {
+        return luaL_error(L, "visplane span value out of int16 range");
+    }
+
+    if (span->bottom) {
+        span->plane->bottom[x] = (int16_t)value;
+    } else {
+        span->plane->top[x] = (int16_t)value;
+    }
+
+    return 0;
+}
+
+/* Acesso aos campos do Visplane. */
+
+static int l_visplane_index(lua_State *L)
+{
+    Visplane *pl = check_visplane(L, 1);
+    const char *key = luaL_checkstring(L, 2);
+
+    if (strcmp(key, "height") == 0)
+        lua_pushinteger(L, pl->height);
+    else if (strcmp(key, "picnum") == 0)
+        lua_pushinteger(L, pl->picnum);
+    else if (strcmp(key, "lightlevel") == 0)
+        lua_pushinteger(L, pl->lightlevel);
+    else if (strcmp(key, "minx") == 0)
+        lua_pushinteger(L, pl->minx);
+    else if (strcmp(key, "maxx") == 0)
+        lua_pushinteger(L, pl->maxx);
+    else if (strcmp(key, "top") == 0 || strcmp(key, "bottom") == 0) {
+        lua_getiuservalue(L, 1, 1);
+        lua_getfield(L, -1, key);
+        lua_remove(L, -2);
+    } else {
+        lua_pushnil(L);
+    }
+
+    return 1;
+}
+
+static int l_visplane_newindex(lua_State *L)
+{
+    Visplane *pl = check_visplane(L, 1);
+    const char *key = luaL_checkstring(L, 2);
+    lua_Integer value = luaL_checkinteger(L, 3);
+
+    if (value < INT32_MIN || value > INT32_MAX) {
+        return luaL_error(L, "visplane value out of int32 range");
+    }
+
+    if (strcmp(key, "height") == 0)
+        pl->height = (int32_t)value;
+    else if (strcmp(key, "picnum") == 0)
+        pl->picnum = (int32_t)value;
+    else if (strcmp(key, "lightlevel") == 0)
+        pl->lightlevel = (int32_t)value;
+    else if (strcmp(key, "minx") == 0)
+        pl->minx = (int32_t)value;
+    else if (strcmp(key, "maxx") == 0)
+        pl->maxx = (int32_t)value;
+    else
+        return luaL_error(L, "unknown Visplane field: %s", key);
+
+    return 0;
+}
+
+static void create_visplane_metatables(lua_State *L)
+{
+    if (luaL_newmetatable(L, VISPLANE_MT)) {
+        lua_pushcfunction(L, l_visplane_index);
+        lua_setfield(L, -2, "__index");
+
+        lua_pushcfunction(L, l_visplane_newindex);
+        lua_setfield(L, -2, "__newindex");
+    }
+    lua_pop(L, 1);
+
+    if (luaL_newmetatable(L, VISPLANE_SPAN_MT)) {
+        lua_pushcfunction(L, l_visplane_span_index);
+        lua_setfield(L, -2, "__index");
+
+        lua_pushcfunction(L, l_visplane_span_newindex);
+        lua_setfield(L, -2, "__newindex");
+    }
+    lua_pop(L, 1);
+}
+
+/*
+ * Cria um Visplane.
+ *
+ * Os arrays top e bottom são inicializados com:
+ * top    = 255
+ * bottom = 0
+ */
+static Visplane *new_visplane(
+    lua_State *L,
+    int height,
+    int picnum,
+    int lightlevel,
+    int minx,
+    int maxx
+)
+{
+    create_visplane_metatables(L);
+
+    Visplane *pl = (Visplane *)lua_newuserdatauv(
+        L, sizeof(Visplane), 1
+    );
+
+    pl->height = height;
+    pl->picnum = picnum;
+    pl->lightlevel = lightlevel;
+    pl->minx = minx;
+    pl->maxx = maxx;
+
+    for (int x = 0; x < RENDER_SCREENWIDTH; x++) {
+        pl->top[x] = 255;
+        pl->bottom[x] = 0;
+    }
+
+    luaL_getmetatable(L, VISPLANE_MT);
+    lua_setmetatable(L, -2);
+
+    /* Uservalue 1 guarda os proxies top e bottom. */
+    lua_newtable(L);
+
+    VisplaneSpan *top = (VisplaneSpan *)lua_newuserdatauv(
+        L, sizeof(VisplaneSpan), 1
+    );
+
+    top->plane = pl;
+    top->bottom = 0;
+
+    luaL_getmetatable(L, VISPLANE_SPAN_MT);
+    lua_setmetatable(L, -2);
+
+    lua_pushvalue(L, -3);
+    lua_setiuservalue(L, -2, 1);
+
+    lua_setfield(L, -2, "top");
+
+    VisplaneSpan *bottom = (VisplaneSpan *)lua_newuserdatauv(
+        L, sizeof(VisplaneSpan), 1
+    );
+
+    bottom->plane = pl;
+    bottom->bottom = 1;
+
+    luaL_getmetatable(L, VISPLANE_SPAN_MT);
+    lua_setmetatable(L, -2);
+
+    lua_pushvalue(L, -3);
+    lua_setiuservalue(L, -2, 1);
+
+    lua_setfield(L, -2, "bottom");
+
+    lua_setiuservalue(L, -2, 1);
+
+    return pl;
+}
+
+/*
+ * Adiciona o Visplane recém-criado ao array Lua visplanes.
+ *
+ * Argumentos:
+ * 1 visplanes
+ * 2 height
+ * 3 picnum
+ * 4 lightlevel
+ * 5 minx
+ * 6 maxx
+ */
+static void append_visplane(
+    lua_State *L,
+    int visplanes_index,
+    int height,
+    int picnum,
+    int lightlevel,
+    int minx,
+    int maxx
+)
+{
+    visplanes_index = lua_absindex(L, visplanes_index);
+
+    new_visplane(
+        L, height, picnum, lightlevel, minx, maxx
+    );
+
+    lua_Integer count = (lua_Integer)lua_rawlen(
+        L, visplanes_index
+    );
+
+    /* Duplica para guardar na tabela e preservar o original como retorno. */
+    lua_pushvalue(L, -1);
+    lua_rawseti(L, visplanes_index, count + 1);
+}
+
+/*
+ * render_c.find_plane(
+ *     visplanes,
+ *     viewwidth,
+ *     skyflatnum,
+ *     height,
+ *     picnum,
+ *     lightlevel
+ * )
+ */
+static int l_find_plane(lua_State *L)
+{
+    luaL_checktype(L, 1, LUA_TTABLE);
+
+    int viewwidth = (int)luaL_checkinteger(L, 2);
+    int skyflatnum = (int)luaL_checkinteger(L, 3);
+
+    int height = (int)luaL_checkinteger(L, 4);
+    int picnum = (int)luaL_checkinteger(L, 5);
+    int lightlevel = (int)luaL_checkinteger(L, 6);
+
+    if (picnum == skyflatnum) {
+        height = 0;
+        lightlevel = 0;
+    }
+
+    size_t count = lua_rawlen(L, 1);
+
+    for (size_t i = 1; i <= count; i++) {
+        lua_rawgeti(L, 1, (lua_Integer)i);
+
+        Visplane *pl = check_visplane(L, -1);
+
+        if (pl->height == height &&
+            pl->picnum == picnum &&
+            pl->lightlevel == lightlevel) {
+
+            lua_remove(L, -2);
+            return 1;
+        }
+
+        lua_pop(L, 1);
+    }
+
+    append_visplane(
+        L, 1,
+        height,
+        picnum,
+        lightlevel,
+        viewwidth,
+        -1
+    );
+
+    return 1;
+}
+
+/*
+ * render_c.check_plane(
+ *     visplanes,
+ *     pl,
+ *     start,
+ *     stop,
+ *     viewwidth,
+ *     skyflatnum
+ * )
+ */
+static int l_check_plane(lua_State *L)
+{
+    luaL_checktype(L, 1, LUA_TTABLE);
+
+    int start = (int)luaL_checkinteger(L, 3);
+    int stop = (int)luaL_checkinteger(L, 4);
+    int viewwidth = (int)luaL_checkinteger(L, 5);
+    int skyflatnum = (int)luaL_checkinteger(L, 6);
+
+    /* Mesmo comportamento do Lua: plano inexistente. */
+    if (lua_isnil(L, 2)) {
+        append_visplane(L, 1, 0, 0, 0, viewwidth, -1);
+
+        return 1;
+    }
+
+    Visplane *pl = check_visplane(L, 2);
+
+    int intrl, unionl, intrh, unionh;
+
+    if (start < pl->minx) {
+        intrl = pl->minx;
+        unionl = start;
+    } else {
+        unionl = pl->minx;
+        intrl = start;
+    }
+
+    if (stop > pl->maxx) {
+        intrh = pl->maxx;
+        unionh = stop;
+    } else {
+        unionh = pl->maxx;
+        intrh = stop;
+    }
+
+    int x = intrl;
+
+    while (x <= intrh) {
+        if (x >= 0 &&
+            x < RENDER_SCREENWIDTH &&
+            pl->top[x] != 255) {
+            break;
+        }
+
+        x++;
+    }
+
+    /* Não existe interseção: amplia o plano atual. */
+    if (x > intrh) {
+        pl->minx = unionl;
+        pl->maxx = unionh;
+
+        lua_pushvalue(L, 2);
+        return 1;
+    }
+
+    /* Existe interseção: duplica o plano. */
+    append_visplane(
+        L, 1,
+        pl->height,
+        pl->picnum,
+        pl->lightlevel,
+        start,
+        stop
+    );
+
+    (void)skyflatnum;
+
+    return 1;
 }
 
 static void draw_column_pixels(
@@ -372,7 +759,7 @@ static lua_Integer render_table_int(
     table_index = lua_absindex(L, table_index);
 
     lua_pushinteger(L, key);
-    lua_rawget(L, table_index);
+    lua_gettable(L, table_index);
 
     lua_Integer value = luaL_checkinteger(L, -1);
     lua_pop(L, 1);
@@ -630,6 +1017,331 @@ static int l_draw_flat_plane(lua_State *L)
     return 0;
 }
 
+static int l_draw_sky_plane(lua_State *L)
+{
+    Framebuffer *fb = (Framebuffer *)luaL_checkudata(
+        L, 1, FB_MT
+    );
+
+    int resource_idx = lua_absindex(L, 2);
+    int top_idx = lua_absindex(L, 3);
+    int bottom_idx = lua_absindex(L, 4);
+    int xtoviewangle_idx = lua_absindex(L, 5);
+
+    uint32_t viewangle =
+        (uint32_t)luaL_checkinteger(L, 6);
+
+    int minx = (int)luaL_checkinteger(L, 7);
+    int maxx = (int)luaL_checkinteger(L, 8);
+
+    lua_Integer centery = luaL_checkinteger(L, 9);
+    lua_Integer viewwidth = luaL_checkinteger(L, 10);
+    lua_Integer detailshift = luaL_checkinteger(L, 11);
+    lua_Integer viewwindowx = luaL_checkinteger(L, 12);
+    lua_Integer viewwindowy = luaL_checkinteger(L, 13);
+
+    /*
+     * Obtém o índice da textura SKY1.
+     * resource:skytexture()
+     */
+    lua_getfield(L, resource_idx, "skytexture");
+    lua_pushvalue(L, resource_idx);
+    lua_call(L, 1, 1);
+
+    lua_Integer skytexture = luaL_checkinteger(L, -1);
+    lua_pop(L, 1);
+
+    /*
+     * Obtém a colormap do céu.
+     * resource:colormap(0)
+     */
+    lua_getfield(L, resource_idx, "colormap");
+    lua_pushvalue(L, resource_idx);
+    lua_pushinteger(L, 0);
+    lua_call(L, 2, 1);
+
+    size_t cm_len;
+    const uint8_t *cm = (const uint8_t *)
+        luaL_checklstring(L, -1, &cm_len);
+
+    /*
+     * Parâmetros equivalentes à implementação Lua.
+     */
+    const lua_Integer dc_iscale =
+        (9 * FRACUNIT) / 10;
+
+    const lua_Integer dc_texturemid =
+        100 * FRACUNIT;
+
+    for (int x = minx; x <= maxx; x++) {
+        lua_Integer yl = render_table_int(
+            L, top_idx, x
+        );
+
+        lua_Integer yh = render_table_int(
+            L, bottom_idx, x
+        );
+
+        if (yl > yh || yl >= 255)
+            continue;
+
+        lua_Integer xtoviewangle = render_table_int(
+            L, xtoviewangle_idx, x
+        );
+
+        uint32_t angle =
+            viewangle + (uint32_t)xtoviewangle;
+
+        lua_Integer ang = angle >> ANGLETOSKYSHIFT;
+
+        /*
+         * Obtém a coluna da textura:
+         * resource:get_column(skytexture, ang)
+         */
+        lua_getfield(L, resource_idx, "get_column");
+        lua_pushvalue(L, resource_idx);
+        lua_pushinteger(L, skytexture);
+        lua_pushinteger(L, ang);
+        lua_call(L, 3, 1);
+
+        size_t source_len;
+        const uint8_t *source = (const uint8_t *)
+            luaL_checklstring(L, -1, &source_len);
+
+        draw_column_pixels(
+            fb,
+            x,
+            yl,
+            yh,
+            dc_iscale,
+            dc_texturemid,
+            source,
+            source_len,
+            cm,
+            cm_len,
+            centery,
+            viewwidth,
+            detailshift,
+            viewwindowx,
+            viewwindowy
+        );
+
+        lua_pop(L, 1);
+    }
+
+    lua_pop(L, 1); /* colormap */
+
+    return 0;
+}
+
+static int l_draw_planes(lua_State *L)
+{
+    int self = lua_absindex(L, 1);
+    int finesine = lua_absindex(L, 2);
+
+    lua_getfield(L, self, "visplanes");
+    int visplanes = lua_absindex(L, -1);
+
+    lua_getfield(L, self, "res");
+    int res = lua_absindex(L, -1);
+
+    lua_getfield(L, self, "fb");
+    int fb = lua_absindex(L, -1);
+
+    lua_Integer count = (lua_Integer)lua_rawlen(L, visplanes);
+
+    for (lua_Integer p = 1; p <= count; p++) {
+        lua_rawgeti(L, visplanes, p);
+        int pl = lua_absindex(L, -1);
+
+        Visplane *plane = check_visplane(L, pl);
+
+        if (plane->minx > plane->maxx) {
+            lua_pop(L, 1);
+            continue;
+        }
+
+        int minx = plane->minx;
+        int maxx = plane->maxx;
+
+        /*
+         * if pl.picnum == self.res:skyflatnum()
+         */
+        lua_getfield(L, res, "skyflatnum");
+        lua_pushvalue(L, res);
+        lua_call(L, 1, 1);
+
+        lua_Integer skyflatnum = luaL_checkinteger(L, -1);
+        lua_pop(L, 1);
+
+        if (plane->picnum == skyflatnum) {
+            /*
+             * render_c.draw_sky_plane(
+             *     fb, res, top, bottom, xtoviewangle,
+             *     viewangle, minx, maxx, centery,
+             *     viewwidth, detailshift, viewwindowx,
+             *     viewwindowy
+             * )
+             */
+
+            lua_pushcfunction(L, l_draw_sky_plane);
+
+            lua_pushvalue(L, fb);
+            lua_pushvalue(L, res);
+
+            lua_getfield(L, pl, "top");
+            lua_getfield(L, pl, "bottom");
+
+            lua_getfield(L, self, "xtoviewangle");
+            lua_getfield(L, self, "viewangle");
+
+            lua_pushinteger(L, minx);
+            lua_pushinteger(L, maxx);
+
+            lua_getfield(L, self, "centery");
+            lua_getfield(L, self, "viewwidth");
+            lua_getfield(L, self, "detailshift");
+            lua_getfield(L, self, "viewwindowx");
+            lua_getfield(L, self, "viewwindowy");
+
+            lua_call(L, 13, 0);
+        } else {
+            /*
+             * local light = ushr(pl.lightlevel, 4)
+             *              + self.extralight
+             */
+
+            int64_t light =
+                ((uint32_t)plane->lightlevel >> 4);
+
+            lua_getfield(L, self, "extralight");
+            light += luaL_checkinteger(L, -1);
+            lua_pop(L, 1);
+
+            if (light < 0)
+                light = 0;
+
+            if (light > LIGHTLEVELS - 1)
+                light = LIGHTLEVELS - 1;
+
+            /*
+             * local planezlight = self.zlight[light]
+             */
+            lua_getfield(L, self, "zlight");
+            int zlight_table = lua_absindex(L, -1);
+
+            lua_geti(L, zlight_table, (lua_Integer)light);
+            lua_remove(L, zlight_table);
+
+            int planezlight = lua_absindex(L, -1);
+
+            /*
+             * local flat = self.res:flat_pixels(pl.picnum)
+             */
+            lua_getfield(L, res, "flat_pixels");
+            lua_pushvalue(L, res);
+            lua_pushinteger(L, plane->picnum);
+            lua_call(L, 2, 1);
+
+            int flat = lua_absindex(L, -1);
+
+            /*
+             * local planeheight =
+             *     abs_fixed(pl.height - self.viewz)
+             */
+            lua_getfield(L, self, "viewz");
+            int32_t viewz = (int32_t)luaL_checkinteger(L, -1);
+            lua_pop(L, 1);
+
+            int32_t delta = as_i32(
+                (int64_t)plane->height - viewz
+            );
+
+            int64_t planeheight = delta < 0
+                ? -(int64_t)delta
+                : delta;
+
+            if (planeheight != 0) {
+                /*
+                 * local colormaps = {}
+                 *
+                 * for i = 0, NUMCOLORMAPS - 1 do
+                 *     colormaps[i + 1] = self.res:colormap(i)
+                 * end
+                 */
+                lua_newtable(L);
+                int colormaps = lua_absindex(L, -1);
+
+                for (int i = 0; i < NUMCOLORMAPS; i++) {
+                    lua_getfield(L, res, "colormap");
+                    lua_pushvalue(L, res);
+                    lua_pushinteger(L, i);
+                    lua_call(L, 2, 1);
+
+                    lua_rawseti(L, colormaps, i + 1);
+                }
+
+                /*
+                 * render_c.draw_flat_plane(
+                 *     fb, flat, finesine,
+                 *     top, bottom,
+                 *     xtoviewangle, yslope, distscale,
+                 *     planezlight, colormaps,
+                 *     ylookup, columnofs,
+                 *     minx, maxx, planeheight,
+                 *     viewx, viewy, viewangle,
+                 *     viewwidth, viewheight,
+                 *     detailshift, fixedcolormap
+                 * )
+                 */
+
+                lua_pushcfunction(L, l_draw_flat_plane);
+
+                lua_pushvalue(L, fb);
+                lua_pushvalue(L, flat);
+                lua_pushvalue(L, finesine);
+
+                lua_getfield(L, pl, "top");
+                lua_getfield(L, pl, "bottom");
+
+                lua_getfield(L, self, "xtoviewangle");
+                lua_getfield(L, self, "yslope");
+                lua_getfield(L, self, "distscale");
+
+                lua_pushvalue(L, planezlight);
+                lua_pushvalue(L, colormaps);
+
+                lua_getfield(L, self, "ylookup");
+                lua_getfield(L, self, "columnofs");
+
+                lua_pushinteger(L, minx);
+                lua_pushinteger(L, maxx);
+                lua_pushinteger(L, planeheight);
+
+                lua_getfield(L, self, "viewx");
+                lua_getfield(L, self, "viewy");
+                lua_getfield(L, self, "viewangle");
+
+                lua_getfield(L, self, "viewwidth");
+                lua_getfield(L, self, "viewheight");
+                lua_getfield(L, self, "detailshift");
+
+                lua_getfield(L, self, "fixedcolormap");
+
+                lua_call(L, 22, 0);
+
+                lua_pop(L, 1); /* colormaps */
+            }
+
+            lua_pop(L, 2); /* flat e planezlight */
+        }
+
+        lua_pop(L, 1); /* pl */
+    }
+
+    return 0;
+}
+
 /* ---------------------------------------------------------
  * Registro do módulo
  * --------------------------------------------------------- */
@@ -638,6 +1350,10 @@ static const luaL_Reg render_functions[] = {
     {"draw_column", l_draw_column},
     {"draw_masked_column", l_draw_masked_column},
     {"draw_flat_plane", l_draw_flat_plane},
+    {"draw_sky_plane", l_draw_sky_plane},
+    {"find_plane", l_find_plane},
+    {"check_plane", l_check_plane},
+    {"draw_planes", l_draw_planes},
     {NULL, NULL}
 };
 

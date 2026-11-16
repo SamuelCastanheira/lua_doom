@@ -232,93 +232,7 @@ function M.draw_masked(self)
 end
 
 local function draw_planes(self)
-
-  if not self._debug_sky then
-    self._debug_sky = true
-
-    print("skyflatnum:", self.res:skyflatnum())
-    print("skytexture:", self.res:skytexture())
-
-    for i = 1, math.min(#self.visplanes, 20) do
-        local pl = self.visplanes[i]
-        print(
-            "visplane:", i,
-            "picnum:", pl.picnum,
-            "is_sky:", pl.picnum == self.res:skyflatnum(),
-            "minx:", pl.minx,
-            "maxx:", pl.maxx
-        )
-    end
-end
-
-  for p = 1, #self.visplanes do
-    local pl = self.visplanes[p]
-    if pl.minx <= pl.maxx then
-      if pl.picnum == self.res:skyflatnum() then
-        self.dc_iscale = idiv(9 * FRACUNIT, 10)
-        self.dc_colormap = self.res:colormap(0)
-        self.dc_texturemid = 100 * FRACUNIT
-        for x = pl.minx, pl.maxx do
-          local yl, yh = pl.top[x], pl.bottom[x]
-          if yl <= yh and yl < 255 then
-            local ang = ushr(as_u32(self.viewangle + self.xtoviewangle[x]), ANGLETOSKYSHIFT)
-            self.dc_x = x
-            self.dc_yl = yl
-            self.dc_yh = yh
-            self.dc_source = self.res:get_column(self.res:skytexture(), ang)
-            draw_column(self)
-          end
-        end
-      else
-        local light = ushr(pl.lightlevel, 4) + self.extralight
-
-        if light < 0 then
-          light = 0
-        end
-
-        if light > LIGHTLEVELS - 1 then
-          light = LIGHTLEVELS - 1
-        end
-
-        local planezlight = self.zlight[light]
-        local flat = self.res:flat_pixels(pl.picnum)
-        local planeheight = abs_fixed(pl.height - self.viewz)
-
-        if planeheight ~= 0 then
-          local colormaps = {}
-
-          for i = 0, NUMCOLORMAPS - 1 do
-            colormaps[i + 1] = self.res:colormap(i)
-          end
-
-          render_c.draw_flat_plane(
-            self.fb,
-            flat,
-            finesine_data,
-            pl.top,
-            pl.bottom,
-            self.xtoviewangle,
-            self.yslope,
-            self.distscale,
-            planezlight,
-            colormaps,
-            self.ylookup,
-            self.columnofs,
-            pl.minx,
-            pl.maxx,
-            planeheight,
-            self.viewx,
-            self.viewy,
-            self.viewangle,
-            self.viewwidth,
-            self.viewheight,
-            self.detailshift,
-            self.fixedcolormap
-          )
-        end
-      end
-    end
-  end
+  render_c.draw_planes(self, finesine_data)
 end
 
 local function scale_from_global_angle(self, visangle)
@@ -921,73 +835,25 @@ local function clear_clip(self)
 end
 
 function M.find_plane(self, height, picnum, lightlevel)
-  if picnum == self.res.skyflatnum then
-    height = 0
-    lightlevel = 0
-  end
-  for i = 1, #self.visplanes do
-    local p = self.visplanes[i]
-    if p.height == height and p.picnum == picnum and p.lightlevel == lightlevel then
-      return p
-    end
-  end
-  local top, bottom = span_tables()
-  local p = {
-    height = height,
-    picnum = picnum,
-    lightlevel = lightlevel,
-    minx = self.viewwidth,
-    maxx = -1,
-    top = top,
-    bottom = bottom,
-  }
-  self.visplanes[#self.visplanes + 1] = p
-  return p
-end
-
-local function dup_plane(self, src, start, stop)
-  local top, bottom = span_tables()
-  local p = {
-    height = src.height,
-    picnum = src.picnum,
-    lightlevel = src.lightlevel,
-    minx = start,
-    maxx = stop,
-    top = top,
-    bottom = bottom,
-  }
-  self.visplanes[#self.visplanes + 1] = p
-  return p
+  return render_c.find_plane(
+    self.visplanes,
+    self.viewwidth,
+    self.res:skyflatnum(),
+    height,
+    picnum,
+    lightlevel
+  )
 end
 
 function M.check_plane(self, pl, start, stop)
-  if not pl then
-    return M.find_plane(self, 0, 0, 0)
-  end
-  local intrl, unionl, intrh, unionh
-  if start < pl.minx then
-    intrl, unionl = pl.minx, start
-  else
-    unionl, intrl = pl.minx, start
-  end
-  if stop > pl.maxx then
-    intrh, unionh = pl.maxx, stop
-  else
-    unionh, intrh = pl.maxx, stop
-  end
-  local x = intrl
-  while x <= intrh do
-    if x >= 0 and x < SCREENWIDTH and pl.top[x] ~= 255 then
-      break
-    end
-    x = x + 1
-  end
-  if x > intrh then
-    pl.minx = unionl
-    pl.maxx = unionh
-    return pl
-  end
-  return dup_plane(self, pl, start, stop)
+  return render_c.check_plane(
+    self.visplanes,
+    pl,
+    start,
+    stop,
+    self.viewwidth,
+    self.res:skyflatnum()
+  )
 end
 
 function M.setup_frame(self, x, y, z, angle, extra_light, fixedcolormap)
