@@ -9,6 +9,7 @@
 -- www.vagucs.com.br
 --
 -- Laço a 35 Hz. A skill abre a vista e o jogador anda.
+local atmos = require("atmos")
 
 io.stdout:setvbuf("no")
 io.stderr:setvbuf("no")
@@ -18,7 +19,7 @@ local video = require("video")
 local v = require("v_video")
 local menu_mod = require("menu")
 local world_mod = require("world")
-local rdata = require("r_data")
+local rdata = require("r_data_c")
 local render = require("render")
 local sprites = require("sprites")
 local collision = require("collision")
@@ -125,8 +126,8 @@ end
 local title = wad.cache_lump_name(w, "TITLEPIC")
 local pal = wad.cache_lump_name(w, "PLAYPAL")
 local res = rdata.new(w)
-rdata.init(res)
-res.sprites = sprites.init_defs(w)
+res:init()
+--res.sprites = sprites.init_defs(w)
 local renderer = render.new(res)
 
 local sound = sound_mod.new()
@@ -437,7 +438,7 @@ local dirty = true
 local jitlib = rawget(_G, "jit")
 local runtime = jitlib and ("luajit " .. tostring(jitlib.version)) or _VERSION
 print("lua_doom: " .. runtime .. "  Tab abre o mapa, o texto final conta a historia")
-print("texturas " .. #res.textures .. "  flats " .. #res.flattranslation)
+print("texturas " .. res:texture_count() .. "  flats " .. res:flat_count())
 
 print(game.scale)
 video.init(v.SCREENWIDTH, v.SCREENHEIGHT, game.scale, "DOOM (" .. runtime .. ")")

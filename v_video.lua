@@ -12,6 +12,7 @@
 -- Patch offsets stay 0-based, like v_video.py.
 
 local M = {}
+local framebuffer_c = require("framebuffer_c")
 
 M.SCREENWIDTH = 320
 M.SCREENHEIGHT = 200
@@ -38,18 +39,11 @@ function M.patch_size(patch)
 end
 
 function M.new_fb()
-  local bytes = {}
-  for i = 1, M.PIXELS do
-    bytes[i] = 0
-  end
-  return bytes
+  return framebuffer_c.new()
 end
 
 function M.fill(fb, color)
-  color = color or 0
-  for i = 1, #fb do
-    fb[i] = color
-  end
+  fb:clear(color or 0)
 end
 
 function M.draw_patch(fb, x, y, patch, flipped)
@@ -130,19 +124,7 @@ function M.draw_line(fb, x0, y0, x1, y1, color)
 end
 
 function M.to_raw(fb)
-  local parts = {}
-  local n = 0
-  local i = 1
-  while i <= #fb do
-    local last = i + 4095
-    if last > #fb then
-      last = #fb
-    end
-    n = n + 1
-    parts[n] = string.char(unpack(fb, i, last))
-    i = last + 1
-  end
-  return table.concat(parts)
+  return fb:to_string()
 end
 
 return M

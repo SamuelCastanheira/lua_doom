@@ -14,7 +14,7 @@ local compat = require("compat")
 local wad = require("wad")
 local v = require("v_video")
 local render = require("render")
-local rdata = require("r_data")
+local rdata = require("r_data_c")
 
 local M = {}
 
@@ -152,7 +152,7 @@ end
 
 function M.lookup(res, name, ang_to_thing, moangle, frame)
   local base = (name or ""):sub(1, 4):upper()
-  local sprframes = res.sprites[base]
+  local sprframes = res:sprite_frame(base)
   if not sprframes then
     return nil
   end
@@ -234,7 +234,7 @@ local function project(renderer, mo)
   if not lump then
     return nil
   end
-  local patch = wad.cache_lump_num(renderer.res.wad, lump)
+  local patch = renderer.res:cache_lump_num(lump)
   local pw, _h, left, top = v.patch_size(patch)
   tx = tx - left * FRACUNIT
   local x1 = shar(renderer.centerxfrac + fixed_mul(tx, xscale), FRACBITS)
@@ -411,11 +411,11 @@ local function draw_one(renderer, fb, spr, clip_walls)
   local fuzz = mo and band(mo.flags or 0, MF_SHADOW) ~= 0
   local cm
   if fuzz then
-    cm = rdata.colormap(renderer.res, 6)
+    cm = renderer.res:colormap(6)
   elseif renderer.fixedcolormap then
     cm = renderer.fixedcolormap
   else
-    cm = rdata.colormap(renderer.res, 0)
+    cm = renderer.res:colormap(0)
   end
   local frac = spr.startfrac
   for x = spr.x1, spr.x2 do
@@ -599,21 +599,21 @@ function M.draw_weapon(renderer, fb, player, leveltime)
   local sx, sy = M.weapon_xy(player, leveltime)
   local body = player_mod.weapon_body(player)
   local wadfile = renderer.res.wad
-  local n = wad.check_num_for_name(wadfile, body)
+  local n = renderer.res:check_num_for_name(body)
   if n < 0 then
-    n = wad.check_num_for_name(wadfile, "PISGA0")
+    n = renderer.res:check_num_for_name("PISGA0")
   end
   if n >= 0 then
-    M.draw_psprite(renderer, fb, wad.cache_lump_num(wadfile, n), sx, sy)
+    M.draw_psprite(renderer, fb, renderer.res:cache_lump_num(n), sx, sy)
   end
   local flash = ""
   if (player.flash_tics or 0) > 0 then
     flash = player.psprite_flash or ""
   end
   if flash ~= "" then
-    local fn = wad.check_num_for_name(wadfile, flash)
+    local fn = renderer.res:check_num_for_name(flash)
     if fn >= 0 then
-      M.draw_psprite(renderer, fb, wad.cache_lump_num(wadfile, fn), sx, sy)
+      M.draw_psprite(renderer, fb, renderer.res:cache_lump_num(fn), sx, sy)
     end
   end
 end

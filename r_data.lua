@@ -87,6 +87,36 @@ function M.new(wadfile)
     skytexture = 0,
     skyflatnum = 0,
     sprites = {},
+    init = function (self)
+      M.init(self)
+    end,
+    flat_num_for_name = function(self,name)
+      return M.flat_num_for_name(self, name)
+    end,
+     flat_pixels = function(self,index)
+      return M.flat_pixels(self, index)
+    end,
+     flat_lump = function(self,index)
+      return M.flat_lump(self, index)
+    end,
+    colormap = function(self, level)
+      return M.colormap(self, level)
+    end,
+    texture_num_for_name = function(self, name) 
+      return M.texture_num_for_name(self, name)
+    end,
+      texture_width = function(self, num) 
+      return M.texture_width(self, num)
+    end,
+      texture_height = function(self, num) 
+      return M.texture_height(self, num)
+    end,
+      get_column = function(self, num, col) 
+      return M.get_column(self, num, col)
+    end,
+      column_posts = function(self, c_num, col) 
+      return M.column_posts(self, c_num, col)
+    end,
   }
 end
 

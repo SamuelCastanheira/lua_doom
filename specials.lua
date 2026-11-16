@@ -11,7 +11,7 @@
 -- Portas, plataformas, pisos, tetos e interruptores, a partir de specials.py.
 
 local collision = require("collision")
-local rdata = require("r_data")
+local rdata = require("r_data_c")
 local rng = require("random")
 local compat = require("compat")
 
@@ -295,8 +295,8 @@ function M.new(world, res, sound)
     stamp = 0,
   }
   for i = 1, #SWITCH_PAIRS do
-    local ia = rdata.texture_num_for_name(res, SWITCH_PAIRS[i][1])
-    local ib = rdata.texture_num_for_name(res, SWITCH_PAIRS[i][2])
+    local ia = res:texture_num_for_name(SWITCH_PAIRS[i][1])
+    local ib = res:texture_num_for_name(SWITCH_PAIRS[i][2])
     if ia ~= 0 or ib ~= 0 then
       self.switch_map[ia] = ib
       self.switch_map[ib] = ia
@@ -1130,7 +1130,7 @@ function M.raise_to_texture(self, line)
           for s = 1, 2 do
             local side = ln.sides[s]
             if side and side.bottomtexture > 0 then
-              local h = rdata.texture_height(self.res, side.bottomtexture)
+              local h = self.res:texture_height(side.bottomtexture)
               if h > 0 and h < minsize then
                 minsize = h
               end

@@ -12,7 +12,11 @@
 
 local compat = require("compat")
 local tables = require("tables")
-local rdata = require("r_data")
+local rdata = require("r_data_c")
+local render_c = require("render_c")
+local native_tables = require("tables_c").new()
+native_tables:init()
+local finesine_data = native_tables:finesine_data()
 
 local M = {}
 
@@ -87,102 +91,42 @@ local function put(fb, dest, val)
 end
 
 local function draw_column(self)
-  local count = self.dc_yh - self.dc_yl
-  if count < 0 or self.dc_x < 0 or self.dc_x >= self.viewwidth then
-    return
-  end
-  local yl = self.dc_yl
-  if yl < 0 then
-    yl = 0
-  end
-  if yl > SCREENHEIGHT - 1 then
-    yl = SCREENHEIGHT - 1
-  end
-  local dest, dest2
-  if self.detailshift ~= 0 then
-    local x = shl(self.dc_x, 1)
-    if x < 0 or x + 1 >= SCREENWIDTH then
-      return
-    end
-    dest = self.ylookup[yl] + self.columnofs[x]
-    dest2 = dest + 1
-  else
-    dest = self.ylookup[yl] + self.columnofs[self.dc_x]
-    dest2 = nil
-  end
-  local fracstep = self.dc_iscale
-  local frac = self.dc_texturemid + (self.dc_yl - self.centery) * fracstep
-  local src = self.dc_source
-  local slen = #src
-  if slen == 0 then
-    return
-  end
-  local cm = self.dc_colormap
-  local cmlen = #cm
-  local fb = self.fb
-  while count >= 0 and dest < PIXELS do
-    local idx = band(shar(frac, FRACBITS), 127)
-    local pix = byte(src, (idx % slen) + 1)
-    local val = pix
-    if pix < cmlen then
-      val = byte(cm, pix + 1)
-    end
-    fb[dest + 1] = val
-    if dest2 and dest2 < PIXELS then
-      fb[dest2 + 1] = val
-    end
-    dest = dest + SCREENWIDTH
-    if dest2 then
-      dest2 = dest2 + SCREENWIDTH
-    end
-    frac = as_i32(frac + fracstep)
-    count = count - 1
-  end
+  render_c.draw_column(
+    self.fb,
+    self.dc_x,
+    self.dc_yl,
+    self.dc_yh,
+    self.dc_iscale,
+    self.dc_texturemid,
+    self.dc_source,
+    self.dc_colormap,
+    self.centery,
+    self.viewwidth,
+    self.detailshift,
+    self.viewwindowx,
+    self.viewwindowy
+  )
 end
 
 local function draw_masked_column(self, posts, sprtopscreen, spryscale, mceil, mfloor)
-  local basemid = self.dc_texturemid
-  for p = 1, #posts do
-    local topdelta = posts[p].topdelta
-    local post = posts[p]
-    local pixels = post.pixels
-    if #pixels > 0 then
-      local topscreen = sprtopscreen + spryscale * topdelta
-      local bottomscreen = topscreen + spryscale * #pixels
-      local yl = shar(topscreen + FRACUNIT - 1, FRACBITS)
-      local yh = shar(bottomscreen - 1, FRACBITS)
-      if yh >= mfloor then
-        yh = mfloor - 1
-      end
-      if yl <= mceil then
-        yl = mceil + 1
-      end
-      if yl < 0 then
-        yl = 0
-      end
-      if yh >= self.viewheight then
-        yh = self.viewheight - 1
-      end
-      if yl <= yh then
-        local src = post.col128
-        if not src then
-          src = pixels
-          if #src < 128 then
-            src = src .. string.rep("\0", 128 - #src)
-          elseif #src > 128 then
-            src = src:sub(1, 128)
-          end
-          post.col128 = src
-        end
-        self.dc_yl = yl
-        self.dc_yh = yh
-        self.dc_source = src
-        self.dc_texturemid = basemid - shl(topdelta, FRACBITS)
-        draw_column(self)
-      end
-    end
-  end
-  self.dc_texturemid = basemid
+  render_c.draw_masked_column(
+        self.fb,
+        posts,
+        sprtopscreen,
+        spryscale,
+        mceil,
+        mfloor,
+        self.dc_x,
+        self.dc_iscale,
+        self.dc_texturemid,
+        self.dc_colormap,
+        self.centery,
+        self.viewwidth,
+        self.viewheight,
+        self.detailshift,
+        self.viewwindowx,
+        self.viewwindowy
+    )
 end
 
 function M.render_masked_seg_range(self, ds, x1, x2)
@@ -219,7 +163,7 @@ function M.render_masked_seg_range(self, ds, x1, x2)
     if back.floorheight > dc_texturemid then
       dc_texturemid = back.floorheight
     end
-    dc_texturemid = dc_texturemid + rdata.texture_height(self.res, texnum) - self.viewz
+    dc_texturemid = dc_texturemid + self.res:texture_height(texnum) - self.viewz
   else
     dc_texturemid = front.ceilingheight
     if back.ceilingheight < dc_texturemid then
@@ -251,7 +195,7 @@ function M.render_masked_seg_range(self, ds, x1, x2)
         if self.fixedcolormap then
           self.dc_colormap = self.fixedcolormap
         else
-          self.dc_colormap = rdata.colormap(self.res, level)
+          self.dc_colormap = self.res:colormap(level)
         end
         self.dc_x = dc_x
         if spryscale ~= 0 then
@@ -269,7 +213,7 @@ function M.render_masked_seg_range(self, ds, x1, x2)
         if ds.sprbottomclip and i < ds.clip_count then
           mfloor = ds.sprbottomclip[i]
         end
-        local posts = rdata.column_posts(self.res, texnum, tcol)
+        local posts = self.res:column_posts(texnum, tcol)
         draw_masked_column(self, posts, sprtopscreen, spryscale, mceil, mfloor)
         ds.maskedtexturecol[i] = SHRT_MAX
       end
@@ -288,12 +232,31 @@ function M.draw_masked(self)
 end
 
 local function draw_planes(self)
+
+  if not self._debug_sky then
+    self._debug_sky = true
+
+    print("skyflatnum:", self.res:skyflatnum())
+    print("skytexture:", self.res:skytexture())
+
+    for i = 1, math.min(#self.visplanes, 20) do
+        local pl = self.visplanes[i]
+        print(
+            "visplane:", i,
+            "picnum:", pl.picnum,
+            "is_sky:", pl.picnum == self.res:skyflatnum(),
+            "minx:", pl.minx,
+            "maxx:", pl.maxx
+        )
+    end
+end
+
   for p = 1, #self.visplanes do
     local pl = self.visplanes[p]
     if pl.minx <= pl.maxx then
-      if pl.picnum == self.res.skyflatnum then
+      if pl.picnum == self.res:skyflatnum() then
         self.dc_iscale = idiv(9 * FRACUNIT, 10)
-        self.dc_colormap = rdata.colormap(self.res, 0)
+        self.dc_colormap = self.res:colormap(0)
         self.dc_texturemid = 100 * FRACUNIT
         for x = pl.minx, pl.maxx do
           local yl, yh = pl.top[x], pl.bottom[x]
@@ -302,86 +265,56 @@ local function draw_planes(self)
             self.dc_x = x
             self.dc_yl = yl
             self.dc_yh = yh
-            self.dc_source = rdata.get_column(self.res, self.res.skytexture, ang)
+            self.dc_source = self.res:get_column(self.res:skytexture(), ang)
             draw_column(self)
           end
         end
       else
         local light = ushr(pl.lightlevel, 4) + self.extralight
+
         if light < 0 then
           light = 0
         end
+
         if light > LIGHTLEVELS - 1 then
           light = LIGHTLEVELS - 1
         end
+
         local planezlight = self.zlight[light]
-        local flat = rdata.flat_pixels(self.res, pl.picnum)
-        local flatlen = #flat
+        local flat = self.res:flat_pixels(pl.picnum)
         local planeheight = abs_fixed(pl.height - self.viewz)
+
         if planeheight ~= 0 then
-          local cached_y = -1
-          local light_index = -1
-          local cm, cmlen
-          local distance, ds_xstep, ds_ystep = 0, 0, 0
-          local x0 = pl.minx
-          if x0 < 0 then
-            x0 = 0
+          local colormaps = {}
+
+          for i = 0, NUMCOLORMAPS - 1 do
+            colormaps[i + 1] = self.res:colormap(i)
           end
-          local x1 = pl.maxx
-          if x1 > self.viewwidth - 1 then
-            x1 = self.viewwidth - 1
-          end
-          for x = x0, x1 do
-            local t1, b1 = pl.top[x], pl.bottom[x]
-            if t1 <= b1 and t1 ~= 255 then
-              local y1 = b1
-              if y1 > self.viewheight - 1 then
-                y1 = self.viewheight - 1
-              end
-              for y = t1, y1 do
-                if y ~= cached_y then
-                  cached_y = y
-                  distance = fixed_mul(planeheight, self.yslope[y])
-                  ds_xstep = fixed_mul(distance, self.basexscale)
-                  ds_ystep = fixed_mul(distance, self.baseyscale)
-                end
-                local length = fixed_mul(distance, self.distscale[x])
-                local ang = band(ushr(as_u32(self.viewangle + self.xtoviewangle[x]), ANGLETOFINESHIFT), FINEMASK)
-                local ds_xfrac = self.viewx + fixed_mul(tables.finesine[band(ang + idiv(FINEANGLES, 4), FINEMASK)], length)
-                local ds_yfrac = -self.viewy - fixed_mul(tables.finesine[ang], length)
-                local index = ushr(distance, LIGHTZSHIFT)
-                if index > MAXLIGHTZ - 1 then
-                  index = MAXLIGHTZ - 1
-                end
-                if index ~= light_index then
-                  light_index = index
-                  if self.fixedcolormap then
-                    cm = self.fixedcolormap
-                  else
-                    cm = rdata.colormap(self.res, planezlight[index])
-                  end
-                  cmlen = #cm
-                end
-                local spot = bor(band(shar(ds_xfrac, 16), 63), band(shar(ds_yfrac, 10), 4032))
-                local pix = 0
-                if spot >= 0 and spot < flatlen then
-                  pix = byte(flat, spot + 1)
-                end
-                local val = pix
-                if pix < cmlen then
-                  val = byte(cm, pix + 1)
-                end
-                if self.detailshift ~= 0 then
-                  local xx = shl(x, 1)
-                  local off = self.ylookup[y] + self.columnofs[xx]
-                  put(self.fb, off, val)
-                  put(self.fb, off + 1, val)
-                else
-                  put(self.fb, self.ylookup[y] + self.columnofs[x], val)
-                end
-              end
-            end
-          end
+
+          render_c.draw_flat_plane(
+            self.fb,
+            flat,
+            finesine_data,
+            pl.top,
+            pl.bottom,
+            self.xtoviewangle,
+            self.yslope,
+            self.distscale,
+            planezlight,
+            colormaps,
+            self.ylookup,
+            self.columnofs,
+            pl.minx,
+            pl.maxx,
+            planeheight,
+            self.viewx,
+            self.viewy,
+            self.viewangle,
+            self.viewwidth,
+            self.viewheight,
+            self.detailshift,
+            self.fixedcolormap
+          )
         end
       end
     end
@@ -453,7 +386,7 @@ local function render_seg_loop(self)
       if self.fixedcolormap then
         self.dc_colormap = self.fixedcolormap
       else
-        self.dc_colormap = rdata.colormap(self.res, self.walllights[index])
+        self.dc_colormap = self.res:colormap(self.walllights[index])
       end
       self.dc_x = self.rw_x
       if self.rw_scale ~= 0 then
@@ -466,7 +399,7 @@ local function render_seg_loop(self)
       self.dc_yl = yl
       self.dc_yh = yh
       self.dc_texturemid = self.rw_midtexturemid
-      self.dc_source = rdata.get_column(self.res, self.midtexture, texturecolumn)
+      self.dc_source = self.res:get_column(self.midtexture, texturecolumn)
       draw_column(self)
       self.ceilingclip[self.rw_x] = self.viewheight
       self.floorclip[self.rw_x] = -1
@@ -481,7 +414,7 @@ local function render_seg_loop(self)
           self.dc_yl = yl
           self.dc_yh = mid
           self.dc_texturemid = self.rw_toptexturemid
-          self.dc_source = rdata.get_column(self.res, self.toptexture, texturecolumn)
+          self.dc_source = self.res:get_column(self.toptexture, texturecolumn)
           draw_column(self)
           self.ceilingclip[self.rw_x] = mid
         else
@@ -500,7 +433,7 @@ local function render_seg_loop(self)
           self.dc_yl = mid
           self.dc_yh = yh
           self.dc_texturemid = self.rw_bottomtexturemid
-          self.dc_source = rdata.get_column(self.res, self.bottomtexture, texturecolumn)
+          self.dc_source = self.res:get_column(self.bottomtexture, texturecolumn)
           draw_column(self)
           self.floorclip[self.rw_x] = mid
         else
@@ -664,7 +597,7 @@ local function store_wall_range(self, start, stop)
     self.markfloor = true
     self.markceiling = true
     if band(linedef.flags, ML_DONTPEGBOTTOM) ~= 0 then
-      local vtop = self.frontsector.floorheight + rdata.texture_height(self.res, self.midtexture)
+      local vtop = self.frontsector.floorheight + self.res:texture_height( self.midtexture)
       self.rw_midtexturemid = vtop - self.viewz
     else
       self.rw_midtexturemid = self.worldtop
@@ -692,7 +625,7 @@ local function store_wall_range(self, start, stop)
       if band(linedef.flags, ML_DONTPEGTOP) ~= 0 then
         self.rw_toptexturemid = self.worldtop
       else
-        local vtop = self.backsector.ceilingheight + rdata.texture_height(self.res, self.toptexture)
+        local vtop = self.backsector.ceilingheight + self.res:texture_height(self.toptexture)
         self.rw_toptexturemid = vtop - self.viewz
       end
     end
@@ -1066,7 +999,7 @@ function M.setup_frame(self, x, y, z, angle, extra_light, fixedcolormap)
   self.viewcos = tables.fine_cos(self.viewangle)
   self.extralight = extra_light or 0
   if fixedcolormap and fixedcolormap ~= 0 then
-    self.fixedcolormap = rdata.colormap(self.res, fixedcolormap)
+    self.fixedcolormap = self.res:colormap(fixedcolormap)
   else
     self.fixedcolormap = nil
   end
