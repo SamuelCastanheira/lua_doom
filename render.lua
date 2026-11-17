@@ -413,7 +413,7 @@ local function store_wall_range(self, start, stop)
   else
     self.worldhigh = self.backsector.ceilingheight - self.viewz
     self.worldlow = self.backsector.floorheight - self.viewz
-    if self.frontsector.ceilingpic == self.res.skyflatnum and self.backsector.ceilingpic == self.res.skyflatnum then
+    if self.frontsector.ceilingpic == self.res:skyflatnum() and self.backsector.ceilingpic == self.res:skyflatnum() then
       self.worldtop = self.worldhigh
     end
     self.markfloor = self.worldlow ~= self.worldbottom
@@ -470,7 +470,7 @@ local function store_wall_range(self, start, stop)
   if self.frontsector.floorheight >= self.viewz then
     self.markfloor = false
   end
-  if self.frontsector.ceilingheight <= self.viewz and self.frontsector.ceilingpic ~= self.res.skyflatnum then
+  if self.frontsector.ceilingheight <= self.viewz and self.frontsector.ceilingpic ~= self.res:skyflatnum() then
     self.markceiling = false
   end
   if self.markceiling then

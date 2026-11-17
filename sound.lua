@@ -222,11 +222,14 @@ function M.change_music(self, name, looping)
     return
   end
   M.stop_music(self)
-  local dir = os.getenv("TEMP") or os.getenv("TMP") or "."
+  local sep = package.config:sub(1, 1)
+  local dir = os.getenv("TMPDIR") or os.getenv("TEMP") or os.getenv("TMP")
+  if not dir or dir == "" then
+    dir = sep == "/" and "/tmp" or "."
+  end
   dir = string.gsub(dir, "[\\/]+$", "")
   music_seq = music_seq + 1
-  local path = string.format("%s\\doommus_%d_%d.mid", dir, os.time(), music_seq)
-  path = string.gsub(path, "/", "\\")
+  local path = string.format("%s%sdoommus_%d_%d.mid", dir, sep, os.time(), music_seq)
   local f = io.open(path, "wb")
   if not f then
     return
