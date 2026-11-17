@@ -19,8 +19,9 @@ local M = {}
 -- Cada present() grava "quadro hash_framebuffer hash_estado" em
 -- DOOM_REPLAY_OUT. Serve para provar que main.lua e main.atm produzem o
 -- mesmo jogo. Roteiro: uma linha por evento, "<quadro> <tecla> down|up",
--- "<quadro> quit" ou "<quadro> exit [secret]" (termina o nivel atual, para
--- testar intermissao e finale). quadro = numero do poll, a partir de 1.
+-- "<quadro> quit", "<quadro> exit [secret]" (termina o nivel atual, para
+-- testar intermissao e finale) ou "<quadro> die" (o jogador morre).
+-- quadro = numero do poll, a partir de 1.
 local function replay_backend(path)
   local fbmod = require("framebuffer_c")
   -- wipe.lua e wi_stuff.lua usam math.random (o original usava M_Random);
@@ -38,6 +39,9 @@ local function replay_backend(path)
       elseif key == "exit" then
         -- so para testes: termina o nivel como o switch de saida
         ev = { key = "", replay_exit = true, secret = dir == "secret" }
+      elseif key == "die" then
+        -- so para testes: o jogador morre (renasce ao apertar "use")
+        ev = { key = "", replay_die = true }
       else
         ev = { key = key, down = dir ~= "up" }
       end
@@ -45,6 +49,12 @@ local function replay_backend(path)
     end
   end
   local out = assert(io.open(os.getenv("DOOM_REPLAY_OUT") or "replay.log", "w"))
+  -- DOOM_REPLAY_DUMP="1450,1500": grava esses quadros (64000 bytes, indices
+  -- de paleta) em <DOOM_REPLAY_OUT>.<quadro>.raw, para depurar divergencias.
+  local dump = {}
+  for n in (os.getenv("DOOM_REPLAY_DUMP") or ""):gmatch("%d+") do
+    dump[tonumber(n)] = true
+  end
   local polls, frames = 0, 0
   local tick_ms = 1000 / 35
   local b = {}
@@ -65,6 +75,12 @@ local function replay_backend(path)
     frames = frames + 1
     local state = M.state_hook and M.state_hook() or ""
     out:write(string.format("%d %d %d\n", frames, fbmod.hash(fb), fbmod.hash(state)))
+    if dump[frames] then
+      local fh = assert(io.open(string.format("%s.%d.raw",
+        os.getenv("DOOM_REPLAY_OUT") or "replay.log", frames), "wb"))
+      fh:write(fb)
+      fh:close()
+    end
   end
   return b
 end

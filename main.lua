@@ -8,45 +8,25 @@
 --
 -- www.vagucs.com.br
 --
--- Driver imperativo: o laco original a 35 Hz, sem Atmos.
+-- Lancador: roda o main.atm (Atmos) a partir do Lua puro, para que o comando
+-- de sempre continue funcionando:
 --
--- Todo o estado e as regras ficam em game.lua. Este arquivo so faz o laco:
--- ler eventos, recuperar ate 4 tics de atraso e apresentar o quadro.
--- E a referencia para o driver com concorrencia estruturada (main.atm):
--- os dois precisam produzir o mesmo jogo, tic a tic (tests/test_drivers.sh).
+--   lua5.4 main.lua -fps -scale 4      ==   atmos main.atm -- -fps -scale 4
 --
---   lua5.4 main.lua -fps -scale 4
+-- Desde o passo 2 o fluxo do jogo so existe em Atmos. O laco imperativo
+-- original (referencia dos testes de equivalencia) esta na tag "passo1".
 io.stdout:setvbuf("no")
 io.stderr:setvbuf("no")
 
-local video = require("video")
-local game_mod = require("game")
+atmos = require("atmos")
+require("atmos.lang.exec")
+require("atmos.lang.run")
 
-local TICK_MS = game_mod.TICK_MS
-local G = game_mod.new(arg)
-
-local accum = 0
-local last = video.ticks()
-while G.running() do
-  local events = video.poll()
-  for i = 1, #events do
-    G.handle_input(events[i])
-  end
-  local now = video.ticks()
-  accum = accum + (now - last)
-  last = now
-  local guard = 0
-  while accum >= TICK_MS and guard < 4 do
-    if G.tic() then
-      break -- fim de nivel: nao recupera mais tics neste quadro
-    end
-    accum = accum - TICK_MS
-    guard = guard + 1
-  end
-  if accum > TICK_MS * 4 then
-    accum = 0
-  end
-  G.frame()
+-- Mesmo comportamento do executavel "atmos": o script fica em arg[1].
+local args = { "main.atm" }
+for i = 1, #arg do
+  args[#args + 1] = arg[i]
 end
+arg = args
 
-G.shutdown()
+atmos.loop(assert(atm_loadfile("main.atm")))

@@ -639,15 +639,18 @@ local function apply_mobj(mo, rec)
   end
 end
 
+-- Monta o nivel do save e aplica o estado gravado. Nao troca de tela: no
+-- driver Atmos quem entra em "view" e a task Nivel (passo 2).
 function M.apply(game, data)
-  if data == nil or game.start_level == nil then
+  local build = game.build_level or game.start_level
+  if data == nil or build == nil then
     return false
   end
   game.carry = nil
   game.episode = data.episode or game.episode
   game.mapn = data.mapn or game.mapn
   game.skill = data.skill or game.skill
-  game.start_level(game)
+  build(game)
   if game.world == nil or game.player == nil then
     return false
   end
@@ -763,7 +766,9 @@ function M.apply(game, data)
     local status = require("status")
     status.reset(game.status, game.player)
   end
-  game.gamestate = "view"
+  if game.build_level == nil then
+    game.gamestate = "view" -- caminho antigo (sem main.atm)
+  end
   return true
 end
 

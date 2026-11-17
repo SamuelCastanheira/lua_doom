@@ -1,0 +1,563 @@
+# CLAUDE.md: contexto para agentes de IA
+
+Guia para continuar o trabalho em `docs/PLANO_ATMOS.md`. Leia este arquivo
+inteiro antes de mudar código. Ele resume o que foi descoberto e decidido; os
+detalhes de cada passo estão em `docs/registro/`.
+
+O usuário é estudante (TCC sob orientação do Francisco, autor do Céu e do
+Atmos) e escreve em **português**. Responda em português.
+
+---
+
+## 1. O projeto em uma página
+
+- **O que é:** um port do Doom para Lua 5.4 (derivado de um port em Python).
+  O renderer foi migrado inteiro para C; a lógica de jogo está sendo migrada
+  de Lua imperativo (thinkers, como o Doom original) para **concorrência
+  estruturada com Atmos**.
+- **Objetivo do TCC:** comparar as duas formas de escrever a lógica de jogo
+  (expressividade, correção e custo), provando a equivalência por replay
+  determinístico.
+- **Diretório:** `/home/happyname/dev/lua_doom` (Linux, bash). O WAD é
+  `doom.wad` (Doom registrado/Ultimate, episódios 1 a 4), na raiz, e não é
+  versionado.
+
+### Branches e tags
+
+| Ref | O que é |
+|---|---|
+| branch `lua` (`c230d9a`) | renderer em C, lógica em Lua com thinkers, laço `while` no `main.lua` (original) |
+| branch `atmos` | trabalho atual |
+| tag `passo1` (`75c5e67`) | `game.lua` em fases, ambiente `atmos.env.doom`, `main.atm` só observando as telas; `main.lua` ainda é o laço imperativo. **É a referência de equivalência atual.** |
+| tag `passo2` | fluxo de telas inteiro em tasks Atmos; `main.lua` virou lançador |
+| tag `luaV.1` | marco antigo do usuário (sem relação com a migração) |
+| commit `522b06f` | renderer 100% Lua (referência pixel a pixel do renderer em C, usada por `make compare`) |
+
+### Andamento (`docs/PLANO_ATMOS.md`)
+
+| Passo | Situação |
+|---|---|
+| Renderer em C (3D e 2D) | concluído; idêntico pixel a pixel ao renderer Lua |
+| Recursos visuais do Doom original (céu por episódio, texturas animadas, luz de sprites e arma, contraste falso, gama F11, R_CheckBBox) | concluído |
+| 1. Ambiente e driver Atmos | concluído (`passo1`) |
+| 2. Fluxo de telas em tasks | concluído (`passo2`) |
+| **3. Specials de setor (luzes, portas, elevadores, pisos, botões, save)** | **próximo** |
+| 4. Arma (psprites) | planejado |
+| 5. Um monstro como task | planejado |
+
+---
+
+## 2. Arquitetura
+
+```
+ main.lua ──(lancador)──> main.atm  (Atmos: entrada, relogio, quadro, fluxo de telas)
+                             │ require
+                             ├── atmos/env/doom/init.lua   (ambiente: poll, tics, frame)
+                             └── game.lua                  (estado, regras, fases, API G.*)
+                                   │ require
+   menu  player  enemy  thinker  specials  collision  saveg  cheats  status
+   am_map  finale  wi_stuff  wipe  sound  world  info  sprites  render  ...  (Lua)
+                                   │
+   C:  render_c (src/render/*.c)   r_data_c   tables_c   framebuffer_c (+ src/v_draw.c)
+       video_c (SDL2 + SDL2_mixer: janela, paleta/gama, audio, musica)
+```
+
+### 2.1 Módulos em C (`src/`, compilados como `.so` na raiz)
+
+| Módulo | Fonte | Papel |
+|---|---|---|
+| `render_c` | `src/render/r_*.c`, `r_local.h` | renderer 3D inteiro: BSP, `R_CheckBBox`, paredes, visplanes, céu, masked, sprites e arma; userdata `Renderer` |
+| `r_data_c` | `src/r_data_c.c`, `src/r_data.h` | texturas, flats, colormaps, sprites; `prepare_render`, `update_anims`, `set_sky` |
+| `tables_c` | `src/tables_c.c` | `finesine`, `finetangent`, `tantoangle` (idênticas às do `tables.lua`) |
+| `framebuffer_c` | `src/framebuffer_c.c`, `src/v_draw.c` | framebuffer 320×200 indexado; desenho 2D (`draw_patch`, `am_line`, `fill_flat`, `copy_span`…); `framebuffer_c.hash` (FNV-1a) |
+| `video_c` | `src/video_c.c`, `src/gammatable.h` | SDL2: janela, eventos, paleta com gama (`set_gamma`), áudio, MIDI |
+| `test_fixed_c` | `tests/test_fixed_c.c` | só testes |
+
+O renderer usa aritmética que **espelha a do `compat.lua`**: um tipo `lnum`
+(`int64_t`) com wrap de 32 bits nos mesmos pontos (`r_i32`, `r_shar`,
+`r_fixed_mul`, `r_fixed_div`). Não troque por `int32_t` puro sem rodar
+`make compare`. A compilação usa `-fwrapv`.
+
+### 2.2 `game.lua`: o jogo sem laço e sem fluxo
+
+`game.new(argv)` monta tudo (WAD, recursos, renderer, menu, status, som,
+vídeo) e devolve a tabela **`G`**, a API usada pelo `main.atm`. O estado do
+jogo fica em `G.game` (a tabela `game`, lida por todos os módulos).
+
+Um quadro tem três fases, sempre nesta ordem:
+
+```
+1. G.handle_input(ev)        para cada evento
+2. ate 4 tics:   se G.wiping(): G.tic_wipe()
+                 senao: G.tic_menu(), depois a tela atual:
+                        G.tic_view()         -> nil | "morte" | "saida"
+                        G.tic_intermission() -> true quando acaba
+                        G.tic_finale()       -> nil | "title" | "worlddone"
+3. G.frame()                 redesenho, som, present
+```
+
+API do fluxo, chamada só pelo `main.atm`:
+
+| Função | O que faz |
+|---|---|
+| `G.take_requests()` | devolve e esvazia a fila de pedidos (`game.request`) |
+| `G.enter(tela)` | **único** lugar que escreve `game.gamestate` (`"title"`, `"view"`, `"intermission"`, `"finale"`) |
+| `G.initial_request()` | `-warp`: pedido `jogo.novo` inicial, ou `nil` |
+| `G.new_game(ep, mapn, skill)`, `G.set_level(ep, mapn)`, `G.set_mapn(m)` | mudam `game.episode/mapn/skill` |
+| `G.start_level()` / `G.load_level(data)` | montam o nível (`game.build_level`) / a partir de um save (`saveg.apply`) |
+| `G.end_level()` | fim do nível sem decisão: automapa, saída secreta, `carry`; devolve `true` se secreta |
+| `G.make_intermission(nxt)`, `G.make_finale(anuncia)` | montam as telas |
+| `G.commercial()`, `G.commercial_finale()`, `G.map_exists(m)` | consultas para decidir o fluxo |
+| `G.to_title()`, `G.end_game()` | limpeza ao voltar ao título (fim natural / "End Game") |
+| `G.state_string()` | resumo do estado para o hash do replay |
+
+### 2.3 `main.atm`: o fluxo de telas (passo 2)
+
+```
+Fluxo ── Titulo                     devolve o pedido (jogo.novo | jogo.carregar)
+     └── Jogo(pedido)               niveis em sequencia ate o fim do episodio
+          ├── Nivel(save)           uma instancia de nivel -> [fim=:morte|:saida|:trocar]
+          └── Saida()               -> true (continua) | false (titulo)
+               ├── Intermissao(nxt)
+               └── Finale(anuncia)  -> "title" | "worlddone"
+```
+
+Mais três tasks no nível superior: **entrada** (`loop ev on :input`),
+**relógio** (`loop on :tic`) e **quadro** (`loop on :frame`), dentro de um
+`par :any` com o `Fluxo` e o tratamento do `:jogo.sair`.
+
+### 2.4 O ambiente `atmos/env/doom/init.lua`
+
+A cada `step()`, emite nesta ordem:
+1. um evento por entrada: `{tag="input.key.down"|"input.key.up"|"input.mouse"|"input.quit", key=, ...}`;
+2. o relógio real em µs (número; não usado pelo jogo);
+3. de 0 a 4 `{tag="tic", n=}` (35 Hz, acumulador igual ao laço original);
+4. `"frame"`.
+
+`env.cancel_catchup()` interrompe os tics restantes do `step` (usado quando
+o nível termina, como o `break` do laço original).
+
+### 2.5 Modo replay (`video.lua`)
+
+`DOOM_REPLAY=<roteiro>` substitui o `video_c`: sem janela nem som, cada
+`poll()` avança exatamente um tic, as teclas vêm do roteiro, e cada
+`present()` grava `quadro hash_framebuffer hash_estado` em `DOOM_REPLAY_OUT`.
+Também fixa `math.randomseed(1)`.
+
+Formato do roteiro (uma linha por evento; quadro = número do `poll`, a
+partir de 1):
+
+```
+40 escape down
+41 escape up
+200 exit            # comando de teste: termina o nivel (switch de saida)
+300 exit secret     # saida secreta
+500 die             # comando de teste: o jogador morre
+900 quit            # fecha a janela
+```
+
+`DOOM_REPLAY_DUMP=1450,1460` grava esses quadros em
+`<DOOM_REPLAY_OUT>.<quadro>.raw` (64.000 índices de paleta).
+
+---
+
+## 3. Atmos na prática
+
+Versões: `atmos-lang dev-4` (linguagem, CLI `atmos v0.8`), `atmos dev-3`
+(lua-atmos, runtime), `f-streams 0.2-4`, em `/usr/local/share/lua/5.4/atmos/`.
+A linguagem compila para Lua; um `.atm` pode fazer `require` de módulos
+`.lua` normalmente.
+
+### 3.1 Sintaxe, com exemplos reais do `main.atm`
+
+```
+val env  = require "atmos.env.doom"        ;; val = constante, var = variavel
+val G    = game.new(game.atmos_args(arg))
+;; comentario de linha
+
+func pedidos () {                          ;; funcao comum
+    loop _, r in G.take_requests() {       ;; laco sobre tabela
+        emit(r)                            ;; emit de uma variavel: com parenteses
+    }
+}
+
+val VOLTA_DO_SECRETO = [4, 6, 7, 3]        ;; tabela/vetor (1-based)
+func proximo_mapa (episode, mapn, secreta) {
+    ifs {                                  ;; ifs e expressao: devolve o ramo
+        secreta       => 9
+        (mapn == 9)   => (VOLTA_DO_SECRETO@episode) || 1   ;; @ indexa; || com nil
+        else          => mapn + 1
+    }
+}
+
+task Nivel (save) {                        ;; task: a ultima expressao e o retorno
+    if save { G.load_level(save) } else { G.start_level() }
+    G.enter(:view)                         ;; :view e a string "view"
+    par :any {                             ;; termina quando o 1o ramo termina
+        loop on :game.tic {                ;; acorda a cada evento :game.tic
+            val fim = G.tic_view()
+            if fim == :saida {
+                env.cancel_catchup()
+            }
+            until (fim, [fim=fim])         ;; sai do loop devolvendo o valor
+        }
+    } with {
+        val t = await :nivel.trocar        ;; espera um evento; devolve o evento
+        [fim=:trocar, episode=t.episode, mapn=t.mapn]   ;; tabela com campos
+    }
+}
+
+task Jogo (pedido) {
+    var save = nil
+    loop {
+        val r = await Nivel(save)          ;; inicia a task filha e espera o fim
+        set save = nil                     ;; atribuicao sempre com "set"
+        val continua = ifs {
+            (r.fim == :morte)  => true
+            (r.fim == :trocar) => {        ;; bloco: o valor e a ultima expressao
+                G.set_level(r.episode, r.mapn)
+                true
+            }
+            else => await Saida()
+        }
+        until (!continua)
+    }
+    G.to_title()
+}
+
+spawn {                                    ;; task anonima no escopo atual
+    loop ev on :input {                    ;; o evento vai para "ev"
+        G.handle_input(ev)
+        pedidos()
+    }
+}
+```
+
+Outras construções usadas pelo usuário (repositório
+`SamuelCastanheira/pico-tcc`, pasta `src/codes_tcc/atmos_ilha_geladeira`) e
+nos testes:
+
+```
+pin puffles = tasks(10)                    ;; pool ligada ao escopo
+spawn @(puffles) Puffle(...)               ;; spawn em pool (exige task NOMEADA)
+emit @2 :puffle.entrou                     ;; emit com alcance (2 niveis acima)
+watching :parar { ... }                    ;; executa o bloco ate o evento
+loop in 3 { ... }                          ;; repete N vezes
+match v { :CENTRO => ... :SAIR => break() }
+await until (num_capturados == 10)
+loop on 1s { ... }                         ;; relogio real: NAO usar no jogo
+```
+
+### 3.2 Armadilhas de sintaxe (todas já aconteceram)
+
+| Errado | Certo |
+|---|---|
+| `a or b`, `a and b`, `not a` | `a \|\| b`, `a && b`, `!a` |
+| `"a" .. "b"` | `"a" ++ "b"` |
+| `t[k] = v`, `t[#t+1] = v` | `set t@k = v`, `set t@(#t+1) = v` |
+| `until true` | `until (true)`; com valor: `until (cond, valor)` |
+| `spawn @(pool) { ... }` | `spawn @(pool) NomeDaTask(...)` |
+| `x = 1` (atribuição) | `set x = 1` |
+| `emit r` com variável | `emit(r)` |
+| misturar operadores sem parênteses | `(!G.commercial()) && (G.game.mapn == 8)` |
+
+### 3.3 Propriedades do runtime de que o código depende
+
+Verificadas em `tests/atmos_semantica.atm` (`atmos tests/atmos_semantica.atm`):
+
+- **P1.** Uma task que termina dentro de um `emit` acorda quem a aguarda
+  antes de o `emit` retornar, o que torna as transições síncronas.
+- **P2.** Uma task criada durante um `emit` não recebe esse mesmo `emit`.
+- **P3.** `par :any` devolve o valor do ramo vencedor.
+- **P4.** `watching` devolve o evento que o encerrou.
+- **P5.** Eventos-tabela com tag hierárquica casam com `:a.b`; `await :a`
+  casa com `a.qualquer`.
+- **P6.** Ramos que acordam com o mesmo evento rodam na ordem do código.
+
+Também: tasks filhas de uma mesma pool acordam na **ordem de criação**.
+**Ainda não verificado:** se pools diferentes acordam na ordem léxica
+(ver seção 4.2).
+
+### 3.4 CLI e execução
+
+- `atmos main.atm -- -fps -scale 4`: o **`--` é obrigatório**, senão o
+  `atmos` tenta ler `-fps` como opção dele.
+- No `atmos`, o nome do script fica em `arg[1]` e o `--` em `arg[2]`;
+  `game.atmos_args(arg)` remove os dois.
+- `lua5.4 main.lua ...` roda o mesmo jogo: o `main.lua` chama
+  `atmos.loop(atm_loadfile("main.atm"))` (de `atmos.lang.exec`).
+- O runtime registra um searcher: `require "x"` encontra `x.atm`.
+
+---
+
+## 4. Regras rígidas (quebrar qualquer uma faz o replay divergir)
+
+### 4.1 Tempo em tics
+
+Tudo no Doom é contado em tics de 35 Hz. Use `:tic` ou `:game.tic` e, para
+esperar, `loop in n { await :game.tic }`. **Nunca** use `await 2s` nem
+`loop on 1s` na lógica de jogo: são relógio real e quebram o determinismo.
+
+### 4.2 A ordem dentro do tic é semântica (`P_Random`)
+
+`random.lua` é a tabela fixa de 256 valores do Doom (`P_Random`). Ela é
+consumida na ordem em que as entidades pensam. Se a ordem mudar, a sequência
+aleatória muda e o jogo diverge.
+
+Ordem atual de um tic de nível (`G.tic_view`):
+1. automapa
+2. comando do jogador (`build_ticcmd`)
+3. `player_mod.think`
+4. `player_mod.tick_fx`
+5. renascer? → `"morte"`
+6. `thinker.tick`: mobjs na ordem de `world.mobjs`
+7. `specials_mod.tick`, nesta ordem interna:
+   1. luzes (`self.lights`)
+   2. linhas com scroll (efeito 48)
+   3. thinkers de setor (`self.thinkers`: portas, elevadores, pisos, tetos)
+   4. botões (`self.buttons`)
+8. `res:update_anims(leveltime)`
+9. saída? → `"saida"`
+10. `leveltime + 1`
+11. `status_mod.ticker`
+
+Fora do nível, o relógio do `main.atm` faz: wipe ativo → só `tic_wipe`;
+senão `tic_menu`, `pedidos()`, `emit :game.tic`, `pedidos()`.
+
+Ao transformar thinkers em tasks:
+- **Pools em ordem de criação:** faça `spawn @(pool)` na mesma ordem em que
+  a lista Lua recebia itens.
+- **Emit direcionado:** para entidades misturadas numa lista
+  (`world.mobjs`), mantenha o laço Lua e faça `emit @(mo.task) :mobj.tic`.
+- **Toda task de setor começa com `await`** do evento da sua fase, antes de
+  mexer no setor. O thinker original só se mexe a partir do tic seguinte à
+  criação.
+- `luzes` do tipo flash e fire consomem `P_Random`: a ordem é crítica.
+
+### 4.3 Fila de pedidos: o Lua nunca emite
+
+Funções Lua que querem mudar o fluxo **registram um pedido**:
+
+```lua
+game.request("jogo.novo", { episode = 1, mapn = 1, skill = 2 })
+game.request("jogo.carregar", { data = data })
+game.request("jogo.fim")
+game.request("nivel.trocar", { episode = e, mapn = m })
+game.request("jogo.sair")
+```
+
+O `main.atm` emite os pedidos com `pedidos()` **nas fronteiras de fase**:
+depois de cada `handle_input`, depois de `tic_menu` e depois de
+`emit :game.tic`. Motivo: um `emit` de dentro de uma chamada Lua poderia
+abortar a task que fez a chamada, e o restante do código Lua não rodaria.
+Para novos eventos que precisem sair do Lua, use o mesmo mecanismo.
+
+### 4.4 Outras fontes de não determinismo
+
+- `math.random` (usado em `wipe.lua` e `wi_stuff.lua`): só é determinístico
+  porque o replay fixa a semente. Na lógica de jogo, use `random.p_random()`
+  ou `enemy.p_random()`.
+- **Saves são estado de entrada.** O jogo salva em `doomsavN.dsg` na pasta
+  do IWAD (a pasta de onde roda). Um arquivo deixado por uma execução
+  aparece no menu da seguinte e muda o framebuffer. Por isso
+  `tests/test_drivers.sh` e as ferramentas rodam cada execução numa **pasta
+  isolada** (links para o código, sem `.dsg`).
+- **Nunca rode roteiros na raiz do repositório:** `doomsav0.dsg` é um save
+  versionado do usuário. Ele já foi sobrescrito uma vez por um teste e
+  restaurado do commit `75c5e67`.
+- Iterar com `pairs` sobre tabelas com chaves-objeto tem ordem que pode
+  variar entre processos. Evite isso em código que afete o estado.
+
+---
+
+## 5. Comandos
+
+### 5.1 Build e jogo
+
+```sh
+make                       # compila os modulos C (release)
+make debug                 # -O0 + AddressSanitizer/UBSan (troca .so; "make" volta)
+make help                  # mostra o que foi detectado (Lua, SDL, plataforma)
+
+lua5.4 main.lua -fps -scale 4              # comando habitual do usuario
+atmos main.atm -- -fps -scale 4            # equivalente
+make run ARGS="-fps -scale 4 -warp 1 3"
+```
+
+Opções do jogo: `-iwad`, `-file`, `-warp E M`, `-skill N`, `-scale N`,
+`-fps`, `-crt`, `-nomonsters`, `-fast`, `-respawn`, `-nosound`, `-nomusic`,
+`-nocheats`.
+
+Teclas: F11 é a gama, F12 liga e desliga o contador de FPS, Tab abre o
+automapa, `-`/`=` mudam o tamanho da tela.
+
+### 5.2 Equivalência da lógica (driver Atmos × referência)
+
+```sh
+make test-drivers          # semantica do Atmos + 3 roteiros contra a tag passo1
+sh tests/test_drivers.sh 0 1 fluxo         # roteiro com todas as transicoes
+sh tests/test_drivers.sh 4000 1            # pseudoaleatorio, 4000 quadros, semente 1
+sh tests/test_drivers.sh 6000 2 exits      # tambem termina niveis
+REF_TAG=passo2 sh tests/test_drivers.sh 0 1 fluxo   # outra referencia
+```
+
+- Argumentos: `quadros semente [exits|fluxo] [args do jogo]`.
+- A referência é **`REF_TAG`** (padrão `passo1`). O script cria um worktree
+  em `build/ref-<tag>`, aplica `tests/ref-<tag>.patch` se existir, compila e
+  roda o `lua5.4 main.lua` de lá. Compara com `atmos main.atm` e com
+  `lua5.4 main.lua` atuais.
+- **Não existe `REF=lua`.** A branch `lua` não tem modo replay nem hash de
+  estado; ela foi comparada com o `passo1` só pelo framebuffer (registro do
+  passo 1, seção 3.1).
+- O roteiro `fluxo` confere a cobertura: pedidos e telas esperados. Se você
+  mudar o menu ou os tempos, ajuste `tools/make_replay.lua` até aparecer
+  `cobertura do fluxo: completa`.
+- Saídas em `build/drivers/`: `ref.log`, `atm.log`, `lan.log` (hashes) e
+  `*.out` (stdout de cada driver).
+
+**Quando o passo mudar o comportamento de propósito** (por exemplo,
+corrigir o bug do `carry`), a comparação com `passo1` vai divergir.
+Documente a divergência esperada, crie uma tag nova e use-a como `REF_TAG`.
+Se a tag nova não tiver algum comando de teste do replay, crie
+`tests/ref-<tag>.patch`.
+
+### 5.3 Sensibilidade, métricas e custo
+
+```sh
+make test-mutacoes         # tools/mutacoes.py: 10/10 detectadas, 2 equivalentes
+make metricas              # tools/metricas_passo2.py + tools/custo_drivers.py
+python3 tools/custo_drivers.py 5           # ms/quadro dos 3 drivers
+N=500 atmos tools/bench_tasks.atm          # custo por task acordada
+```
+
+Para um passo novo: acrescente mutações em `tools/mutacoes.py` (trecho
+original → trecho mutado). Se uma sobreviver, ou o roteiro não cobre aquilo
+ou o mutante é equivalente; neste caso, ponha em `EQUIVALENTES` com a
+justificativa.
+
+### 5.4 Renderer (só quando mexer em C)
+
+```sh
+make compare MAP=1 SPRITES=full BLOCKS=10 DETAIL=0   # pixel a pixel x renderer Lua (522b06f)
+make baseline              # congela quadros atuais do renderer C (com tags por pixel)
+make check-baseline        # o que mudou, por tipo de superficie (parede, flat, ceu...)
+lua5.4 tests/test_v_draw.lua                          # desenho 2D x versao Lua original
+lua5.4 tools/dump_screens.lua build/screens/cur       # telas 2D (menu, automapa, finale, wipe)
+```
+
+### 5.5 Testes unitários
+
+```sh
+make test                  # tests/test_*.lua: 12 passam, 8 falham (falhas conhecidas)
+```
+
+As 8 falhas existiam antes da migração, e não são regressões:
+`test_c_data`, `test_enemy`, `test_menu`, `test_player`, `test_r_data`,
+`test_specials`, `test_view` e `test_world`. A maioria espera o `doom1.wad`
+shareware (125 texturas, 467 vértices) ou o antigo `r_data.lua`. Compare
+**antes e depois** da sua mudança; o resultado tem de ser o mesmo.
+
+---
+
+## 6. Ambiente e dependências
+
+| Item | Versão / caminho |
+|---|---|
+| Lua | 5.4.6 (`lua5.4`); `pkg-config lua5.4` |
+| Atmos | `atmos-lang dev-4`, `atmos dev-3`, `f-streams 0.2-4` (luarocks, `/usr/local/lib/luarocks/rocks-5.4`, código em `/usr/local/share/lua/5.4/atmos/`) |
+| SDL | SDL2 2.30.0, SDL2_mixer 2.8.0 |
+| Compilador | gcc 13.3 |
+| Python | 3, com Pillow 10.2 (só para PNGs e comparações) |
+| Ferramentas ausentes | `curl` (para baixar, use `python3 urllib`) |
+| Fonte do Doom original | `github.com/id-Software/DOOM`, `linuxdoom-1.10/` (consultado para `p_spec.c`, `r_bsp.c`, `v_video.c`, `g_game.c`…) |
+
+O `Makefile` funciona em Linux, macOS e MSYS2 (Windows). O `video_c.dll`
+versionado é antigo (sem a gama); no Windows, recompile.
+
+---
+
+## 7. Armadilhas de runtime já encontradas
+
+| Sintoma | Causa | Como evitar |
+|---|---|---|
+| `unknown option '-n'` ao rodar `atmos` | faltou o `--` | `atmos main.atm -- -nosound` |
+| `main.lua` divergia de si mesmo no wipe | `math.random` sem semente | o replay fixa a semente; na lógica, use `P_Random` |
+| Divergência só no framebuffer, a partir de um save | arquivo `.dsg` de outra execução aparecia no menu | executar em pasta isolada (o script já faz) |
+| Roteiro "não fazia" save, load ou End Game | menu aberto durante a intermissão; menu lembra a posição de cada submenu (`last_on`); o menu de load tem posição própria, separada da do save | esperar a tela terminar (padrão `exit_level` em `make_replay.lua`); conferir a cobertura |
+| `attempt to index a number (src)` em `damage_mobj` | ordem dos argumentos | `game.damage_mobj(alvo, origem, dano, inflictor)` |
+| Script sh terminava calado | `shift 3` com menos argumentos aborta no `dash`; `trap` devolvia 0 | laço de `shift`; `trap` preservando `$?` |
+| `Terminated` ao testar janela | `\| head` no comando de teste | testar com `kill -TERM` e `wait`; o jogo fecha limpo ("janela fechada") |
+| Task agindo um tic antes do thinker | spawn e ação no mesmo tic | começar a task com `await` (regra 4.2) |
+| Medição de custo com "divergência" | pasta reaproveitada com save residual | `tools/custo_drivers.py` (pastas limpas) |
+
+---
+
+## 8. Comportamentos conhecidos (não "consertar" sem decidir)
+
+- **Bug preservado:** o `carry` de um nível vaza para um novo jogo iniciado
+  na intermissão (o novo jogo começa com as armas do anterior). Correção
+  proposta: `game.carry = nil` em `G.new_game`, num commit separado, com nova
+  referência. Detalhes no registro do passo 2, seção 8.1.
+- `game.gamestate` continua existindo (tela exibida, lida por redesenho,
+  paleta, mouse, cheats, menu e automapa), mas só `G.enter` o escreve.
+- O wipe continua em Lua (`redraw`, fase de quadro).
+- Ramos `-- caminho antigo (sem main.atm)` em `menu.lua`, `cheats.lua` e
+  `saveg.lua` existem para os testes unitários com um `game` falso. Não
+  remova.
+- Animação da arma usa tabelas próprias em `player.lua` (`WEAPON_PATCH`,
+  `WEAPON_READY`, `WEAPON_ATK`), não a máquina de estados do `p_pspr.c`. Isso
+  é o passo 4.
+- Sprites e arma usam a luz do setor (como o Doom); flashes de arma
+  (`PISFA0`, `SHT2I0`…) são `FF_FULLBRIGHT`, lidos de `info.STATES`.
+
+---
+
+## 9. Próximo passo: specials de setor (passo 3)
+
+Plano completo em `docs/PLANO_ATMOS.md`, seção 6, passo 3. Pontos de partida
+no código (`specials.lua`, 1.538 linhas, ainda imperativo):
+
+| Função | Papel hoje |
+|---|---|
+| `M.new` → `M.spawn_specials` | cria luzes a partir de `sector.special`, na ordem dos setores |
+| `M.tick` | luzes → scroll → `self.thinkers` (despacha por `th.kind`: door, plat, floor, ceiling) → botões |
+| `tick_lights` | flash e fire usam `rng.p_random()`; strobe; glow |
+| `tick_door`, `tick_plat`, `tick_floor`, `tick_ceiling` | máquinas de estado com `direction`, `count`, `status`, `dead` |
+| `spawn_door`, `vertical_door`, `do_plat_*`, `do_floor`, `do_stairs`, `do_crusher`… | criam thinkers e marcam `sector.specialdata` |
+| `M.move_plane` | geometria pura (mantenha em Lua) |
+| `saveg.lua`, função de gravar e `M.apply` | serializam e recriam `specials.thinkers` e `specials.buttons` campo a campo |
+
+Ordem sugerida: luzes → botões → portas → elevadores → pisos e tetos →
+save. Em cada subpasso:
+1. troque o despacho no `M.tick` por um evento (por exemplo,
+   `:game.specials`) no **mesmo ponto** do `G.tic_view`;
+2. crie as pools dentro de `Nivel`, na ordem das listas;
+3. acrescente o estado novo ao `G.state_string`;
+4. crie um roteiro específico;
+5. rode `make test-drivers`, acrescente mutações e rode
+   `make test-mutacoes`;
+6. registre em `docs/registro/03-...md`, no formato dos anteriores;
+7. faça um commit e crie a tag.
+
+---
+
+## 10. Convenções
+
+- **Código:** comentários em português, **sem acento**, no estilo dos
+  arquivos existentes. Lua com 2 espaços; Atmos com 4 espaços e comentários
+  `;;`.
+- **Documentação:** português com acentos. Um arquivo
+  `docs/registro/NN-nome.md` por passo, com: resumo, situação antes (com
+  linhas da tag anterior), solução, comparação de código lado a lado,
+  validação (equivalência, cobertura, mutações, problemas encontrados),
+  métricas, custo, diferenças conhecidas, como reproduzir e arquivos
+  alterados. Números sempre medidos por script, nunca de memória.
+- **Git:** um commit e uma tag (`passoN`) por passo concluído. Não faça push
+  sem pedido. Não commite `build/`, `.so` nem `.mid` (estão no `.gitignore`).
+- **Mudança de comportamento:** nunca junto com refatoração. Primeiro a
+  equivalência, depois a correção, num commit separado, com nova referência
+  e a divergência esperada documentada.
+- **Antes de dizer que terminou:** `make`, `make test-drivers`,
+  `make test-mutacoes`, `make test` (mesmo resultado de antes) e o jogo com
+  janela (`lua5.4 main.lua -scale 2`, fechando com `kill -TERM`; deve
+  imprimir "janela fechada").

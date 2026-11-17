@@ -1,0 +1,22 @@
+;; Custo de N tasks acordando a cada tic (35 Hz -> 28,6 ms por tic).
+;;   N=500 atmos tools/bench_tasks.atm
+require "atmos.env.clock"
+val N = tonumber(os.getenv("N")) || 500
+val TICS = 350
+var total = 0
+task Thinker () {
+    loop on :tic {
+        set total = total + 1
+    }
+}
+pin pool = tasks()
+loop in N {
+    spawn @(pool) Thinker()
+}
+val t0 = os.clock()
+loop in TICS {
+    emit :tic
+}
+val dt = os.clock() - t0
+print(string.format("N=%d tasks: %.3f ms/tic (%d despertares, %.2f us cada)",
+    N, (dt * 1000) / TICS, total, (dt * 1000000) / total))

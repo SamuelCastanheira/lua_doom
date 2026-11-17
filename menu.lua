@@ -300,11 +300,15 @@ local function do_action(self, action, choice)
     self.epi = choice
     goto_menu(self, "skill")
   elseif action == "skill" then
-    self.game.skill = choice
-    self.game.episode = self.epi + 1
-    self.game.mapn = 1
-    if self.game.start_level then
-      self.game.start_level(self.game)
+    if self.game.request then
+      -- passo 2: o menu so pede; quem inicia o jogo e a task Fluxo (main.atm)
+      self.game.request("jogo.novo", { episode = self.epi + 1, mapn = 1, skill = choice })
+      M.clear(self)
+    elseif self.game.start_level then
+      self.game.skill = choice
+      self.game.episode = self.epi + 1
+      self.game.mapn = 1
+      self.game.start_level(self.game) -- caminho antigo (sem main.atm)
       M.clear(self)
     else
       self.message = "EPISODIO " .. tostring(self.epi + 1) .. " SKILL " .. tostring(choice)
@@ -322,6 +326,9 @@ function M.responder(self, key)
         self.message = nil
         if action == "quit" then
           self.game.running = false
+          if self.game.request then
+            self.game.request("jogo.sair")
+          end
         elseif action == "endgame" and self.game.end_game then
           self.game.end_game(self.game)
           M.clear(self)

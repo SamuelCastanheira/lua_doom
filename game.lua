@@ -8,20 +8,23 @@
 --
 -- www.vagucs.com.br
 --
--- Estado e regras do jogo, sem o laco principal.
+-- Estado e regras do jogo, sem o laco principal e sem o fluxo de telas.
 --
--- Extraido do main.lua para que dois drivers usem exatamente o mesmo codigo:
---   main.lua  laco imperativo original (referencia)
---   main.atm  concorrencia estruturada com Atmos (atmos/env/doom)
+-- Passo 1: extraido do main.lua (laco imperativo) em fases.
+-- Passo 2: as transicoes de tela sairam daqui e foram para o main.atm;
+--          este modulo so monta telas e registra pedidos (game.request).
+-- A referencia imperativa original esta na tag "passo1" (main.lua).
 --
--- Um quadro do laco original e dividido em fases, sempre nesta ordem:
+-- Um quadro e dividido em fases, sempre nesta ordem (o main.atm garante):
 --   1. handle_input(ev)   para cada evento do video.poll()
 --   2. ate 4 tics:        se wiping: tic_wipe()
 --                         senao:     tic_menu(), depois a tela atual:
---                                    tic_view() / tic_intermission() / tic_finale()
---                         tic_view() devolve true quando o nivel acaba
---                         (o laco original fazia "break" na recuperacao de tics)
+--                                    tic_view()         -> nil | "morte" | "saida"
+--                                    tic_intermission() -> true quando acaba
+--                                    tic_finale()       -> nil | acao final
 --   3. frame()            redesenha, toca som, apresenta
+-- Depois das fases 1 e 2, o main.atm emite os pedidos de transicao
+-- (G.take_requests) como eventos.
 local M = {}
 
 local TICRATE = 35
@@ -272,14 +275,42 @@ function M.new(argv)
     end
   end
 
-  function game.begin_exit(self)
+  -- ===================================================================
+  -- Transicoes de tela (passo 2 da migracao para Atmos).
+  --
+  -- Antes, begin_exit / advance / finish_finale / end_game decidiam a
+  -- proxima tela e escreviam game.gamestate. Agora a decisao fica no
+  -- main.atm (tasks Fluxo, Jogo, Nivel, Saida). O Lua so:
+  --   * registra PEDIDOS vindos do menu, dos cheats e da janela
+  --     (game.request), que o main.atm emite como eventos nas fronteiras
+  --     de fase;
+  --   * MONTA o que cada tela precisa (nivel, intermissao, finale) e faz
+  --     a limpeza ao voltar ao titulo.
+  -- ===================================================================
+
+  local requests = {}
+
+  -- Pedido de transicao. Tags: jogo.novo {episode, mapn, skill},
+  -- jogo.carregar {data}, jogo.fim, jogo.sair, nivel.trocar {episode, mapn}.
+  function game.request(tag, data)
+    local ev = data or {}
+    ev.tag = tag
+    requests[#requests + 1] = ev
+    if video.replay then
+      print("pedido " .. tag) -- cobertura do teste de equivalencia
+    end
+  end
+
+  -- Parte de G_ExitLevel/G_DoCompleted que nao decide nada: fecha o
+  -- automapa, registra saida secreta e guarda o que o jogador leva para o
+  -- proximo nivel (carry). Devolve true se a saida foi secreta.
+  function game.end_level(self)
     if self.automap then
       am_map.stop(self.automap)
     end
     local p = self.player
     local secret = self.specials and self.specials.secret_exit
     self.was_secret = secret and true or false
-    local commercial = wad.check_num_for_name(w, "MAP01") >= 0
     if p and self.mapn == 9 then
       p.didsecret = true
     end
@@ -296,21 +327,26 @@ function M.new(argv)
         didsecret = (self.mapn == 9) or p.didsecret or secret or false,
       }
     end
-    if not commercial and self.mapn == 8 then
-      self.finale = finale_mod.new(self)
-      self.gamestate = "finale"
+    return self.was_secret
+  end
+
+  function game.is_commercial()
+    return wad.check_num_for_name(w, "MAP01") >= 0
+  end
+
+  -- Monta a tela de texto/arte final. "announce" so imprime no log, como o
+  -- antigo begin_exit fazia (o caminho do Doom 2 nao imprimia).
+  function game.make_finale(self, announce)
+    self.finale = finale_mod.new(self)
+    if announce then
       print("finale")
-      return
     end
-    local nxt
-    if secret then
-      nxt = 9
-    elseif self.mapn == 9 then
-      local back = { [1] = 4, [2] = 6, [3] = 7, [4] = 3 }
-      nxt = back[self.episode] or 1
-    else
-      nxt = self.mapn + 1
-    end
+  end
+
+  -- Monta a intermissao do nivel atual para o mapa "nxt" (WI_Start).
+  function game.make_intermission(self, nxt)
+    local p = self.player
+    local commercial = game.is_commercial()
     self.pending_map = nxt
     local kills = self.totalkills or 0
     local items = self.totalitems or 0
@@ -339,22 +375,25 @@ function M.new(argv)
       didsecret = p and p.didsecret or false,
       commercial = commercial,
     })
-    self.gamestate = "intermission"
     print(string.format("intermissao E%dM%d", self.episode, nxt))
   end
 
-  function game.finish_finale(self)
-    local action = "title"
-    if self.finale and self.finale.action ~= "" then
-      action = self.finale.action
+  -- Doom 2: ha texto entre certos mapas (F_StartFinale via G_WorldDone).
+  function game.commercial_finale(self)
+    return finale_mod.commercial_map(self.mapn, self.was_secret)
+  end
+
+  -- O lump do mapa existe neste WAD?
+  function game.map_exists(self, mapn)
+    local lump = string.format("E%dM%d", self.episode, mapn)
+    if game.is_commercial() then
+      lump = string.format("MAP%02d", mapn)
     end
-    self.finale = nil
-    if action == "worlddone" then
-      self.mapn = self.pending_map
-      self.start_level(self)
-      return
-    end
-    self.gamestate = "title"
+    return wad.check_num_for_name(w, lump) >= 0
+  end
+
+  -- Volta ao titulo: descarta o jogo atual e toca a musica do titulo.
+  function game.to_title(self)
     self.carry = nil
     self.player = nil
     self.world = nil
@@ -362,43 +401,20 @@ function M.new(argv)
     sound_mod.play_title_music(sound)
   end
 
-  function game.advance(self)
-    local commercial = wad.check_num_for_name(w, "MAP01") >= 0
-    if commercial and finale_mod.commercial_map(self.mapn, self.was_secret) then
-      self.finale = finale_mod.new(self)
-      self.gamestate = "finale"
-      return
-    end
-    local lump = string.format("E%dM%d", self.episode, self.pending_map)
-    if wad.check_num_for_name(w, "MAP01") >= 0 then
-      lump = string.format("MAP%02d", self.pending_map)
-    end
-    if wad.check_num_for_name(w, lump) < 0 then
-      self.gamestate = "title"
-      self.carry = nil
-      self.player = nil
-      self.world = nil
-      self.specials = nil
-      sound_mod.play_title_music(sound)
-      return
-    end
-    self.mapn = self.pending_map
-    self.start_level(self)
+  -- "End Game" no menu: so pede. A limpeza e clear_game, chamada pelo
+  -- main.atm depois de encerrar a task do jogo.
+  function game.end_game(self)
+    self.request("jogo.fim")
   end
 
-  function game.end_game(self)
+  function game.clear_game(self)
     if self.automap then
       am_map.stop(self.automap)
     end
     self.finale = nil
     self.wi = nil
     self.wiping = false
-    self.gamestate = "title"
-    self.carry = nil
-    self.player = nil
-    self.world = nil
-    self.specials = nil
-    sound_mod.play_title_music(sound)
+    game.to_title(self)
   end
 
   function game.save_game(self, slot, desc)
@@ -409,15 +425,29 @@ function M.new(argv)
     return saveg.write(self, slot, name or "save")
   end
 
+  -- Menu "Load Game": le o arquivo agora (para o menu saber se deu certo)
+  -- e pede a troca; o nivel e montado pela task Nivel (load_level).
   function game.load_game(self, slot)
-    return saveg.load(self, slot)
+    local data = saveg.read(self, slot)
+    if data == nil then
+      return false
+    end
+    self.request("jogo.carregar", { data = data })
+    return true
+  end
+
+  function game.load_level(self, data)
+    return saveg.apply(self, data)
   end
 
   function game.slot_desc(self, slot)
     return saveg.description(self, slot)
   end
 
-  function game.start_level(self)
+  -- Monta o nivel game.episode / game.mapn (G_DoLoadLevel). Nao muda de
+  -- tela: quem entra em "view" e a task Nivel. level_gen conta instancias
+  -- de nivel (entra no hash de estado do teste de equivalencia).
+  function game.build_level(self)
     self.level_gen = (self.level_gen or 0) + 1
     if self.automap then
       am_map.reset_level(self.automap)
@@ -447,7 +477,6 @@ function M.new(argv)
     end
     sound_mod.cut_sfx(sound)
     sound_mod.play_level_music(sound, self.episode, self.mapn)
-    self.gamestate = "view"
     self.leveltime = 0
     self.turnheld = 0
     local ps = world_mod.player_start(world)
@@ -494,7 +523,7 @@ function M.new(argv)
     sound.music_enabled = false
   end
   if game.warp then
-    game.start_level(game)
+    -- o nivel e montado pela task Jogo (G.initial_request)
     game.wipe_state = "view"
   else
     sound_mod.play_title_music(sound)
@@ -655,6 +684,13 @@ function M.new(argv)
       end
       return
     end
+    if ev.replay_die then
+      -- comando de teste do modo replay (video.lua): o jogador morre
+      if video.replay and game.player and game.player.mo and game.gamestate == "view" then
+        game.damage_mobj(game.player.mo, nil, 10000, nil)
+      end
+      return
+    end
     if ev.mouse then
       if ev.dx then
         game.mousex = game.mousex + ev.dx
@@ -665,6 +701,7 @@ function M.new(argv)
       end
     elseif ev.down and ev.key == "quit" then
       game.running = false
+      game.request("jogo.sair")
     elseif ev.key ~= "" then
       if ev.down and ev.key == "return" and (held.alt or ev.alt) then
         video.toggle_fullscreen()
@@ -735,10 +772,13 @@ function M.new(argv)
     end
   end
 
-  -- Fase 2c: tic do nivel. Devolve true quando o jogador sai do nivel.
+  -- Fase 2c: tic do nivel. Devolve o motivo do fim do nivel, ou nil:
+  --   "morte"  o jogador vai renascer (antes: start_level aqui dentro)
+  --   "saida"  switch de saida (antes: begin_exit aqui dentro)
+  -- Quem decide o que fazer com isso e a task Jogo, no main.atm.
   function G.tic_view()
     if not (game.gamestate == "view" and game.player and game.world) then
-      return false
+      return nil
     end
     if game.automap then
       am_map.ticker(game.automap, game)
@@ -760,7 +800,8 @@ function M.new(argv)
     player_mod.think(game.world, game.player, game, game.leveltime or 0)
     player_mod.tick_fx(game.world)
     if game.player and game.player.playerstate == player_mod.PST_REBORN then
-      game.start_level(game)
+      dirty = true
+      return "morte"
     else
       thinker.tick(game.world, game)
       if game.specials then
@@ -768,8 +809,7 @@ function M.new(argv)
       end
       res:update_anims(game.leveltime or 0)
       if game.specials and game.specials.exit_requested then
-        game.begin_exit(game)
-        return true
+        return "saida"
       end
       game.leveltime = (game.leveltime or 0) + 1
       if game.status then
@@ -777,49 +817,44 @@ function M.new(argv)
       end
     end
     dirty = true
-    return false
+    return nil
   end
 
   -- Fase 2c: tic da tela de intermissao (contagem de kills/itens/segredos).
+  -- Devolve true quando a contagem termina.
   function G.tic_intermission()
     if not (game.gamestate == "intermission" and game.wi) then
-      return
+      return false
     end
     wi_mod.ticker(game.wi)
     if game.wi.done then
       game.wi = nil
-      game.advance(game)
+      dirty = true
+      return true -- antes: game.advance(game)
     end
     dirty = true
+    return false
   end
 
-  -- Fase 2c: tic do texto/arte final de episodio.
+  -- Fase 2c: tic do texto/arte final de episodio. Devolve a acao final
+  -- ("title" ou "worlddone") quando o texto termina.
   function G.tic_finale()
     if not (game.gamestate == "finale" and game.finale) then
-      return
+      return nil
     end
     finale_mod.ticker(game.finale)
     if game.finale and game.finale.done then
-      game.finish_finale(game)
+      -- antes: game.finish_finale(game)
+      local action = "title"
+      if game.finale.action ~= "" then
+        action = game.finale.action
+      end
+      game.finale = nil
+      dirty = true
+      return action
     end
     dirty = true
-  end
-
-  -- Um tic completo, na ordem do laco original (usado pelo main.lua).
-  function G.tic()
-    if game.wiping then
-      G.tic_wipe()
-      return false
-    end
-    G.tic_menu()
-    if game.gamestate == "view" and game.player and game.world then
-      return G.tic_view()
-    elseif game.gamestate == "intermission" and game.wi then
-      G.tic_intermission()
-    elseif game.gamestate == "finale" and game.finale then
-      G.tic_finale()
-    end
-    return false
+    return nil
   end
 
   -- Fase 3: redesenho, som e apresentacao do quadro.
@@ -843,33 +878,88 @@ function M.new(argv)
     end
   end
 
-  function G.running()
-    return game.running
-  end
-
   function G.wiping()
     return game.wiping
   end
 
-  -- Tela atual e "geracao" do nivel (muda a cada start_level, inclusive
-  -- renascer, idclev e load game). O driver Atmos reinicia a task da tela
-  -- quando qualquer um dos dois muda.
-  function G.screen()
-    return game.gamestate, game.level_gen
+  -- ---------------------------------------------- API do fluxo (main.atm)
+
+  G.game = game
+
+  -- Pedidos registrados desde a ultima chamada (ver game.request).
+  function G.take_requests()
+    local out = requests
+    requests = {}
+    return out
   end
 
-  function G.screen_name()
-    return game.gamestate
+  -- Entra numa tela. Unico ponto que escreve game.gamestate depois da
+  -- inicializacao; chamado so pelas tasks de tela do main.atm.
+  function G.enter(screen)
+    game.gamestate = screen
   end
 
-  local seen_state, seen_gen = game.gamestate, game.level_gen
-  -- true se a tela mudou desde a ultima chamada.
-  function G.screen_changed()
-    if game.gamestate ~= seen_state or game.level_gen ~= seen_gen then
-      seen_state, seen_gen = game.gamestate, game.level_gen
-      return true
+  -- -warp: o jogo comeca direto num nivel, como um "novo jogo".
+  function G.initial_request()
+    if game.warp then
+      return { tag = "jogo.novo", episode = game.episode, mapn = game.mapn, skill = game.skill }
     end
-    return false
+    return nil
+  end
+
+  function G.new_game(episode, mapn, skill)
+    game.skill = skill
+    game.episode = episode
+    game.mapn = mapn
+  end
+
+  function G.set_level(episode, mapn)
+    game.episode = episode
+    game.mapn = mapn
+  end
+
+  function G.set_mapn(mapn)
+    game.mapn = mapn
+  end
+
+  function G.start_level()
+    game.build_level(game)
+  end
+
+  function G.load_level(data)
+    return game.load_level(game, data)
+  end
+
+  function G.end_level()
+    return game.end_level(game)
+  end
+
+  function G.make_intermission(nxt)
+    game.make_intermission(game, nxt)
+  end
+
+  function G.make_finale(announce)
+    game.make_finale(game, announce)
+  end
+
+  function G.commercial()
+    return game.is_commercial()
+  end
+
+  function G.commercial_finale()
+    return game.commercial_finale(game)
+  end
+
+  function G.map_exists(mapn)
+    return game.map_exists(game, mapn)
+  end
+
+  function G.to_title()
+    game.to_title(game)
+  end
+
+  function G.end_game()
+    game.clear_game(game)
   end
 
   -- Resumo do estado do jogo para o teste de equivalencia entre drivers.

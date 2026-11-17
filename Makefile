@@ -6,7 +6,9 @@
 #   make debug        -O0 -g com AddressSanitizer/UBSan (Linux/macOS)
 #   make run          compila e roda: $(LUA) main.lua $(ARGS)
 #   make run-atmos    idem pelo driver Atmos: atmos main.atm -- $(ARGS)
-#   make test-drivers prova que main.lua e main.atm dao o mesmo jogo
+#   make test-drivers prova que main.atm da o mesmo jogo que a tag passo1
+#   make test-mutacoes confere que o teste de equivalencia detecta erros
+#   make metricas     metricas de codigo e custo do fluxo de telas
 #   make test         roda os testes em tests/
 #   make clean        remove binarios e objetos
 #   make help         mostra as variaveis detectadas
@@ -119,7 +121,7 @@ TARGETS := $(addsuffix .$(EXT),$(MODULES))
 MODE_STAMP := build/.mode-stamp
 $(shell mkdir -p build; [ "$$(cat $(MODE_STAMP) 2>/dev/null)" = "$(PLATFORM)-$(MODE)" ] || echo "$(PLATFORM)-$(MODE)" > $(MODE_STAMP))
 
-.PHONY: all debug release run run-atmos test-drivers test compare baseline check-baseline clean distclean help
+.PHONY: all debug release run run-atmos test-drivers test-mutacoes metricas test compare baseline check-baseline clean distclean help
 .DEFAULT_GOAL := all
 
 all: $(TARGETS)
@@ -161,12 +163,26 @@ run: all
 ATMOS ?= atmos
 run-atmos: all
 	$(ASAN_PRELOAD) $(ATMOS) main.atm -- $(ARGS)
+# (make run tambem roda o main.atm: main.lua e um lancador desde o passo 2)
 
-# Equivalencia main.lua x main.atm em modo replay (sem janela).
+# Equivalencia com a referencia imperativa (tag passo1) em modo replay.
+# "fluxo" passa por todas as transicoes de tela e confere a cobertura.
 test-drivers: all
+	@$(ATMOS) tests/atmos_semantica.atm
+	@sh tests/test_drivers.sh 0 1 fluxo
 	@sh tests/test_drivers.sh 4000 1
 	@sh tests/test_drivers.sh 6000 2 exits
-	@sh tests/test_drivers.sh 6000 5 exits
+
+# Sensibilidade: erros plausiveis no main.atm precisam ser detectados.
+test-mutacoes: all
+	@sh tests/test_drivers.sh 0 1 fluxo >/dev/null
+	@python3 tools/mutacoes.py
+
+# Metricas e custo do passo 2 (docs/registro/02-fluxo-de-telas.md).
+metricas: all
+	@python3 tools/metricas_passo2.py
+	@sh tests/test_drivers.sh 0 1 fluxo >/dev/null
+	@python3 tools/custo_drivers.py 5
 
 TESTS ?= $(wildcard tests/test_*.lua)
 test: all

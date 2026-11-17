@@ -27,7 +27,32 @@ os bugs de ciclo de vida na lógica de jogos, com custo aceitável?
 
 ---
 
-## 2. Estado atual (passo 1, concluído)
+## Andamento
+
+| Passo | Situação | Registro |
+|---|---|---|
+| 1. Ambiente e driver | concluído (tag `passo1`) | [registro/01-ambiente-e-driver.md](registro/01-ambiente-e-driver.md) |
+| 4.1–4.3. Referência, hash, roteiros | concluído junto com o passo 2 | [registro/02-fluxo-de-telas.md](registro/02-fluxo-de-telas.md), seção 5 |
+| 2. Fluxo do jogo por eventos | concluído (tag `passo2`) | [registro/02-fluxo-de-telas.md](registro/02-fluxo-de-telas.md) |
+| 3. Specials de setor | próximo | – |
+
+Desvios em relação a este plano, decididos durante o passo 2:
+
+- **A referência é a tag `passo1`, não a branch `lua`.** A branch `lua` não
+  tem o modo replay nem o hash de estado. A tag `passo1` foi comparada com a
+  branch `lua` (framebuffer idêntico) e usada como referência, com um patch
+  só de teste (`tests/ref-passo1.patch`).
+- **`game.gamestate` não sumiu.** Ele continua como "tela exibida", lido por
+  vários módulos, mas é escrito só por `G.enter`, chamado pelas tasks de
+  tela.
+- **O wipe continua no redesenho (Lua).** Não decide nada do fluxo, e
+  movê-lo arriscaria a temporização. Fica como passo opcional.
+- **O `carry` continua global**, para preservar um bug da referência
+  (registro do passo 2, seção 8.1). A correção é um commit separado.
+- **Cada execução do teste roda numa pasta isolada.** O teste chegou a
+  sobrescrever um save do usuário; saves fazem parte do estado de entrada.
+
+## 2. Estado no fim do passo 1
 
 | Componente | Situação |
 |---|---|
@@ -39,8 +64,9 @@ os bugs de ciclo de vida na lógica de jogos, com custo aceitável?
 | Modo replay | `DOOM_REPLAY`: sem janela, tempo simulado, hash de cada quadro e do estado. |
 | `make test-drivers` | Prova que `main.lua` e `main.atm` produzem o mesmo jogo. |
 
-Hoje a lógica de dentro do nível ainda é a mesma nos dois drivers: thinkers em
-`thinker.lua`, `specials.lua` e `enemy.lua`. Os próximos passos mudam isso.
+No fim do passo 2, o fluxo de telas inteiro está em `main.atm`, e o
+`main.lua` virou um lançador. A lógica de dentro do nível ainda usa thinkers
+(`thinker.lua`, `specials.lua`, `enemy.lua`); os próximos passos mudam isso.
 
 ---
 

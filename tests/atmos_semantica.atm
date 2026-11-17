@@ -1,0 +1,71 @@
+;; Propriedades do runtime Atmos de que o fluxo de telas (main.atm) depende.
+;;   atmos tests/atmos_semantica.atm
+;; Se uma versao nova do Atmos mudar alguma delas, este teste falha antes do
+;; teste de equivalencia (tests/test_drivers.sh).
+require "atmos.env.clock"
+
+var log = []
+func L (s) { set log@(#log+1) = s }
+
+;; P1. Uma task que termina dentro de um emit acorda quem a aguarda antes de o
+;;     emit retornar (transicoes sincronas: Nivel termina -> Jogo continua no
+;;     mesmo tic).
+;; P2. Uma task criada durante um emit nao recebe esse mesmo emit (o Nivel
+;;     novo nao roda no tic em que o anterior terminou).
+task Filho (nome) {
+    loop on :t {
+        L(nome ++ ".tic")
+        until (true)
+    }
+    nome ++ ".fim"
+}
+spawn {
+    L("pai:" ++ await Filho("A"))
+    L("pai:" ++ await Filho("B"))
+}
+emit :t
+L("apos-emit1")
+emit :t
+L("apos-emit2")
+assert(table.concat(log, " ") == "A.tic pai:A.fim apos-emit1 B.tic pai:B.fim apos-emit2",
+    "P1/P2: " ++ table.concat(log, " "))
+
+;; P3. par :any devolve o valor do ramo que terminou primeiro (o evento).
+;; P4. watching devolve o evento que o encerrou.
+;; P5. Eventos tabela com tag hierarquica casam com :jogo.novo.
+var par_ep = nil
+var watching_ret = nil
+spawn {
+    val v = par :any {
+        await :x
+        :primeiro
+    } with {
+        await :jogo.novo
+    }
+    set par_ep = v.ep
+    set watching_ret = watching :parar {
+        await :nunca
+    }
+}
+emit [tag="jogo.novo", ep=3]
+emit :parar
+assert(par_ep == 3, "P3/P5: par :any nao devolveu o evento")
+assert(watching_ret == "parar", "P4: watching devolveu " ++ tostring(watching_ret))
+
+;; P6. Ramos de par que acordam com o mesmo evento rodam na ordem do codigo
+;;     (Quit: o quadro e desenhado antes do programa terminar).
+set log = []
+spawn {
+    par :any {
+        loop on :frame { L("desenha") }
+    } with {
+        await :sair
+        await :frame
+        L("termina")
+    }
+}
+emit :sair
+emit :frame
+assert(table.concat(log, " ") == "desenha termina", "P6: " ++ table.concat(log, " "))
+
+print("atmos: 6 propriedades ok")
