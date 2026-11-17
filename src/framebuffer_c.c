@@ -17,9 +17,9 @@
  * Os indices Lua sao 1-based. Leituras fora da faixa retornam nil;
  * escritas fora da faixa geram erro.
  */
-#include "framebuffer.h"
 #include <lua.h>
 #include <lauxlib.h>
+#include "framebuffer.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -226,6 +226,7 @@ int luaopen_framebuffer_c(lua_State *L)
 
     /* Os metodos ficam na propria metatable. */
     luaL_setfuncs(L, framebuffer_methods, 0);
+    v_draw_register(L);
     lua_pop(L, 1);
 
     /* Tabela publica do modulo. */

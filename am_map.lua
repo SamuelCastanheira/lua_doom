@@ -396,79 +396,16 @@ function M.ticker(self, game)
   end
 end
 
+-- Pixels do automapa em C (src/v_draw.c).
 local function clear_fb(self)
-  local fb = self.fb
-  local color = BACKGROUND
-  for y = 0, self.f_h - 1 do
-    local row = y * self.f_w
-    for x = 0, self.f_w - 1 do
-      fb[row + x + 1] = color
-    end
-  end
+  self.fb:fill_region(self.f_w, self.f_h, BACKGROUND)
 end
-
 local function put_dot(self, xx, yy, cc)
-  if xx >= 0 and xx < self.f_w and yy >= 0 and yy < self.f_h then
-    self.fb[yy * self.f_w + xx + 1] = band(cc, 255)
-  end
+  self.fb:am_dot(xx, yy, cc, self.f_w, self.f_h)
 end
-
 local function draw_fline(self, x0, y0, x1, y1, color)
-  if not (x0 >= 0 and x0 < self.f_w and y0 >= 0 and y0 < self.f_h and x1 >= 0 and x1 < self.f_w and y1 >= 0 and y1 < self.f_h) then
-    return
-  end
-  local dx = x1 - x0
-  local ax = dx
-  if ax < 0 then
-    ax = -ax
-  end
-  ax = ax * 2
-  local sx = 1
-  if dx < 0 then
-    sx = -1
-  end
-  local dy = y1 - y0
-  local ay = dy
-  if ay < 0 then
-    ay = -ay
-  end
-  ay = ay * 2
-  local sy = 1
-  if dy < 0 then
-    sy = -1
-  end
-  local x, y = x0, y0
-  if ax > ay then
-    local d = ay - idiv(ax, 2)
-    while true do
-      put_dot(self, x, y, color)
-      if x == x1 then
-        return
-      end
-      if d >= 0 then
-        y = y + sy
-        d = d - ax
-      end
-      x = x + sx
-      d = d + ay
-    end
-  else
-    local d = ax - idiv(ay, 2)
-    while true do
-      put_dot(self, x, y, color)
-      if y == y1 then
-        return
-      end
-      if d >= 0 then
-        x = x + sx
-        d = d - ay
-      end
-      y = y + sy
-      d = d + ax
-    end
-  end
+  self.fb:am_line(x0, y0, x1, y1, color, self.f_w, self.f_h)
 end
-
 local function outcode(self, mx, my)
   local oc = 0
   if my < 0 then

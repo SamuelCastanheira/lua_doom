@@ -98,7 +98,8 @@ BUILD := build/$(PLATFORM)-$(MODE)
 MODULES := tables_c framebuffer_c r_data_c render_c video_c test_fixed_c
 
 tables_c_SRC      := src/tables_c.c
-framebuffer_c_SRC := src/framebuffer_c.c
+framebuffer_c_SRC := src/framebuffer_c.c src/v_draw.c
+framebuffer_c_LIBS := -lm
 r_data_c_SRC      := src/r_data_c.c
 render_c_SRC      := $(wildcard src/render/*.c)
 render_c_CFLAGS   := -Isrc/render

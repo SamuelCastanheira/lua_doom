@@ -16,28 +16,31 @@ local COLW = SCREENWIDTH / 2
 
 local M = {}
 
+local framebuffer_c = require("framebuffer_c")
+-- Copia uma faixa de 2 pixels de largura (em C, src/v_draw.c).
 local function copy_span(dst, src, x0, y0, y1, src_y0)
-  local rows = y1 - y0
-  for row = 0, rows - 1 do
-    local s = (src_y0 + row) * SCREENWIDTH + x0 + 1
-    local d = (y0 + row) * SCREENWIDTH + x0 + 1
-    dst[d] = src[s]
-    dst[d + 1] = src[s + 1]
-  end
+  dst:copy_span(src, x0, y0, y1, src_y0)
 end
-
-local function clone_fb(fb)
-  local out = {}
-  for i = 1, #fb do
-    out[i] = fb[i]
+-- Aceita tabelas Lua 1-based (usadas em testes) e converte para framebuffer.
+local function as_fb(t)
+  if type(t) ~= "table" then
+    return t
+  end
+  local out = framebuffer_c.new()
+  for i = 1, #t do
+    out[i] = t[i]
   end
   return out
 end
-
+local function clone_fb(fb)
+  local out = framebuffer_c.new()
+  out:copy_from(fb)
+  return out
+end
 function M.new()
   return {
-    start = {},
-    endfb = {},
+    start = framebuffer_c.new(),
+    endfb = framebuffer_c.new(),
     y = {},
     active = false,
   }
@@ -55,9 +58,8 @@ function M.begin(self, fb, rand)
   rand = rand or function(n)
     return math.random(0, n - 1)
   end
-  for i = 1, #self.start do
-    fb[i] = self.start[i]
-  end
+  self.start = as_fb(self.start)
+  fb:copy_from(self.start)
   local y = {}
   y[0] = -rand(16)
   for i = 1, COLW - 1 do
@@ -74,6 +76,8 @@ function M.begin(self, fb, rand)
 end
 
 function M.tick(self, tics, fb)
+  self.start = as_fb(self.start)
+  self.endfb = as_fb(self.endfb)
   local h = SCREENHEIGHT
   local done = true
   local steps = tics
@@ -108,9 +112,7 @@ function M.tick(self, tics, fb)
     end
   end
   if done then
-    for i = 1, #self.endfb do
-      fb[i] = self.endfb[i]
-    end
+    fb:copy_from(self.endfb)
     self.active = false
   end
   return done
