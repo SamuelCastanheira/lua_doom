@@ -1,0 +1,124 @@
+;; DOOM com concorrencia estruturada (Atmos).
+;;
+;;   atmos main.atm -- -fps -scale 4
+;;
+;; (o "--" e necessario: sem ele o executavel atmos tenta ler -fps como opcao)
+;;
+;; Passo 1 da migracao: este arquivo substitui o laco imperativo do main.lua.
+;; O estado e as regras continuam em game.lua (Lua), com as mesmas fases que o
+;; laco original executava em sequencia. Aqui cada responsabilidade e uma task:
+;;
+;;   Entrada  :input   -> G.handle_input
+;;   Relogio  :tic     -> fases do tic, numa ordem fixa
+;;   Telas    titulo / nivel / intermissao / finale, uma task por vez
+;;   Quadro   :frame   -> G.frame, ate o jogo pedir para sair
+;;
+;; As transicoes de tela ainda sao decididas em Lua (menu, saida do nivel,
+;; cheats, load game alteram game.gamestate). O relogio e a entrada so
+;; verificam a mudanca nas fronteiras de fase e emitem :state; a task da tela
+;; atual termina e o fluxo inicia a proxima. Assim nenhuma task e abortada no
+;; meio de uma chamada Lua, e a ordem das operacoes e a mesma do main.lua
+;; (verificado por tests/test_drivers.sh).
+
+val env  = require "atmos.env.doom"
+val game = require "game"
+val G    = game.new(game.atmos_args(arg))
+
+;; ---------------------------------------------------------------- telas
+;; Cada tela vive enquanto o jogo estiver nela. Ao receber :state, a task
+;; termina e tudo que ela tiver iniciado (tasks filhas) termina junto.
+
+task Titulo () {
+    ;; o titulo nao tem logica por tic: so o menu, tratado pelo relogio
+    await :state
+}
+
+task Nivel () {
+    par :any {
+        loop on :game.tic {
+            if G.tic_view() {
+                ;; fim do nivel: nao recuperar mais tics neste quadro
+                env.cancel_catchup()
+            }
+        }
+    } with {
+        await :state
+    }
+}
+
+task Intermissao () {
+    par :any {
+        loop on :game.tic {
+            G.tic_intermission()
+        }
+    } with {
+        await :state
+    }
+}
+
+task Finale () {
+    par :any {
+        loop on :game.tic {
+            G.tic_finale()
+        }
+    } with {
+        await :state
+    }
+}
+
+task Fluxo () {
+    loop {
+        match G.screen_name() {
+            :view         => await Nivel()
+            :intermission => await Intermissao()
+            :finale       => await Finale()
+            else          => await Titulo()
+        }
+    }
+}
+
+;; ------------------------------------------------------------- entrada
+
+spawn {
+    loop ev on :input {
+        G.handle_input(ev)
+        if G.screen_changed() {
+            emit :state
+        }
+    }
+}
+
+;; -------------------------------------------------------------- relogio
+;; Ordem dentro de um tic, igual ao laco original:
+;;   transicao em andamento? so ela anda
+;;   senao: menu, depois a tela atual (:game.tic)
+
+spawn {
+    loop on :tic {
+        if G.wiping() {
+            G.tic_wipe()
+        } else {
+            G.tic_menu()
+            if G.screen_changed() {
+                emit :state
+            }
+            emit :game.tic
+            if G.screen_changed() {
+                emit :state
+            }
+        }
+    }
+}
+
+;; --------------------------------------------------------- fluxo e quadro
+
+par :any {
+    await Fluxo()
+} with {
+    loop on :frame {
+        G.frame()
+        until (!G.running())
+    }
+}
+
+G.shutdown()

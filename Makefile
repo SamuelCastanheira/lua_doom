@@ -5,6 +5,8 @@
 #   make              compila todos os modulos em modo release
 #   make debug        -O0 -g com AddressSanitizer/UBSan (Linux/macOS)
 #   make run          compila e roda: $(LUA) main.lua $(ARGS)
+#   make run-atmos    idem pelo driver Atmos: atmos main.atm -- $(ARGS)
+#   make test-drivers prova que main.lua e main.atm dao o mesmo jogo
 #   make test         roda os testes em tests/
 #   make clean        remove binarios e objetos
 #   make help         mostra as variaveis detectadas
@@ -117,7 +119,7 @@ TARGETS := $(addsuffix .$(EXT),$(MODULES))
 MODE_STAMP := build/.mode-stamp
 $(shell mkdir -p build; [ "$$(cat $(MODE_STAMP) 2>/dev/null)" = "$(PLATFORM)-$(MODE)" ] || echo "$(PLATFORM)-$(MODE)" > $(MODE_STAMP))
 
-.PHONY: all debug release run test compare baseline check-baseline clean distclean help
+.PHONY: all debug release run run-atmos test-drivers test compare baseline check-baseline clean distclean help
 .DEFAULT_GOAL := all
 
 all: $(TARGETS)
@@ -154,6 +156,17 @@ endif
 
 run: all
 	$(ASAN_PRELOAD) $(LUA) main.lua $(ARGS)
+
+# Mesmo jogo pelo driver com concorrencia estruturada (main.atm).
+ATMOS ?= atmos
+run-atmos: all
+	$(ASAN_PRELOAD) $(ATMOS) main.atm -- $(ARGS)
+
+# Equivalencia main.lua x main.atm em modo replay (sem janela).
+test-drivers: all
+	@sh tests/test_drivers.sh 4000 1
+	@sh tests/test_drivers.sh 6000 2 exits
+	@sh tests/test_drivers.sh 6000 5 exits
 
 TESTS ?= $(wildcard tests/test_*.lua)
 test: all

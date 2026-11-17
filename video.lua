@@ -12,12 +12,71 @@
 
 local keys = require("keys")
 
-local function backend()
-  return require("video_c")
+local M = {}
+
+-- Modo replay (DOOM_REPLAY=roteiro): sem janela nem som, tempo simulado
+-- (cada poll() avanca exatamente 1 tic) e teclas lidas de um roteiro.
+-- Cada present() grava "quadro hash_framebuffer hash_estado" em
+-- DOOM_REPLAY_OUT. Serve para provar que main.lua e main.atm produzem o
+-- mesmo jogo. Roteiro: uma linha por evento, "<quadro> <tecla> down|up",
+-- "<quadro> quit" ou "<quadro> exit [secret]" (termina o nivel atual, para
+-- testar intermissao e finale). quadro = numero do poll, a partir de 1.
+local function replay_backend(path)
+  local fbmod = require("framebuffer_c")
+  -- wipe.lua e wi_stuff.lua usam math.random (o original usava M_Random);
+  -- no replay a semente e fixa para que duas execucoes sejam iguais.
+  math.randomseed(1)
+  local script = {}
+  for line in io.lines(path) do
+    local n, key, dir = line:match("^%s*(%d+)%s+(%S+)%s*(%S*)")
+    if n then
+      n = tonumber(n)
+      script[n] = script[n] or {}
+      local ev
+      if key == "quit" then
+        ev = { key = "quit", down = true }
+      elseif key == "exit" then
+        -- so para testes: termina o nivel como o switch de saida
+        ev = { key = "", replay_exit = true, secret = dir == "secret" }
+      else
+        ev = { key = key, down = dir ~= "up" }
+      end
+      table.insert(script[n], ev)
+    end
+  end
+  local out = assert(io.open(os.getenv("DOOM_REPLAY_OUT") or "replay.log", "w"))
+  local polls, frames = 0, 0
+  local tick_ms = 1000 / 35
+  local b = {}
+  function b.init() end
+  function b.shutdown()
+    out:close()
+  end
+  function b.set_palette() end
+  function b.delay() end
+  function b.ticks()
+    return polls * tick_ms
+  end
+  function b.poll()
+    polls = polls + 1
+    return script[polls] or {}
+  end
+  function b.present(fb)
+    frames = frames + 1
+    local state = M.state_hook and M.state_hook() or ""
+    out:write(string.format("%d %d %d\n", frames, fbmod.hash(fb), fbmod.hash(state)))
+  end
+  return b
 end
 
-local raw = backend()
-local M = {}
+local replay_path = os.getenv("DOOM_REPLAY")
+local raw
+if replay_path and replay_path ~= "" then
+  raw = replay_backend(replay_path)
+  M.replay = true
+else
+  raw = require("video_c")
+end
 
 function M.init(w, h, scale, title)
   print("SCALE", scale)
@@ -49,7 +108,7 @@ function M.poll()
   for i = 1, #events do
     if events[i].mouse then
       events[i].key = ""
-    else
+    elseif events[i].key == nil then
       events[i].key = keys.name_of(events[i].sym)
     end
   end

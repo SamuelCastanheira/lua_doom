@@ -199,8 +199,23 @@ static const luaL_Reg framebuffer_methods[] = {
     {NULL, NULL}
 };
 
+/* framebuffer_c.hash(s): FNV-1a de 32 bits de uma string (testes de replay). */
+static int l_hash(lua_State *L)
+{
+    size_t n;
+    const unsigned char *p = (const unsigned char *)luaL_checklstring(L, 1, &n);
+    uint32_t h = 2166136261u;
+    for (size_t i = 0; i < n; i++) {
+        h ^= p[i];
+        h *= 16777619u;
+    }
+    lua_pushinteger(L, (lua_Integer)h);
+    return 1;
+}
+
 static const luaL_Reg framebuffer_module[] = {
     {"new", l_new},
+    {"hash", l_hash},
     {NULL, NULL}
 };
 
