@@ -1,7 +1,11 @@
 -- Renderiza quadros de teste sem abrir janela e grava o framebuffer cru.
 --
 -- Uso (a partir da raiz de uma copia do projeto):
---   lua5.4 tools/dump_frames.lua <saida_dir> [episodio] [mapa] [sprites]
+--   lua5.4 tools/dump_frames.lua <saida_dir> [episodio] [mapa] [sprites|full]
+--                                [blocks] [detail]
+--
+-- "full" = sprites + arma + variacao de extralight e fixedcolormap.
+-- blocks: 3..11 (11 = tela cheia, padrao); detail: 0 alto, 1 baixo.
 --
 -- Gera <saida_dir>/frame_NN.raw (64000 bytes, indices de paleta) e
 -- <saida_dir>/palette.raw. Funciona tanto com o renderer Lua antigo
@@ -10,7 +14,11 @@
 local outdir = assert(arg[1], "uso: dump_frames.lua <saida_dir> [ep] [mapa] [sprites]")
 local episode = tonumber(arg[2] or "1")
 local mapn = tonumber(arg[3] or "1")
-local with_sprites = arg[4] == "sprites"
+local mode = arg[4] or ""
+local with_sprites = mode == "sprites" or mode == "full"
+local full = mode == "full"
+local blocks = tonumber(arg[5] or "11")
+local detail = tonumber(arg[6] or "0")
 
 local wad = require("wad")
 local v = require("v_video")
@@ -40,7 +48,7 @@ if with_sprites then
 end
 
 local renderer = render.new(res)
-render.set_view_size(renderer, 11, 0)
+render.set_view_size(renderer, blocks, detail)
 
 local function save(path, data)
   local f = assert(io.open(path, "wb"))
@@ -73,11 +81,28 @@ for t = 1, #things, step do
   for _, rot in ipairs({ 0, 3 }) do
     local ang = (math.floor(th.angle * ANG45 / 45) + rot * ANG45) % 4294967296
     local fb = v.new_fb()
-    render.setup_frame(renderer, x, y, z, ang, 0, 0)
+    local extra, cmap = 0, 0
+    if full then
+      extra = frame % 3
+      if frame % 5 == 4 then
+        cmap = (frame % 2 == 0) and 32 or 1
+      end
+    end
+    render.setup_frame(renderer, x, y, z, ang, extra, cmap)
     render.render(renderer, world, fb)
     if with_sprites then
       sprites.draw(renderer, world, fb)
       render.draw_masked(renderer)
+    end
+    if full then
+      local lump = wad.check_num_for_name(w, frame % 2 == 0 and "PISGA0" or "SHTGA0")
+      local sx = 65536 + (frame % 7 - 3) * 65536 * 4
+      local sy = 32 * 65536 + (frame % 4) * 65536 * 3
+      if renderer.c then
+        sprites.draw_psprite(renderer, fb, lump, sx, sy)
+      else
+        sprites.draw_psprite(renderer, fb, wad.cache_lump_num(w, lump), sx, sy)
+      end
     end
     save(string.format("%s/frame_%02d.raw", outdir, frame), fb_bytes(fb))
     frame = frame + 1

@@ -100,7 +100,8 @@ MODULES := tables_c framebuffer_c r_data_c render_c video_c test_fixed_c
 tables_c_SRC      := src/tables_c.c
 framebuffer_c_SRC := src/framebuffer_c.c
 r_data_c_SRC      := src/r_data_c.c
-render_c_SRC      := src/render_c.c
+render_c_SRC      := $(wildcard src/render/*.c)
+render_c_CFLAGS   := -Isrc/render
 video_c_SRC       := src/video_c.c
 video_c_CFLAGS    := $(SDL_CFLAGS)
 video_c_LIBS      := $(SDL_LIBS)
@@ -164,18 +165,21 @@ test: all
 # Compara o renderer atual com o renderer Lua puro (commit REF_COMMIT),
 # pixel a pixel. PNGs lado a lado ficam em build/compare/png.
 #   make compare MAP=3 EP=1        make compare SPRITES=sprites
+#   make compare SPRITES=full BLOCKS=10 DETAIL=1
 REF_COMMIT ?= 522b06f
 REF_DIR    ?= build/ref-worktree
 EP  ?= 1
 MAP ?= 1
 SPRITES ?=
-CMP := build/compare/e$(EP)m$(MAP)$(SPRITES)
+BLOCKS ?= 11
+DETAIL ?= 0
+CMP := build/compare/e$(EP)m$(MAP)$(SPRITES)-b$(BLOCKS)d$(DETAIL)
 compare: all
 	@test -d $(REF_DIR) || git worktree add $(REF_DIR) $(REF_COMMIT)
 	@test -e $(REF_DIR)/doom.wad || ln -sf "$(CURDIR)"/*.wad $(REF_DIR)/ 2>/dev/null || true
 	@mkdir -p $(CMP)/ref $(CMP)/cur
-	cd $(REF_DIR) && $(LUA) "$(CURDIR)/tools/dump_frames.lua" "$(CURDIR)/$(CMP)/ref" $(EP) $(MAP) $(SPRITES)
-	$(LUA) tools/dump_frames.lua $(CMP)/cur $(EP) $(MAP) $(SPRITES)
+	cd $(REF_DIR) && $(LUA) "$(CURDIR)/tools/dump_frames.lua" "$(CURDIR)/$(CMP)/ref" $(EP) $(MAP) "$(SPRITES)" $(BLOCKS) $(DETAIL)
+	$(LUA) tools/dump_frames.lua $(CMP)/cur $(EP) $(MAP) "$(SPRITES)" $(BLOCKS) $(DETAIL)
 	python3 tools/compare_frames.py $(CMP)/ref $(CMP)/cur $(CMP)/png
 
 clean:

@@ -9,102 +9,9 @@
 #include <string.h>
 #include <ctype.h>
 
-#define RD_MT "r_data_c.RData"
+#include "r_data.h"
+
 #define FRACUNIT 65536
-#define MAX_SPRITE_FRAMES 29
-#define SPRITE_ROTATIONS 8
-
-typedef struct {
-    int16_t originx;
-    int16_t originy;
-    int32_t patch;
-} PatchDef;
-
-typedef struct {
-    char name[9];
-    int width;
-    int height;
-    int widthmask;
-    int patch_count;
-    PatchDef *patches;
-    int32_t *col_lump;
-    uint32_t *col_ofs;
-    uint8_t *composite;
-} Texture;
-
-typedef struct {
-    char name[9];       /* Nome da textura (até 8 caracteres + '\0') */
-    int texture_num;    /* Índice em rd->textures */
-} TextureIndex;
-
-typedef struct {
-    int rotate;
-    int lump[8];
-    int flip[8];
-} SpriteFrame;
-
-typedef struct {
-    int frame_count;
-    SpriteFrame *frames;
-} SpriteDef;
-
-typedef struct {
-    char name[5];
-    SpriteDef def;
-} SpriteEntry;
-
-typedef struct {
-    int count;
-    SpriteEntry *entries;
-} SpriteDefs;
-
-typedef struct {
-    int lump_num;           /* Índice do lump no WAD */
-    uint8_t *pixels;        /* 64 * 64 = 4096 bytes */
-    size_t size;            /* Tamanho dos dados */
-} Flat;
-
-typedef struct {
-    lua_State *L;
-
-    /* Referências Lua */
-    int wad_ref;
-    int wad_module_ref;
-
-    /* Texturas */
-    Texture *textures;
-    int texture_count;
-
-    TextureIndex *tex_index;
-    int tex_index_count;
-
-    /* Flats */
-    int flats_first;
-    int flats_last;
-    Flat *flats;
-    int flat_count;
-
-    /* Traduções */
-    int *flattranslation;
-    int flattranslation_count;
-
-    int *texturetranslation;
-    int texturetranslation_count;
-
-    /* Colormaps */
-    uint8_t *colormaps;
-    size_t colormaps_size;
-
-    /* Informações do mapa */
-    int skytexture;
-    int skyflatnum;
-
-    /* Sprites */
-    SpriteDefs sprites;
-    int sprite_count;
-
-    int initialized;
-} RData;
 
 static uint16_t rd_u16(const uint8_t *p) {
     return (uint16_t)(p[0] | ((uint16_t)p[1] << 8));
@@ -135,6 +42,10 @@ static void free_texture(Texture *t) {
     free(t->col_lump);
     free(t->col_ofs);
     free(t->composite);
+    free(t->wall128);
+    free(t->mpost_first);
+    free(t->mposts);
+    free(t->mpix);
     memset(t, 0, sizeof(*t));
 }
 
@@ -148,6 +59,9 @@ static void free_rdata(RData *rd) {
     }
 
     free(rd->colormaps);
+    free(rd->flatpix);
+    rd->flatpix = NULL;
+    rd->render_ready = 0;
     rd->textures = NULL;
     rd->texture_count = 0;
     rd->colormaps = NULL;
@@ -525,7 +439,11 @@ static int init_textures(RData *rd) {
 }
 
 static RData *check_rdata(lua_State *L, int idx) {
-    return (RData *)luaL_checkudata(L, idx, RD_MT);
+    RData *rd = (RData *)luaL_checkudata(L, idx, RD_MT);
+    /* Chamadas Lua internas usam rd->L; precisa ser a thread atual, porque
+     * o Atmos roda codigo dentro de corrotinas. */
+    rd->L = L;
+    return rd;
 }
 
 static int l_new(lua_State *L) {
@@ -1325,7 +1243,7 @@ static int l_sprite_frame(lua_State *L) {
 
 static int l_sprite_lookup(lua_State *L)
 {
-    RData *rd = luaL_checkudata(L, 1, RD_MT);
+    RData *rd = check_rdata(L, 1);
 
     size_t name_len;
     const char *name = luaL_checklstring(L, 2, &name_len);
@@ -1536,8 +1454,150 @@ static int l_check_num_for_name(lua_State *L) {
     return 1;
 }
 
+/*
+ * Prepara os dados que o render_c le direto da memoria:
+ *   - Texture.wall128: cada coluna exatamente como get_column devolve;
+ *   - Texture.mposts/mpix: os posts exatamente como column_posts devolve;
+ *   - RData.flatpix: cada flat exatamente como flat_pixels devolve.
+ * Idempotente. Chamado uma vez por render_c.new().
+ */
+static int prepare_texture(RData *rd, Texture *tex) {
+    lua_State *L = rd->L;
+    if (tex->width <= 0 || tex->height <= 0)
+        return 1;
+    if (!generate_composite(rd, tex))
+        return 0;
+
+    tex->wall128 = (uint8_t *)calloc((size_t)tex->width, RD_COLUMN_SIZE);
+    tex->mpost_first = (int32_t *)calloc((size_t)tex->width + 1, sizeof(int32_t));
+    if (!tex->wall128 || !tex->mpost_first)
+        return 0;
+
+    size_t npost = 0, cap_post = (size_t)tex->width + 8;
+    size_t npix = 0, cap_pix = (size_t)tex->width * (size_t)tex->height + 64;
+    tex->mposts = (MaskedPost *)malloc(cap_post * sizeof(MaskedPost));
+    tex->mpix = (uint8_t *)malloc(cap_pix);
+    if (!tex->mposts || !tex->mpix)
+        return 0;
+
+    size_t total = (size_t)tex->width * (size_t)tex->height;
+
+    for (int x = 0; x < tex->width; ++x) {
+        uint8_t *out = tex->wall128 + (size_t)x * RD_COLUMN_SIZE;
+        tex->mpost_first[x] = (int32_t)npost;
+        int lump = tex->col_lump[x];
+
+        /* Fontes: (topdelta, length, ponteiro) de cada post desta coluna. */
+        const uint8_t *patch = NULL;
+        size_t size = 0;
+        int patch_idx = 0;
+
+        if (lump >= 0) {
+            patch_idx = push_lump_num(rd, lump);
+            patch = (const uint8_t *)lua_tolstring(L, patch_idx, &size);
+            column_to_source(patch, size, tex->col_ofs[x], out);
+        } else {
+            size_t offset = (size_t)tex->col_ofs[x];
+            size_t n = (size_t)tex->height;
+            if (offset <= total && n <= total - offset) {
+                const uint8_t *src = tex->composite + offset;
+                for (int i = 0; i < RD_COLUMN_SIZE; ++i)
+                    out[i] = src[(size_t)i % n];
+            }
+        }
+
+        /* Posts mascarados (mesma logica de l_column_posts). */
+        if (lump >= 0) {
+            size_t pos = tex->col_ofs[x];
+            while (pos < size) {
+                uint8_t topdelta = patch[pos];
+                if (topdelta == 255) break;
+                if (!has_bytes(size, pos, 3)) break;
+                uint8_t length = patch[pos + 1];
+                size_t source = pos + 3;
+                if (!has_bytes(size, source, length)) break;
+                if (npost == cap_post) {
+                    cap_post *= 2;
+                    MaskedPost *np = (MaskedPost *)realloc(tex->mposts, cap_post * sizeof(MaskedPost));
+                    if (!np) { lua_pop(L, 1); return 0; }
+                    tex->mposts = np;
+                }
+                if (npix + length > cap_pix) {
+                    cap_pix = (cap_pix + length) * 2;
+                    uint8_t *np = (uint8_t *)realloc(tex->mpix, cap_pix);
+                    if (!np) { lua_pop(L, 1); return 0; }
+                    tex->mpix = np;
+                }
+                memcpy(tex->mpix + npix, patch + source, length);
+                tex->mposts[npost].topdelta = topdelta;
+                tex->mposts[npost].length = length;
+                tex->mposts[npost].pixofs = (uint32_t)npix;
+                npost++;
+                npix += length;
+                pos += (size_t)length + 4u;
+            }
+            lua_remove(L, patch_idx);
+        } else {
+            size_t offset = (size_t)tex->col_ofs[x];
+            size_t n = (size_t)tex->height;
+            if (has_bytes(total, offset, n)) {
+                if (npost == cap_post) {
+                    cap_post *= 2;
+                    MaskedPost *np = (MaskedPost *)realloc(tex->mposts, cap_post * sizeof(MaskedPost));
+                    if (!np) return 0;
+                    tex->mposts = np;
+                }
+                if (npix + n > cap_pix) {
+                    cap_pix = (cap_pix + n) * 2;
+                    uint8_t *np = (uint8_t *)realloc(tex->mpix, cap_pix);
+                    if (!np) return 0;
+                    tex->mpix = np;
+                }
+                memcpy(tex->mpix + npix, tex->composite + offset, n);
+                tex->mposts[npost].topdelta = 0;
+                tex->mposts[npost].length = (int)n;
+                tex->mposts[npost].pixofs = (uint32_t)npix;
+                npost++;
+                npix += n;
+            }
+        }
+    }
+    tex->mpost_first[tex->width] = (int32_t)npost;
+    return 1;
+}
+
+static int l_prepare_render(lua_State *L) {
+    RData *rd = check_rdata(L, 1);
+    if (!rd->initialized)
+        return luaL_error(L, "r_data_c: prepare_render antes de init");
+    if (rd->render_ready) {
+        lua_pushvalue(L, 1);
+        return 1;
+    }
+    for (int i = 0; i < rd->texture_count; ++i) {
+        if (!prepare_texture(rd, &rd->textures[i]))
+            return luaL_error(L, "r_data_c: sem memoria preparando textura %d", i);
+    }
+    size_t nflats = rd->flat_count > 0 ? (size_t)rd->flat_count : 1;
+    rd->flatpix = (uint8_t *)calloc(nflats, RD_FLAT_SIZE);
+    if (!rd->flatpix)
+        return luaL_error(L, "r_data_c: sem memoria para flats");
+    for (int f = 0; f < rd->flat_count; ++f) {
+        int idx = push_lump_num(rd, rd->flats_first + f);
+        size_t size = 0;
+        const char *data = lua_tolstring(L, idx, &size);
+        size_t n = size < RD_FLAT_SIZE ? size : RD_FLAT_SIZE;
+        if (n) memcpy(rd->flatpix + (size_t)f * RD_FLAT_SIZE, data, n);
+        lua_remove(L, idx);
+    }
+    rd->render_ready = 1;
+    lua_pushvalue(L, 1);
+    return 1;
+}
+
 static const luaL_Reg rdata_methods[] = {
     {"init", l_init},
+    {"prepare_render", l_prepare_render},
     {"colormap", l_colormap},
     {"flat_num_for_name", l_flat_num_for_name},
     {"flat_lump", l_flat_lump},
