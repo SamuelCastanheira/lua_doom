@@ -8,7 +8,7 @@
  *   R:render(world, fb)                       paredes, chao, teto, ceu
  *   R:draw_sprites(world.mobjs)               sprites + masked atras deles
  *   R:draw_masked()                           masked restantes
- *   R:draw_psprite(lump, sx, sy)              arma
+ *   R:draw_psprite(lump, sx, sy, fb, fullbright, shadow)   arma
  *   R:point_to_angle(x, y)
  *   R:get(campo)                              leitura de estado (debug/HUD)
  */
@@ -292,6 +292,7 @@ static int l_new(lua_State *L)
     R->floorplane = -1;
     R->ceilingplane = -1;
     R->maskedtexturecol = -1;
+    R->use_bbox = 1;
     luaL_setmetatable(L, RENDERER_MT);
 
     lua_pushvalue(L, 1);
@@ -316,6 +317,8 @@ static int l_gc(lua_State *L)
     free(R->vissprites);
     free(R->lump_ptr);
     free(R->lump_len);
+    free(R->tagbuf);
+    R->tagbuf = NULL;
     R->visplanes = NULL;
     R->drawsegs = NULL;
     R->openings = NULL;
@@ -355,9 +358,13 @@ static int l_render(lua_State *L)
     R->framecount++;
     if (R->framecount == 0)
         R->framecount = 1;
+    if (R->tagbuf)
+        memset(R->tagbuf, 0, PIXELS);
+    r_tagbuf = R->tagbuf;
     r_sync_level(L, R, 1, 2);
     r_render_bsp(L, R);
     r_flush_mapped(L, R, 1);
+    r_tagbuf = NULL;
     return 0;
 }
 
@@ -372,7 +379,9 @@ static int l_draw_sprites(lua_State *L)
     Renderer *R = check_renderer(L, 1);
     luaL_checktype(L, 2, LUA_TTABLE);
     require_frame(L, R);
+    r_tagbuf = R->tagbuf;
     r_draw_sprites(L, R, 1, 2);
+    r_tagbuf = NULL;
     return 0;
 }
 
@@ -380,7 +389,9 @@ static int l_draw_masked(lua_State *L)
 {
     Renderer *R = check_renderer(L, 1);
     require_frame(L, R);
+    r_tagbuf = R->tagbuf;
     r_draw_masked(R);
+    r_tagbuf = NULL;
     return 0;
 }
 
@@ -394,7 +405,10 @@ static int l_draw_psprite(lua_State *L)
         lua_pushvalue(L, 5);
         lua_setiuservalue(L, 1, UV_FB);
     }
-    r_draw_psprite(L, R, 1, arg_num(L, 2, -1), arg_num(L, 3, 0), arg_num(L, 4, 0));
+    r_tagbuf = R->tagbuf;
+    r_draw_psprite(L, R, 1, arg_num(L, 2, -1), arg_num(L, 3, 0), arg_num(L, 4, 0),
+                   lua_toboolean(L, 6), lua_toboolean(L, 7));
+    r_tagbuf = NULL;
     return 0;
 }
 
@@ -402,6 +416,37 @@ static int l_point_to_angle(lua_State *L)
 {
     Renderer *R = check_renderer(L, 1);
     lua_pushinteger(L, r_point_to_angle(R, arg_num(L, 2, 0), arg_num(L, 3, 0)));
+    return 1;
+}
+
+/* R:set_option(nome, valor): opcoes de diagnostico ("use_bbox"). */
+static int l_set_option(lua_State *L)
+{
+    Renderer *R = check_renderer(L, 1);
+    const char *k = luaL_checkstring(L, 2);
+    if (strcmp(k, "use_bbox") == 0) {
+        R->use_bbox = lua_toboolean(L, 3);
+    } else if (strcmp(k, "tags") == 0) {
+        if (lua_toboolean(L, 3)) {
+            if (!R->tagbuf)
+                R->tagbuf = (uint8_t *)calloc(PIXELS, 1);
+        } else {
+            free(R->tagbuf);
+            R->tagbuf = NULL;
+        }
+    }
+    else
+        return luaL_error(L, "render_c: opcao desconhecida '%s'", k);
+    return 0;
+}
+
+/* R:get_tags(): string de 64000 bytes com o TAG_* de cada pixel. */
+static int l_get_tags(lua_State *L)
+{
+    Renderer *R = check_renderer(L, 1);
+    if (!R->tagbuf)
+        return luaL_error(L, "render_c: ative com set_option('tags', true)");
+    lua_pushlstring(L, (const char *)R->tagbuf, PIXELS);
     return 1;
 }
 
@@ -421,6 +466,8 @@ static int l_get(lua_State *L)
         {"pspritescale", R->pspritescale}, {"pspriteiscale", R->pspriteiscale},
         {"numvisplanes", R->numvisplanes}, {"numdrawsegs", R->numdrawsegs},
         {"numvissprites", R->numvis},
+        {"visited_subsectors", R->visited_subsectors},
+        {"use_bbox", R->use_bbox},
     };
     for (size_t i = 0; i < sizeof(fields) / sizeof(fields[0]); i++) {
         if (strcmp(fields[i].name, k) == 0) {
@@ -441,6 +488,8 @@ static const luaL_Reg renderer_methods[] = {
     {"draw_psprite", l_draw_psprite},
     {"point_to_angle", l_point_to_angle},
     {"get", l_get},
+    {"set_option", l_set_option},
+    {"get_tags", l_get_tags},
     {NULL, NULL}
 };
 

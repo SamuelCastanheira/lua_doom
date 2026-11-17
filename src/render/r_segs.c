@@ -126,6 +126,7 @@ static void render_seg_loop(lua_State *L, Renderer *R)
         R->dc_colormap, 256, R->centery, R->viewwidth, R->detailshift, \
         R->viewwindowx, R->viewwindowy)
 
+    r_tag = TAG_WALL;
     while (rw_x < rw_stopx) {
         int x = (int)rw_x;
         lnum ceiling = ceilingclip[x];
@@ -369,11 +370,11 @@ void r_store_wall_range(lua_State *L, Renderer *R, lnum start, lnum stop)
     R->segtextured = 0;
 
     if (!back) {
-        R->midtexture = sidedef->midtexture;
+        R->midtexture = r_tex_translate(R->rd, sidedef->midtexture);
         R->markfloor = 1;
         R->markceiling = 1;
         if (r_band(linedef->flags, ML_DONTPEGBOTTOM) != 0) {
-            lnum vtop = front->floorheight + texture_height(L, R, R->midtexture);
+            lnum vtop = front->floorheight + texture_height(L, R, sidedef->midtexture);
             R->rw_midtexturemid = vtop - R->viewz;
         } else {
             R->rw_midtexturemid = R->worldtop;
@@ -396,16 +397,16 @@ void r_store_wall_range(lua_State *L, Renderer *R, lnum start, lnum stop)
             R->markfloor = 1;
         }
         if (R->worldhigh < R->worldtop) {
-            R->toptexture = sidedef->toptexture;
+            R->toptexture = r_tex_translate(R->rd, sidedef->toptexture);
             if (r_band(linedef->flags, ML_DONTPEGTOP) != 0) {
                 R->rw_toptexturemid = R->worldtop;
             } else {
-                lnum vtop = back->ceilingheight + texture_height(L, R, R->toptexture);
+                lnum vtop = back->ceilingheight + texture_height(L, R, sidedef->toptexture);
                 R->rw_toptexturemid = vtop - R->viewz;
             }
         }
         if (R->worldlow > R->worldbottom) {
-            R->bottomtexture = sidedef->bottomtexture;
+            R->bottomtexture = r_tex_translate(R->rd, sidedef->bottomtexture);
             if (r_band(linedef->flags, ML_DONTPEGBOTTOM) != 0)
                 R->rw_bottomtexturemid = R->worldtop;
             else
@@ -433,6 +434,21 @@ void r_store_wall_range(lua_State *L, Renderer *R, lnum start, lnum stop)
             R->rw_offset = -R->rw_offset;
         R->rw_offset = R->rw_offset + sidedef->textureoffset + line->offset;
         R->rw_centerangle = r_u32(ANG90 + R->viewangle - R->rw_normalangle);
+
+        /* Contraste falso (R_StoreWallRange): paredes horizontais um nivel
+         * mais escuras, verticais um nivel mais claras. */
+        if (!R->fixedcolormap) {
+            const RVertex *a = &lv->vertexes[line->v1];
+            const RVertex *b = &lv->vertexes[line->v2];
+            lnum lightnum = r_ushr(front->lightlevel, 4) + R->extralight;
+            if (a->y == b->y)
+                lightnum--;
+            else if (a->x == b->x)
+                lightnum++;
+            if (lightnum < 0) lightnum = 0;
+            if (lightnum > LIGHTLEVELS - 1) lightnum = LIGHTLEVELS - 1;
+            R->walllights = R->scalelight[lightnum];
+        }
     }
 
     if (front->floorheight >= R->viewz)
@@ -481,7 +497,7 @@ void r_render_masked_seg_range(Renderer *R, int dsi, lnum x1, lnum x2)
     const RSector *front = &lv->sectors[line->frontsector];
     const RSector *back = &lv->sectors[line->backsector];
     const RSide *sidedef = &lv->sides[line->sidedef];
-    lnum texnum = sidedef->midtexture;
+    lnum texnum = r_tex_translate(R->rd, sidedef->midtexture);
     if (texnum == 0)
         return;
 

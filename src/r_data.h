@@ -81,6 +81,16 @@ typedef struct {
     size_t size;
 } Flat;
 
+/* Animacao de texturas/flats (anim_t do p_spec.c). */
+typedef struct {
+    int istexture;
+    int picnum;
+    int basepic;
+    int numpics;
+    int speed;
+} RAnim;
+#define RD_MAXANIMS 32
+
 typedef struct {
     lua_State *L;
     int wad_ref;
@@ -111,6 +121,11 @@ typedef struct {
     int sprite_count;
 
     int initialized;
+
+    /* Animacoes: texturetranslation/flattranslation acima (identidade
+     * ate update_anims). */
+    RAnim anims[RD_MAXANIMS];
+    int numanims;
 
     /* Preenchidos por prepare_render(). */
     uint8_t *flatpix;        /* flat_count * 4096: mesma saida de flat_pixels */

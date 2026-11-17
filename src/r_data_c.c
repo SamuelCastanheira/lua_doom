@@ -59,6 +59,13 @@ static void free_rdata(RData *rd) {
     }
 
     free(rd->colormaps);
+    free(rd->texturetranslation);
+    free(rd->flattranslation);
+    rd->texturetranslation = NULL;
+    rd->flattranslation = NULL;
+    rd->texturetranslation_count = 0;
+    rd->flattranslation_count = 0;
+    rd->numanims = 0;
     free(rd->flatpix);
     rd->flatpix = NULL;
     rd->render_ready = 0;
@@ -437,6 +444,8 @@ static int init_textures(RData *rd) {
     free(patch_lookup);
     return 1;
 }
+
+static int init_anims(RData *rd);
 
 static RData *check_rdata(lua_State *L, int idx) {
     RData *rd = (RData *)luaL_checkudata(L, idx, RD_MT);
@@ -1100,6 +1109,9 @@ static int l_init(lua_State *L) {
         return luaL_error(L,
             "r_data_c: failed to initialize sprites");
 
+    if (!init_anims(rd))
+        return luaL_error(L, "r_data_c: sem memoria para animacoes");
+
     rd->initialized = 1;
 
     lua_pushvalue(L, 1);
@@ -1314,6 +1326,18 @@ static int l_sprite_lookup(lua_State *L)
     lua_pushinteger(L, flip);
 
     return 2;
+}
+
+/* res:set_sky(nome): troca a textura do ceu (ex.: "SKY2"). Retorna o indice. */
+static int l_set_sky(lua_State *L) {
+    RData *rd = check_rdata(L, 1);
+    const char *name = luaL_checkstring(L, 2);
+    int idx = texture_index_by_name(rd, name);
+    if (idx < 0)
+        return luaL_error(L, "r_data_c: textura de ceu '%s' nao existe", name);
+    rd->skytexture = idx;
+    lua_pushinteger(L, idx);
+    return 1;
 }
 
 static int l_texture_count(lua_State *L) {
@@ -1566,6 +1590,108 @@ static int prepare_texture(RData *rd, Texture *tex) {
     return 1;
 }
 
+/* animdefs do p_spec.c original: {istexture, endname, startname, speed}. */
+static const struct {
+    int istexture;
+    const char *endname;
+    const char *startname;
+    int speed;
+} animdefs[] = {
+    {0, "NUKAGE3", "NUKAGE1", 8},
+    {0, "FWATER4", "FWATER1", 8},
+    {0, "SWATER4", "SWATER1", 8},
+    {0, "LAVA4", "LAVA1", 8},
+    {0, "BLOOD3", "BLOOD1", 8},
+    /* DOOM II */
+    {0, "RROCK08", "RROCK05", 8},
+    {0, "SLIME04", "SLIME01", 8},
+    {0, "SLIME08", "SLIME05", 8},
+    {0, "SLIME12", "SLIME09", 8},
+    {1, "BLODGR4", "BLODGR1", 8},
+    {1, "SLADRIP3", "SLADRIP1", 8},
+    {1, "BLODRIP4", "BLODRIP1", 8},
+    {1, "FIREWALL", "FIREWALA", 8},
+    {1, "GSTFONT3", "GSTFONT1", 8},
+    {1, "FIRELAVA", "FIRELAV3", 8},
+    {1, "FIREMAG3", "FIREMAG1", 8},
+    {1, "FIREBLU2", "FIREBLU1", 8},
+    {1, "ROCKRED3", "ROCKRED1", 8},
+    {1, "BFALL4", "BFALL1", 8},
+    {1, "SFALL4", "SFALL1", 8},
+    {1, "WFALL4", "WFALL1", 8},
+    {1, "DBRAIN4", "DBRAIN1", 8},
+};
+
+/* P_InitPicAnims + traducoes identidade. Chamado no fim de l_init. */
+static int init_anims(RData *rd) {
+    rd->texturetranslation_count = rd->texture_count;
+    rd->flattranslation_count = rd->flat_count;
+    rd->texturetranslation = (int *)malloc((size_t)(rd->texture_count + 1) * sizeof(int));
+    rd->flattranslation = (int *)malloc((size_t)(rd->flat_count + 1) * sizeof(int));
+    if (!rd->texturetranslation || !rd->flattranslation)
+        return 0;
+    for (int i = 0; i < rd->texture_count; i++)
+        rd->texturetranslation[i] = i;
+    for (int i = 0; i < rd->flat_count; i++)
+        rd->flattranslation[i] = i;
+
+    rd->numanims = 0;
+    for (size_t i = 0; i < sizeof(animdefs) / sizeof(animdefs[0]); i++) {
+        RAnim a;
+        a.istexture = animdefs[i].istexture;
+        if (a.istexture) {
+            /* outro episodio/jogo? */
+            a.basepic = texture_index_by_name(rd, animdefs[i].startname);
+            a.picnum = texture_index_by_name(rd, animdefs[i].endname);
+            if (a.basepic < 0 || a.picnum < 0)
+                continue;
+        } else {
+            int start = call_wad_num(rd, "check_num_for_name", animdefs[i].startname);
+            int end = call_wad_num(rd, "check_num_for_name", animdefs[i].endname);
+            if (start < 0 || end < 0)
+                continue;
+            a.basepic = start - rd->flats_first;
+            a.picnum = end - rd->flats_first;
+            if (a.basepic < 0 || a.picnum >= rd->flat_count)
+                continue;
+        }
+        a.numpics = a.picnum - a.basepic + 1;
+        if (a.numpics < 2) {
+            /* O original aborta com I_Error; aqui so ignora a sequencia. */
+            fprintf(stderr, "r_data_c: animacao invalida de %s a %s\n",
+                    animdefs[i].startname, animdefs[i].endname);
+            continue;
+        }
+        a.speed = animdefs[i].speed;
+        if (rd->numanims < RD_MAXANIMS)
+            rd->anims[rd->numanims++] = a;
+    }
+    return 1;
+}
+
+/* res:update_anims(leveltime): parte "animate flats and textures" de
+ * P_UpdateSpecials. Chamar uma vez por tic, antes de incrementar leveltime. */
+static int l_update_anims(lua_State *L) {
+    RData *rd = check_rdata(L, 1);
+    lua_Integer leveltime = luaL_checkinteger(L, 2);
+    if (leveltime < 0)
+        leveltime = 0;
+    for (int k = 0; k < rd->numanims; k++) {
+        const RAnim *a = &rd->anims[k];
+        int *tr = a->istexture ? rd->texturetranslation : rd->flattranslation;
+        for (int i = a->basepic; i < a->basepic + a->numpics; i++)
+            tr[i] = a->basepic + (int)((leveltime / a->speed + i) % a->numpics);
+    }
+    return 0;
+}
+
+/* res:anim_count(): numero de sequencias ativas neste WAD. */
+static int l_anim_count(lua_State *L) {
+    RData *rd = check_rdata(L, 1);
+    lua_pushinteger(L, rd->numanims);
+    return 1;
+}
+
 static int l_prepare_render(lua_State *L) {
     RData *rd = check_rdata(L, 1);
     if (!rd->initialized)
@@ -1598,6 +1724,8 @@ static int l_prepare_render(lua_State *L) {
 static const luaL_Reg rdata_methods[] = {
     {"init", l_init},
     {"prepare_render", l_prepare_render},
+    {"update_anims", l_update_anims},
+    {"anim_count", l_anim_count},
     {"colormap", l_colormap},
     {"flat_num_for_name", l_flat_num_for_name},
     {"flat_lump", l_flat_lump},
@@ -1609,6 +1737,7 @@ static const luaL_Reg rdata_methods[] = {
     {"get_column", l_get_column},
     {"skyflatnum", l_skyflatnum},
     {"skytexture", l_skytexture},
+    {"set_sky", l_set_sky},
     {"sprite_count", l_sprite_count},
     {"sprite_name", l_sprite_name},
     {"sprite_frame_count", l_sprite_frame_count},

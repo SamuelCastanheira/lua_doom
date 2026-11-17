@@ -3,6 +3,9 @@
 
 #include "r_local.h"
 
+uint8_t *r_tagbuf = NULL;
+uint8_t r_tag = TAG_NONE;
+
 void r_draw_column_pixels(Framebuffer *fb, lnum dc_x, lnum dc_yl, lnum dc_yh,
                           lnum dc_iscale, lnum dc_texturemid,
                           const uint8_t *src, size_t slen,
@@ -37,10 +40,14 @@ void r_draw_column_pixels(Framebuffer *fb, lnum dc_x, lnum dc_yl, lnum dc_yh,
         int idx = (int)((frac >> FRACBITS) & 127);
         uint8_t pix = src[(size_t)idx % slen];
         uint8_t val = pix < cmlen ? cm[pix] : pix;
-        if (dest >= 0)
+        if (dest >= 0) {
             pixels[dest] = val;
-        if (dest2 >= 0 && dest2 < PIXELS)
+            R_TAG(dest);
+        }
+        if (dest2 >= 0 && dest2 < PIXELS) {
             pixels[dest2] = val;
+            R_TAG(dest2);
+        }
         dest += SCREENWIDTH;
         if (dest2 >= 0)
             dest2 += SCREENWIDTH;
@@ -79,10 +86,13 @@ void r_draw_masked_post(Framebuffer *fb, int topdelta, const uint8_t *pixels,
         memset(col128 + n, 0, 128 - n);
 
     lnum texturemid = basemid - r_i32((lnum)topdelta * FRACUNIT);
+    uint8_t saved = r_tag;
+    r_tag = TAG_MASKED;
     r_draw_column_pixels(fb, dc_x, yl, yh, dc_iscale, texturemid,
                          col128, sizeof(col128), cm, cmlen,
                          centery, viewwidth, detailshift,
                          viewwindowx, viewwindowy);
+    r_tag = saved;
 }
 
 /* ------------------------------------------------- bindings de baixo nivel */

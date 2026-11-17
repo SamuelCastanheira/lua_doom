@@ -75,6 +75,7 @@
 #define R_INT_MIN (-2147483647LL) /* igual ao render.lua (nao e INT32_MIN) */
 #define MF_SHADOW 262144
 #define MF_NOSECTOR 8
+#define FF_FULLBRIGHT 32768
 #define MINZ (4 * FRACUNIT)
 #define MAXSOLIDSEGS 512
 #define SLOPERANGE 2048
@@ -144,6 +145,20 @@ static inline lnum r_abs_fixed(lnum n) {
     return n < 0 ? -n : n;
 }
 
+/* Texturas/flats animados (texturetranslation / flattranslation). */
+static inline lnum r_tex_translate(const RData *rd, lnum t)
+{
+    if (rd->texturetranslation && t >= 0 && t < rd->texturetranslation_count)
+        return rd->texturetranslation[t];
+    return t;
+}
+static inline lnum r_flat_translate(const RData *rd, lnum f)
+{
+    if (rd->flattranslation && f >= 0 && f < rd->flattranslation_count)
+        return rd->flattranslation[f];
+    return f;
+}
+
 /* ------------------------------------------------------------ mapa */
 
 typedef struct { lnum x, y; } RVertex;
@@ -173,8 +188,15 @@ typedef struct {
 
 typedef struct { int sector, firstline, numlines; } RSubsector;
 
+/* bbox[filho][BOXTOP, BOXBOTTOM, BOXLEFT, BOXRIGHT], como no WAD. */
+#define BOXTOP 0
+#define BOXBOTTOM 1
+#define BOXLEFT 2
+#define BOXRIGHT 3
+
 typedef struct {
     lnum x, y, dx, dy;
+    lnum bbox[2][4];
     lnum children[2];
 } RNode;
 
@@ -216,6 +238,8 @@ typedef struct {
 typedef struct {
     int mobj_index;
     int has_mo;
+    int fuzz;                 /* MF_SHADOW / invisibilidade */
+    const uint8_t *colormap;  /* luz escolhida (NULL = fuzz) */
     lnum mo_flags;
     const uint8_t *patch;
     size_t patch_len;
@@ -256,6 +280,9 @@ typedef struct {
     lnum extralight;
     const uint8_t *fixedcolormap;
     uint32_t framecount;
+    int visited_subsectors; /* estatistica do ultimo quadro */
+    int use_bbox;           /* R_CheckBBox ligado (padrao 1) */
+    uint8_t *tagbuf;        /* diagnostico, ver R_TAG */
 
     int ceilingclip[SCREENWIDTH];
     int floorclip[SCREENWIDTH];
@@ -293,12 +320,24 @@ typedef struct {
     const uint8_t **lump_ptr; size_t *lump_len; int nlumps;
 } Renderer;
 
+/*
+ * Buffer de diagnostico: quem desenhou cada pixel (R:set_option("tags", true),
+ * R:get_tags()). Desligado por padrao; custo zero quando r_tagbuf == NULL.
+ */
+enum { TAG_NONE = 0, TAG_WALL = 1, TAG_FLAT = 2, TAG_SKY = 3, TAG_MASKED = 4,
+       TAG_SPRITE = 5, TAG_PSPRITE = 6 };
+extern uint8_t *r_tagbuf;
+extern uint8_t r_tag;
+#define R_TAG(ofs) do { if (r_tagbuf) r_tagbuf[(ofs)] = r_tag; } while (0)
+
 /* r_main.c */
 void r_init_view(Renderer *R);
 void r_set_view_size(Renderer *R, lnum blocks, lnum detail);
 void r_setup_frame(Renderer *R, lnum x, lnum y, lnum z, lnum angle,
                    lnum extralight, lnum fixedcolormap);
 lnum r_point_to_angle(const Renderer *R, lnum x, lnum y);
+int r_point_in_sector(const Renderer *R, lnum x, lnum y); /* -1 se nenhum */
+const int *r_sector_lights(const Renderer *R, int sector);
 const uint8_t *r_colormap(const Renderer *R, lnum level);
 void *r_grow(lua_State *L, void *ptr, int *cap, int need, size_t elem);
 
@@ -326,7 +365,8 @@ void r_draw_planes(Renderer *R);
 
 /* r_things.c */
 void r_draw_sprites(lua_State *L, Renderer *R, int ud, int mobjs_idx);
-void r_draw_psprite(lua_State *L, Renderer *R, int ud, lnum lump, lnum sx, lnum sy);
+void r_draw_psprite(lua_State *L, Renderer *R, int ud, lnum lump, lnum sx, lnum sy,
+                    int fullbright, int shadow);
 
 /* r_draw.c */
 void r_draw_column_pixels(Framebuffer *fb, lnum dc_x, lnum dc_yl, lnum dc_yh,

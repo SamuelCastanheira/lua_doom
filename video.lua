@@ -56,6 +56,13 @@ function M.poll()
   return events
 end
 
+-- Correcao de gama 0..4 (F11), como no Doom original.
+function M.set_gamma(level)
+  if raw.set_gamma then
+    return raw.set_gamma(level)
+  end
+  return 0
+end
 function M.set_crt(on)
   if raw.set_crt then
     raw.set_crt(on)

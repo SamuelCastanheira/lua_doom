@@ -1,9 +1,9 @@
 /*
  * r_things.c: sprites dos mobjs e da arma (psprite).
  *
- * Espelha o sprites.lua: sprites usam brilho maximo (colormap 0), fuzz para
- * MF_SHADOW e fixedcolormap quando ativo. A luz do setor, como no Doom
- * original, fica para depois (ver escolha do colormap em draw_one).
+ * Luz como no Doom original (R_ProjectSprite / R_DrawPSprite):
+ *   MF_SHADOW -> fuzz; fixedcolormap; FF_FULLBRIGHT -> colormap 0;
+ *   senao a luz do setor do sprite, diminuindo com a distancia.
  */
 #include <ctype.h>
 #include <stdlib.h>
@@ -181,6 +181,22 @@ static int project(lua_State *L, Renderer *R, int ud, int mo, int index, VisSpri
 
     vis->mobj_index = index;
     vis->has_mo = 1;
+    vis->fuzz = r_band(mflags, MF_SHADOW) != 0;
+    if (vis->fuzz) {
+        vis->colormap = NULL;
+    } else if (R->fixedcolormap) {
+        vis->colormap = R->fixedcolormap;
+    } else if (r_band(mframe, FF_FULLBRIGHT) != 0) {
+        vis->colormap = r_colormap(R, 0);
+    } else {
+        const int *spritelights = r_sector_lights(R, r_point_in_sector(R, mx, my));
+        lnum lindex = r_shar(xscale, LIGHTSCALESHIFT - (int)R->detailshift);
+        if (lindex >= MAXLIGHTSCALE)
+            lindex = MAXLIGHTSCALE - 1;
+        if (lindex < 0)
+            lindex = 0;
+        vis->colormap = r_colormap(R, spritelights[lindex]);
+    }
     vis->mo_flags = mflags;
     vis->patch = patch;
     vis->patch_len = plen;
@@ -259,10 +275,14 @@ static void draw_fuzz_pixel(Renderer *R, lnum x, lnum y, const uint8_t *cm)
         src = dest;
     uint8_t pix = (src >= 0 && src < PIXELS) ? fb[src] : 0;
     uint8_t val = cm[pix];
-    if (dest >= 0 && dest < PIXELS)
+    if (dest >= 0 && dest < PIXELS) {
         fb[dest] = val;
-    if (R->detailshift != 0 && dest + 1 < PIXELS && dest + 1 >= 0)
+        R_TAG(dest);
+    }
+    if (R->detailshift != 0 && dest + 1 < PIXELS && dest + 1 >= 0) {
         fb[dest + 1] = val;
+        R_TAG(dest + 1);
+    }
 }
 
 static void draw_one(Renderer *R, const VisSprite *spr, int clip_walls)
@@ -289,18 +309,11 @@ static void draw_one(Renderer *R, const VisSprite *spr, int clip_walls)
         }
     }
 
-    int fuzz = spr->has_mo && (r_band(spr->mo_flags, MF_SHADOW) != 0);
-    /* Iluminacao como hoje: brilho maximo. Para o modo Doom original,
-     * trocar r_colormap(R, 0) pela luz do setor do sprite. */
-    const uint8_t *cm;
-    if (fuzz)
-        cm = r_colormap(R, 6);
-    else if (R->fixedcolormap)
-        cm = R->fixedcolormap;
-    else
-        cm = r_colormap(R, 0);
+    int fuzz = spr->fuzz;
+    const uint8_t *cm = fuzz ? r_colormap(R, 6) : spr->colormap;
 
     uint8_t *fb = R->fb->pixels;
+    uint8_t sprite_tag = clip_walls ? TAG_SPRITE : TAG_PSPRITE;
     lnum frac = spr->startfrac;
     for (lnum x = spr->x1; x <= spr->x2; x++, frac += iscale) {
         lnum col = r_shar(frac, FRACBITS);
@@ -310,6 +323,7 @@ static void draw_one(Renderer *R, const VisSprite *spr, int clip_walls)
         if (entry + 4 > plen)
             continue;
         lnum column = rd_u32(patch + entry);
+        r_tag = sprite_tag; /* clip_against_walls pode ter mudado r_tag */
         while (column >= 0 && (size_t)column < plen) {
             lnum topdelta = patch[column];
             if (topdelta == 255)
@@ -349,13 +363,18 @@ static void draw_one(Renderer *R, const VisSprite *spr, int clip_walls)
                         lnum off = R->ylookup[y] + R->columnofs[x * 2];
                         if (off >= 0 && off < PIXELS) {
                             fb[off] = val;
-                            if (off + 1 < PIXELS)
+                            R_TAG(off);
+                            if (off + 1 < PIXELS) {
                                 fb[off + 1] = val;
+                                R_TAG(off + 1);
+                            }
                         }
                     } else {
                         lnum off = R->ylookup[y] + R->columnofs[x];
-                        if (off >= 0 && off < PIXELS)
+                        if (off >= 0 && off < PIXELS) {
                             fb[off] = val;
+                            R_TAG(off);
+                        }
                     }
                 }
             }
@@ -406,7 +425,8 @@ void r_draw_sprites(lua_State *L, Renderer *R, int ud, int mobjs)
         draw_one(R, &R->vissprites[i], 1);
 }
 
-void r_draw_psprite(lua_State *L, Renderer *R, int ud, lnum lump, lnum sx, lnum sy)
+void r_draw_psprite(lua_State *L, Renderer *R, int ud, lnum lump, lnum sx, lnum sy,
+                    int fullbright, int shadow)
 {
     size_t plen = 0;
     const uint8_t *patch = get_lump(L, R, ud, lump, &plen);
@@ -431,6 +451,15 @@ void r_draw_psprite(lua_State *L, Renderer *R, int ud, lnum lump, lnum sx, lnum 
     VisSprite vis;
     memset(&vis, 0, sizeof(vis));
     vis.has_mo = 0;
+    vis.fuzz = shadow;
+    if (shadow)
+        vis.colormap = NULL;
+    else if (R->fixedcolormap)
+        vis.colormap = R->fixedcolormap;
+    else if (fullbright)
+        vis.colormap = r_colormap(R, 0);
+    else
+        vis.colormap = r_colormap(R, r_sector_lights(R, r_point_in_sector(R, R->viewx, R->viewy))[MAXLIGHTSCALE - 1]);
     vis.patch = patch;
     vis.patch_len = plen;
     vis.w = w;

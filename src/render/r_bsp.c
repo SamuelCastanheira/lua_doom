@@ -149,6 +149,7 @@ static void subsector(lua_State *L, Renderer *R, lnum num)
     if (sub->sector < 0)
         return;
     R->frontsector = sub->sector;
+    R->visited_subsectors++;
     const RSector *front = &lv->sectors[sub->sector];
 
     lnum light = r_ushr(front->lightlevel, 4) + R->extralight;
@@ -175,6 +176,76 @@ static int point_on_side(lnum x, lnum y, const RNode *node)
     return right >= left ? 1 : 0;
 }
 
+/*
+ * R_CheckBBox: 1 se alguma parte da bbox pode estar visivel.
+ * Nao muda a imagem; so evita visitar subarvores escondidas.
+ */
+static const int checkcoord[12][4] = {
+    {3, 0, 2, 1}, {3, 0, 2, 0}, {3, 1, 2, 0}, {0, 0, 0, 0},
+    {2, 0, 2, 1}, {0, 0, 0, 0}, {3, 1, 3, 0}, {0, 0, 0, 0},
+    {2, 0, 3, 1}, {2, 1, 3, 1}, {2, 1, 3, 0}, {0, 0, 0, 0},
+};
+
+static int check_bbox(const Renderer *R, const lnum *bspcoord)
+{
+    int boxx, boxy;
+    if (R->viewx <= bspcoord[BOXLEFT])
+        boxx = 0;
+    else if (R->viewx < bspcoord[BOXRIGHT])
+        boxx = 1;
+    else
+        boxx = 2;
+    if (R->viewy >= bspcoord[BOXTOP])
+        boxy = 0;
+    else if (R->viewy > bspcoord[BOXBOTTOM])
+        boxy = 1;
+    else
+        boxy = 2;
+    int boxpos = (boxy << 2) + boxx;
+    if (boxpos == 5)
+        return 1;
+
+    lnum x1 = bspcoord[checkcoord[boxpos][0]];
+    lnum y1 = bspcoord[checkcoord[boxpos][1]];
+    lnum x2 = bspcoord[checkcoord[boxpos][2]];
+    lnum y2 = bspcoord[checkcoord[boxpos][3]];
+
+    lnum angle1 = r_u32(r_point_to_angle(R, x1, y1) - R->viewangle);
+    lnum angle2 = r_u32(r_point_to_angle(R, x2, y2) - R->viewangle);
+    lnum span = r_u32(angle1 - angle2);
+    if (span >= ANG180)
+        return 1;
+
+    lnum clip2 = r_u32(2 * R->clipangle);
+    lnum tspan = r_u32(angle1 + R->clipangle);
+    if (tspan > clip2) {
+        tspan = r_u32(tspan - clip2);
+        if (tspan >= span)
+            return 0;
+        angle1 = R->clipangle;
+    }
+    tspan = r_u32(R->clipangle - angle2);
+    if (tspan > clip2) {
+        tspan = r_u32(tspan - clip2);
+        if (tspan >= span)
+            return 0;
+        angle2 = r_u32(-R->clipangle);
+    }
+
+    lnum sx1 = R->viewangletox[r_band(r_ushr(r_u32(angle1 + ANG90), ANGLETOFINESHIFT), FINEANGLES / 2 - 1)];
+    lnum sx2 = R->viewangletox[r_band(r_ushr(r_u32(angle2 + ANG90), ANGLETOFINESHIFT), FINEANGLES / 2 - 1)];
+    if (sx1 == sx2)
+        return 0;
+    sx2--;
+
+    int start = 0;
+    while (start < R->newend - 1 && R->solidsegs[start].last < sx2)
+        start++;
+    if (sx1 >= R->solidsegs[start].first && sx2 <= R->solidsegs[start].last)
+        return 0;
+    return 1;
+}
+
 static void render_bsp_node(lua_State *L, Renderer *R, lnum bspnum)
 {
     if (r_band(bspnum, NF_SUBSECTOR) != 0 || bspnum < 0) {
@@ -189,7 +260,8 @@ static void render_bsp_node(lua_State *L, Renderer *R, lnum bspnum)
     const RNode *node = &R->level.nodes[bspnum];
     int side = point_on_side(R->viewx, R->viewy, node);
     render_bsp_node(L, R, node->children[side]);
-    render_bsp_node(L, R, node->children[side ^ 1]);
+    if (!R->use_bbox || check_bbox(R, node->bbox[side ^ 1]))
+        render_bsp_node(L, R, node->children[side ^ 1]);
 }
 
 static void clear_clip(Renderer *R)
@@ -205,11 +277,42 @@ static void clear_clip(Renderer *R)
     }
 }
 
+/* R_PointInSubsector, devolvendo o setor (world.point_in_subsector). */
+int r_point_in_sector(const Renderer *R, lnum x, lnum y)
+{
+    const RLevel *lv = &R->level;
+    lnum nodenum = lv->numnodes - 1;
+    lnum sub = 0;
+    if (nodenum >= 0) {
+        while (r_band(nodenum, NF_SUBSECTOR) == 0) {
+            if (nodenum >= lv->num_nodes)
+                return -1;
+            const RNode *node = &lv->nodes[nodenum];
+            nodenum = node->children[point_on_side(x, y, node)];
+        }
+        sub = r_band(nodenum, 32767);
+    }
+    if (sub < 0 || sub >= lv->num_subsectors)
+        return -1;
+    return lv->subsectors[sub].sector;
+}
+
+/* spritelights do setor: scalelight[(lightlevel >> 4) + extralight]. */
+const int *r_sector_lights(const Renderer *R, int sector)
+{
+    lnum lightnum = sector >= 0 ? r_ushr(R->level.sectors[sector].lightlevel, 4) : 0;
+    lightnum += R->extralight;
+    if (lightnum < 0) lightnum = 0;
+    if (lightnum > LIGHTLEVELS - 1) lightnum = LIGHTLEVELS - 1;
+    return R->scalelight[lightnum];
+}
+
 void r_render_bsp(lua_State *L, Renderer *R)
 {
     r_clear_planes(R);
     R->numdrawsegs = 0;
     R->numopenings = 0;
+    R->visited_subsectors = 0;
     R->floorplane = -1;
     R->ceilingplane = -1;
     clear_clip(R);

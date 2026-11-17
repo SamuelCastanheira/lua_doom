@@ -202,11 +202,38 @@ function M.weapon_xy(player, leveltime)
   return sx, sy
 end
 
--- Desenha um patch da arma pelo numero do lump.
-function M.draw_psprite(renderer, fb, lump, sx, sy)
-  if lump and lump >= 0 then
-    renderer.c:draw_psprite(lump, sx, sy, fb)
+-- Patches (ex.: "PISFA0") cujos estados em info.STATES tem FF_FULLBRIGHT.
+-- Os flashes das armas sao acesos; o corpo da arma usa a luz do setor.
+local FF_FULLBRIGHT = 32768
+local fullbright_patches
+local function is_fullbright(name)
+  if not fullbright_patches then
+    fullbright_patches = {}
+    local info = require("info")
+    for _, st in pairs(info.STATES) do
+      local spr = info.SPRNAMES[st[0]]
+      if spr and st[1] >= FF_FULLBRIGHT then
+        fullbright_patches[spr .. string.char(65 + st[1] % FF_FULLBRIGHT) .. "0"] = true
+      end
+    end
   end
+  return fullbright_patches[name] == true
+end
+M.is_fullbright = is_fullbright
+
+-- Desenha um patch da arma pelo numero do lump.
+-- fullbright: ignora a luz do setor; shadow: fuzz (invisibilidade).
+function M.draw_psprite(renderer, fb, lump, sx, sy, fullbright, shadow)
+  if lump and lump >= 0 then
+    renderer.c:draw_psprite(lump, sx, sy, fb, fullbright, shadow)
+  end
+end
+
+local PW_INVISIBILITY = 2
+-- R_DrawPSprite: arma translucida com invisibilidade, piscando no fim.
+local function player_shadow(player)
+  local inv = player.powers and player.powers[PW_INVISIBILITY] or 0
+  return inv > 4 * 32 or band(inv, 8) ~= 0
 end
 
 function M.draw_weapon(renderer, fb, player, leveltime)
@@ -217,14 +244,15 @@ function M.draw_weapon(renderer, fb, player, leveltime)
   if n < 0 then
     n = renderer.res:check_num_for_name("PISGA0")
   end
-  M.draw_psprite(renderer, fb, n, sx, sy)
+  local shadow = player_shadow(player)
+  M.draw_psprite(renderer, fb, n, sx, sy, is_fullbright(body), shadow)
   local flash = ""
   if (player.flash_tics or 0) > 0 then
     flash = player.psprite_flash or ""
   end
   if flash ~= "" then
     local fn = renderer.res:check_num_for_name(flash)
-    M.draw_psprite(renderer, fb, fn, sx, sy)
+    M.draw_psprite(renderer, fb, fn, sx, sy, is_fullbright(flash), shadow)
   end
 end
 

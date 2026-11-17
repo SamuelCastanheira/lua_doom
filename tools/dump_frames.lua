@@ -43,12 +43,20 @@ end
 
 local world = world_mod.new()
 world_mod.setup_level(world, w, res, episode, mapn)
+if render.set_level_sky then
+  render.set_level_sky(res, w, episode, mapn)
+end
 if with_sprites then
   sprites.spawn_things(world, 2)
 end
 
 local renderer = render.new(res)
 render.set_view_size(renderer, blocks, detail)
+-- Renderer C: grava tambem quem desenhou cada pixel (tags_NN.raw).
+local with_tags = renderer.c ~= nil and renderer.c.get_tags ~= nil
+if with_tags then
+  renderer.c:set_option("tags", true)
+end
 
 local function save(path, data)
   local f = assert(io.open(path, "wb"))
@@ -88,6 +96,9 @@ for t = 1, #things, step do
         cmap = (frame % 2 == 0) and 32 or 1
       end
     end
+    if full and res.update_anims then
+      res:update_anims(frame * 8) -- fase de animacao diferente a cada quadro
+    end
     render.setup_frame(renderer, x, y, z, ang, extra, cmap)
     render.render(renderer, world, fb)
     if with_sprites then
@@ -99,12 +110,17 @@ for t = 1, #things, step do
       local sx = 65536 + (frame % 7 - 3) * 65536 * 4
       local sy = 32 * 65536 + (frame % 4) * 65536 * 3
       if renderer.c then
-        sprites.draw_psprite(renderer, fb, lump, sx, sy)
+        local name = frame % 2 == 0 and "PISGA0" or "SHTGA0"
+        sprites.draw_psprite(renderer, fb, lump, sx, sy,
+          sprites.is_fullbright and sprites.is_fullbright(name), frame % 9 == 8)
       else
         sprites.draw_psprite(renderer, fb, wad.cache_lump_num(w, lump), sx, sy)
       end
     end
     save(string.format("%s/frame_%02d.raw", outdir, frame), fb_bytes(fb))
+    if with_tags then
+      save(string.format("%s/tags_%02d.raw", outdir, frame), renderer.c:get_tags())
+    end
     frame = frame + 1
   end
 end

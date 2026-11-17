@@ -117,7 +117,7 @@ TARGETS := $(addsuffix .$(EXT),$(MODULES))
 MODE_STAMP := build/.mode-stamp
 $(shell mkdir -p build; [ "$$(cat $(MODE_STAMP) 2>/dev/null)" = "$(PLATFORM)-$(MODE)" ] || echo "$(PLATFORM)-$(MODE)" > $(MODE_STAMP))
 
-.PHONY: all debug release run test compare clean distclean help
+.PHONY: all debug release run test compare baseline check-baseline clean distclean help
 .DEFAULT_GOAL := all
 
 all: $(TARGETS)
@@ -183,8 +183,24 @@ compare: all
 	$(LUA) tools/dump_frames.lua $(CMP)/cur $(EP) $(MAP) "$(SPRITES)" $(BLOCKS) $(DETAIL)
 	python3 tools/compare_frames.py $(CMP)/ref $(CMP)/cur $(CMP)/png
 
+# Referencia congelada do renderer C (com tags por pixel), para validar
+# mudancas visuais intencionais:
+#   make baseline          congela os quadros atuais
+#   make check-baseline    mostra, por tipo de superficie, o que mudou
+BASELINE_CFGS ?= 1:1:11:0 1:3:10:0 1:4:11:1 2:2:11:0 3:3:11:0 4:1:11:0
+baseline: all
+	@for c in $(BASELINE_CFGS); do set -- $$(echo $$c | tr ':' ' '); \
+	  d=build/baseline/e$$1m$$2-b$$3d$$4; mkdir -p $$d; \
+	  $(LUA) tools/dump_frames.lua $$d $$1 $$2 full $$3 $$4 >/dev/null || exit 1; \
+	  echo "baseline $$d"; done
+check-baseline: all
+	@for c in $(BASELINE_CFGS); do set -- $$(echo $$c | tr ':' ' '); \
+	  n=e$$1m$$2-b$$3d$$4; mkdir -p build/check/$$n; \
+	  $(LUA) tools/dump_frames.lua build/check/$$n $$1 $$2 full $$3 $$4 >/dev/null || exit 1; \
+	  printf '%-16s ' $$n; python3 tools/diff_by_tag.py build/baseline/$$n build/check/$$n; done
+
 clean:
-	rm -rf build/$(PLATFORM)-* build/compare
+	rm -rf build/$(PLATFORM)-* build/compare build/check
 	rm -f $(addsuffix .so,$(MODULES)) $(addsuffix .dll,$(MODULES))
 
 distclean: clean

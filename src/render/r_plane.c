@@ -81,8 +81,10 @@ int r_check_plane(lua_State *L, Renderer *R, int idx, lnum start, lnum stop)
 
 static void put_pixel(Framebuffer *fb, lnum offset, uint8_t value)
 {
-    if (offset >= 0 && offset < PIXELS)
+    if (offset >= 0 && offset < PIXELS) {
         fb->pixels[offset] = value;
+        R_TAG(offset);
+    }
 }
 
 static void draw_sky(Renderer *R, const Visplane *pl)
@@ -94,6 +96,7 @@ static void draw_sky(Renderer *R, const Visplane *pl)
     if (!tex->wall128)
         return;
     const uint8_t *cm = r_colormap(R, 0);
+    r_tag = TAG_SKY;
     const lnum dc_iscale = (9 * FRACUNIT) / 10;
     const lnum dc_texturemid = 100 * FRACUNIT;
 
@@ -131,6 +134,7 @@ static void draw_flat(Renderer *R, const Visplane *pl, const uint8_t *flat,
     if (minx < 0) minx = 0;
     if (maxx >= R->viewwidth) maxx = R->viewwidth - 1;
 
+    r_tag = TAG_FLAT;
     lnum cached_y = -1;
     int light_index = -1;
     lnum distance = 0;
@@ -200,7 +204,7 @@ void r_draw_planes(Renderer *R)
         if (light < 0) light = 0;
         if (light > LIGHTLEVELS - 1) light = LIGHTLEVELS - 1;
 
-        lnum flatnum = pl->picnum;
+        lnum flatnum = r_flat_translate(rd, pl->picnum);
         if (flatnum < 0 || flatnum >= rd->flat_count)
             flatnum = 0;
         const uint8_t *flat = rd->flatpix + (size_t)flatnum * RD_FLAT_SIZE;

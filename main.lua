@@ -112,6 +112,14 @@ local function take_args(argv)
   return out
 end
 
+-- Mensagens do d_englsh.h original (GAMMALVL0..4).
+local GAMMA_MESSAGES = {
+  "Gamma correction OFF",
+  "Gamma correction level 1",
+  "Gamma correction level 2",
+  "Gamma correction level 3",
+  "Gamma correction level 4",
+}
 local opts = take_args(arg)
 
 local TICRATE = 35
@@ -385,6 +393,8 @@ function game.start_level(self)
   rng.clear()
   local world = world_mod.new()
   world_mod.setup_level(world, w, res, self.episode, self.mapn)
+  render.set_level_sky(res, w, self.episode, self.mapn)
+  res:update_anims(0)
   self.world = world
   self.res = res
   self.player = nil
@@ -639,6 +649,14 @@ while game.running do
           if game.cheats then
             cheats_mod.feed(game.cheats, ev.key, game)
           end
+          if ev.key == "f11" then
+            -- Correcao de gama, como no M_Responder original (qualquer tela).
+            game.usegamma = video.set_gamma(((game.usegamma or 0) + 1) % 5)
+            if game.player then
+              player_mod.set_message(game.player, GAMMA_MESSAGES[game.usegamma + 1])
+            end
+            dirty = true
+          end
           if game.gamestate == "view" and not menu.active then
             if ev.key == "equals" and game.screen_size < 8 then
               game.screen_size = game.screen_size + 1
@@ -646,7 +664,7 @@ while game.running do
             elseif ev.key == "minus" and game.screen_size > 0 then
               game.screen_size = game.screen_size - 1
               dirty = true
-            elseif ev.key == "f11" then
+            elseif ev.key == "f12" then
               game.show_fps = not game.show_fps
               dirty = true
             end
@@ -702,6 +720,7 @@ while game.running do
         if game.specials then
           specials_mod.tick(game.specials)
         end
+        res:update_anims(game.leveltime or 0)
         if game.specials and game.specials.exit_requested then
           game.begin_exit(game)
           break

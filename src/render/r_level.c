@@ -201,6 +201,16 @@ static void load_level(lua_State *L, Renderer *R, int ud, int world)
         nd->y = field_num(L, o, "y");
         nd->dx = field_num(L, o, "dx");
         nd->dy = field_num(L, o, "dy");
+        lua_getfield(L, o, "bbox");
+        for (int c = 0; c < 2; c++) {
+            lua_rawgeti(L, -1, c + 1);
+            for (int k = 0; k < 4; k++) {
+                lua_rawgeti(L, -1, k + 1);
+                nd->bbox[c][k] = pop_num(L);
+            }
+            lua_pop(L, 1);
+        }
+        lua_pop(L, 1);
         lua_getfield(L, o, "children");
         lua_rawgeti(L, -1, 1);
         nd->children[0] = pop_num(L);

@@ -44,6 +44,28 @@ function M.draw_masked(self)
   self.c:draw_masked()
 end
 
+-- Ceu do nivel, como G_InitNew do Doom original:
+--   Doom 2: mapas 1-11 SKY1, 12-20 SKY2, 21+ SKY3
+--   Doom 1: episodio 1..4 -> SKY1..SKY4
+-- O original so escolhia o ceu ao comecar um jogo novo (no Doom 2 o ceu nao
+-- mudava ao passar do mapa 11 para o 12); aqui vale para todo inicio de nivel.
+function M.sky_name(wadfile, episode, mapn)
+  local wad = require("wad")
+  if wad.check_num_for_name(wadfile, "MAP01") >= 0 then
+    if mapn < 12 then
+      return "SKY1"
+    elseif mapn < 21 then
+      return "SKY2"
+    end
+    return "SKY3"
+  end
+  return "SKY" .. tostring(math.max(1, math.min(4, episode)))
+end
+
+function M.set_level_sky(res, wadfile, episode, mapn)
+  res:set_sky(M.sky_name(wadfile, episode, mapn))
+end
+
 function M.point_to_angle(self, x, y)
   return self.c:point_to_angle(x, y)
 end
