@@ -137,3 +137,39 @@ consultada em vários módulos.
 **Alternativa intermediária,** se quiser só remover o `if`: `G.enter`
 registra a função de pintura (`game.paint = paint_view`) e `paint_state`
 vira `game.paint()`. Elimina o despacho, mas a variável continua.
+
+---
+
+## 3. Mutações pendentes de cobertura: o teste mostra o que não cobre
+
+Surgiu no subpasso 0 do passo 3 (commit `fc557ad`). A mutação
+`specials-no-fim-do-tic` move a fase de specials para depois de texturas,
+saída, `leveltime` e barra de status. Ela sobreviveu ao roteiro `fluxo`, mas
+**não é equivalente**:
+
+- um esmagador ou um piso com `crush` fere o jogador dentro dos specials
+  (`move_plane` → `change_sector` → dano);
+- a barra de status lê `health` e `damagecount` para escolher o rosto;
+- com a mutação, o rosto mudaria um tic depois.
+
+O roteiro simplesmente nunca passa por um esmagador. Para registrar isso sem
+esconder, `tools/mutacoes.py` ganhou uma categoria `PENDENTES`, separada das
+`EQUIVALENTES`:
+
+- a mutação aparece como "pendente", com o motivo e o roteiro que deve
+  detectá-la (o de esmagadores, no passo 3d);
+- quando esse roteiro passar a detectá-la, o script avisa "agora detectada:
+  tire de PENDENTES".
+
+**Para a monografia:** o teste de sensibilidade classifica cada mutante
+sobrevivente em três grupos, e não em dois:
+
+| Grupo | Significado | O que fazer |
+|---|---|---|
+| detectada | o roteiro cobre o comportamento | nada |
+| equivalente | o mutante não muda o comportamento (com justificativa) | registrar o porquê |
+| pendente | o mutante muda o comportamento, mas o roteiro não passa pelo caso | registrar o caso e o roteiro que vai cobri-lo |
+
+Isso é um resultado do método: o teste mostra explicitamente o que o roteiro
+ainda não cobre, em vez de deixar uma lacuna invisível ou forçar uma
+justificativa falsa de equivalência.

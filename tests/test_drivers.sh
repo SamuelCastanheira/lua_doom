@@ -15,9 +15,10 @@
 # (mobjs, setores, jogador, RNG, tela atual). A primeira linha divergente
 # aponta o quadro em que a ordem ou o tempo mudou.
 #
-#   sh tests/test_drivers.sh [quadros] [semente] [exits|fluxo] [args do jogo...]
+#   sh tests/test_drivers.sh [quadros] [semente] [exits|fluxo|luzes] [args do jogo...]
 #   exits: o roteiro tambem termina niveis -> intermissao e finale
 #   fluxo: roteiro fixo que passa por todas as transicoes (quadros ignorado)
+#   luzes: jogador parado no E4M1 e no E1M2 (rode com -warp 4 1; passo 3a)
 #
 # REF_TAG=<tag> muda a referencia (padrao: passo1).
 set -e
@@ -73,6 +74,8 @@ if ! (cd "$OUT/run_ref" && DOOM_REPLAY="$ROOT/$SCRIPT" DOOM_REPLAY_OUT="$ROOT/$O
   lua5.4 main.lua -nosound -nomusic "$@" >"$ROOT/$OUT/ref.out" 2>&1); then
   echo "ERRO na referencia $REF_TAG:"; tail -5 "$OUT/ref.out"; exit 1
 fi
+# Copia por roteiro: tools/mutacoes.py compara cada mutacao com o seu roteiro.
+cp "$OUT/ref.log" "$OUT/ref_$SEED$EXITS.log"
 (cd "$OUT/run_atm" && DOOM_REPLAY="$ROOT/$SCRIPT" DOOM_REPLAY_OUT="$ROOT/$OUT/atm.log" \
   atmos main.atm -- -nosound -nomusic "$@" >"$ROOT/$OUT/atm.out" 2>&1) || true
 (cd "$OUT/run_lan" && DOOM_REPLAY="$ROOT/$SCRIPT" DOOM_REPLAY_OUT="$ROOT/$OUT/lan.log" \
@@ -119,5 +122,15 @@ if [ "$EXITS" = "fluxo" ] && [ $status -eq 0 ]; then
   need ref.out "^finale" 1
   need ref.out "^vista E1M4" 3
   [ $status -eq 0 ] && echo "  cobertura do fluxo: completa"
+fi
+# No roteiro "luzes" (passo 3a), os dois mapas com todos os tipos de luz.
+if [ "$EXITS" = "luzes" ] && [ $status -eq 0 ]; then
+  for m in E4M1 E1M2; do
+    if ! grep -q "^vista $m" "$OUT/ref.out"; then
+      echo "COBERTURA INCOMPLETA: o roteiro de luzes nao chegou ao $m (rode com -warp 4 1)"
+      status=1
+    fi
+  done
+  [ $status -eq 0 ] && echo "  cobertura das luzes: E4M1 (fogo, flash) e E1M2 (glow, flash, strobes)"
 fi
 exit $status

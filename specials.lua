@@ -26,8 +26,6 @@ local PLATSPEED = FRACUNIT
 local PLATWAIT = 3
 local FLOORSPEED = FRACUNIT
 local CEILSPEED = FRACUNIT
-local GLOWSPEED = 8
-local STROBEBRIGHT = 5
 local FASTDARK = 15
 local SLOWDARK = 35
 local BUTTONTIME = 35
@@ -280,13 +278,16 @@ local function tag_line(tag)
   return { tag = tag }
 end
 
-function M.new(world, res, sound)
+-- pools: pools de tasks da task Nivel (main.atm), por exemplo
+-- { luzes = <tasks> }. Sem main.atm (testes unitarios com game falso) e nil,
+-- e as partes ja migradas para tasks ficam paradas.
+function M.new(world, res, sound, pools)
   local self = {
     world = world,
     res = res,
     sound = sound,
+    pools = pools,
     thinkers = {},
-    lights = {},
     scroll_lines = {},
     buttons = {},
     exit_requested = false,
@@ -306,20 +307,25 @@ function M.new(world, res, sound)
   return self
 end
 
+-- Luzes (passo 3a): cada luz e uma task Atmos (setores.atm) na pool
+-- self.pools.luzes. Aqui ficam so a geometria (min/max de luz) e a criacao,
+-- na mesma ordem de antes (setores na ordem do mapa). O P_Random inicial de
+-- Pisca e Strobe e consumido no comeco da task, dentro do spawn_in, ou seja,
+-- no mesmo ponto em que este arquivo o consumia.
+local setores = nil
+
+local function spawn_luz(self, nome, ...)
+  if not (self.pools and self.pools.luzes) then
+    return -- sem main.atm (testes unitarios): luzes paradas
+  end
+  setores = setores or require("setores")
+  spawn_in(self.pools.luzes, setores[nome], ...)
+end
+
 local function spawn_light_flash(self, sector)
   sector.special = 0
-  local flash = {
-    sector = sector,
-    kind = "flash",
-    maxlight = sector.lightlevel,
-    minlight = min_surrounding_light(sector, sector.lightlevel),
-    maxtime = 64,
-    mintime = 7,
-    count = 0,
-  }
-  flash.count = band(rng.p_random(), flash.maxtime) + 1
-  self.lights[#self.lights + 1] = flash
-  mark(self)
+  spawn_luz(self, "Pisca", sector, sector.lightlevel,
+    min_surrounding_light(sector, sector.lightlevel))
 end
 
 local function spawn_strobe(self, sector, darktime, synced)
@@ -328,44 +334,19 @@ local function spawn_strobe(self, sector, darktime, synced)
   if minl == sector.lightlevel then
     minl = 0
   end
-  local count = 1
-  if not synced then
-    count = band(rng.p_random(), 7) + 1
-  end
-  self.lights[#self.lights + 1] = {
-    sector = sector,
-    kind = "strobe",
-    maxlight = sector.lightlevel,
-    minlight = minl,
-    darktime = darktime,
-    brighttime = STROBEBRIGHT,
-    count = count,
-  }
-  mark(self)
+  spawn_luz(self, "Strobe", sector, sector.lightlevel, minl, darktime, synced)
 end
 
 local function spawn_glow(self, sector)
   sector.special = 0
-  self.lights[#self.lights + 1] = {
-    sector = sector,
-    kind = "glow",
-    maxlight = sector.lightlevel,
-    minlight = min_surrounding_light(sector, sector.lightlevel),
-    direction = -1,
-  }
-  mark(self)
+  spawn_luz(self, "Brilho", sector, sector.lightlevel,
+    min_surrounding_light(sector, sector.lightlevel))
 end
 
 local function spawn_fire(self, sector)
   sector.special = 0
-  self.lights[#self.lights + 1] = {
-    sector = sector,
-    kind = "fire",
-    maxlight = sector.lightlevel,
-    minlight = min_surrounding_light(sector, sector.lightlevel) + 16,
-    count = 4,
-  }
-  mark(self)
+  spawn_luz(self, "Fogo", sector, sector.lightlevel,
+    min_surrounding_light(sector, sector.lightlevel) + 16)
 end
 
 local function spawn_door(self, sector, dtype, reverse)
@@ -492,58 +473,6 @@ function M.spawn_specials(self)
     local ln = self.world.lines[i]
     if ln.special == 48 then
       self.scroll_lines[#self.scroll_lines + 1] = ln
-    end
-  end
-end
-
-local function tick_lights(self)
-  for i = 1, #self.lights do
-    local light = self.lights[i]
-    if light.kind == "glow" then
-      if light.direction == -1 then
-        light.sector.lightlevel = light.sector.lightlevel - GLOWSPEED
-        if light.sector.lightlevel <= light.minlight then
-          light.sector.lightlevel = light.sector.lightlevel + GLOWSPEED
-          light.direction = 1
-        end
-      else
-        light.sector.lightlevel = light.sector.lightlevel + GLOWSPEED
-        if light.sector.lightlevel >= light.maxlight then
-          light.sector.lightlevel = light.sector.lightlevel - GLOWSPEED
-          light.direction = -1
-        end
-      end
-      mark(self)
-    else
-      light.count = light.count - 1
-      if light.count == 0 then
-        if light.kind == "flash" then
-          if light.sector.lightlevel == light.maxlight then
-            light.sector.lightlevel = light.minlight
-            light.count = band(rng.p_random(), light.mintime) + 1
-          else
-            light.sector.lightlevel = light.maxlight
-            light.count = band(rng.p_random(), light.maxtime) + 1
-          end
-        elseif light.kind == "strobe" then
-          if light.sector.lightlevel == light.minlight then
-            light.sector.lightlevel = light.maxlight
-            light.count = light.brighttime
-          else
-            light.sector.lightlevel = light.minlight
-            light.count = light.darktime
-          end
-        elseif light.kind == "fire" then
-          local amount = band(rng.p_random(), 3) * 16
-          if light.sector.lightlevel - amount < light.minlight then
-            light.sector.lightlevel = light.minlight
-          else
-            light.sector.lightlevel = light.maxlight - amount
-          end
-          light.count = 4
-        end
-        mark(self)
-      end
     end
   end
 end
@@ -683,9 +612,10 @@ local function tick_ceiling(self, ceil)
   end
 end
 
+-- Partes dos specials que ainda sao thinkers Lua. As luzes (passo 3a) ja sao
+-- tasks: acordam antes desta funcao, na pool "luzes" do Nivel (main.atm).
 function M.tick(self)
   local before = self.stamp
-  tick_lights(self)
   for i = 1, #self.scroll_lines do
     local side = self.scroll_lines[i].sides[1]
     if side then

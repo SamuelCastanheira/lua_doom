@@ -1,0 +1,94 @@
+;; Specials de setor como tasks Atmos (passo 3 do docs/PLANO_ATMOS.md).
+;;
+;; Este modulo so define prototipos de task. Quem as cria e o specials.lua,
+;; com spawn_in(pool, T, ...), no mesmo ponto em que antes acrescentava um
+;; item a uma lista (self.lights, self.thinkers...). O spawn e sincrono: a
+;; task roda ate o primeiro await antes de o Lua continuar (propriedade P8),
+;; entao um P_Random do comeco da task e consumido no mesmo ponto em que o
+;; Lua o consumia.
+;;
+;; As pools ficam na task Nivel (main.atm) e acordam com :game.specials, na
+;; ordem de declaracao (P7) e, dentro de cada pool, na ordem de criacao.
+;; Quando o Nivel termina, as pools e todas as tasks terminam juntas: nao ha
+;; lista para reconstruir nem campo "dead".
+;;
+;; Regra: toda task espera :game.specials antes de mexer no setor (CLAUDE.md,
+;; 4.2). O thinker original so agia no proximo specials_mod.tick.
+
+val rng    = require "random"
+val compat = require "compat"
+val band   = compat.band
+
+val GLOWSPEED    = 8
+val STROBEBRIGHT = 5
+
+;; Espera n fases de specials (n tics de nivel).
+val func espera (n) {
+    loop in n {
+        await :game.specials
+    }
+}
+
+;; ---------------------------------------------------------------- luzes
+;; Passo 3a. Antes: um item em self.lights com "kind" e "count", e um
+;; despacho por kind em tick_lights (specials.lua, tag passo2). Agora: cada
+;; tipo e um programa linear; o contador virou o argumento de espera().
+
+;; Luz que pisca ao acaso (setor tipo 1; P_SpawnLightFlash, T_LightFlash).
+val task Pisca (setor, maxl, minl) {
+    espera(band(rng.p_random(), 64) + 1)
+    loop {
+        if setor.lightlevel == maxl {
+            set setor.lightlevel = minl
+            espera(band(rng.p_random(), 7) + 1)
+        } else {
+            set setor.lightlevel = maxl
+            espera(band(rng.p_random(), 64) + 1)
+        }
+    }
+}
+
+;; Luz estroboscopica (setores 2, 3, 4, 12, 13; P_SpawnStrobeFlash,
+;; T_StrobeFlash). Sincronizada: todas comecam juntas, sem P_Random.
+val task Strobe (setor, maxl, minl, escuro, sincronizado) {
+    val primeira = if sincronizado => 1 => (band(rng.p_random(), 7) + 1)
+    espera(primeira)
+    loop {
+        if setor.lightlevel == minl {
+            set setor.lightlevel = maxl
+            espera(STROBEBRIGHT)
+        } else {
+            set setor.lightlevel = minl
+            espera(escuro)
+        }
+    }
+}
+
+;; Luz que pulsa devagar (setor tipo 8; P_SpawnGlowingLight, T_Glow).
+val task Brilho (setor, maxl, minl) {
+    loop {
+        loop {                                ;; escurece ate o minimo
+            await :game.specials
+            set setor.lightlevel = setor.lightlevel - GLOWSPEED
+            until (setor.lightlevel <= minl)
+        }
+        set setor.lightlevel = setor.lightlevel + GLOWSPEED
+        loop {                                ;; clareia ate o maximo
+            await :game.specials
+            set setor.lightlevel = setor.lightlevel + GLOWSPEED
+            until (setor.lightlevel >= maxl)
+        }
+        set setor.lightlevel = setor.lightlevel - GLOWSPEED
+    }
+}
+
+;; Fogo tremulo (setor tipo 17; P_SpawnFireFlicker, T_FireFlicker).
+val task Fogo (setor, maxl, minl) {
+    loop {
+        espera(4)
+        val amount = band(rng.p_random(), 3) * 16
+        set setor.lightlevel = if (setor.lightlevel - amount) < minl => minl => (maxl - amount)
+    }
+}
+
+[Pisca=Pisca, Strobe=Strobe, Brilho=Brilho, Fogo=Fogo]

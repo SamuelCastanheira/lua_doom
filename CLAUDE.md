@@ -41,7 +41,7 @@ Atmos) e escreve em **português**. Responda em português.
 | Recursos visuais do Doom original (céu por episódio, texturas animadas, luz de sprites e arma, contraste falso, gama F11, R_CheckBBox) | concluído |
 | 1. Ambiente e driver Atmos | concluído (`passo1`) |
 | 2. Fluxo de telas em tasks | concluído (`passo2`) |
-| **3. Specials de setor (luzes, portas, elevadores, pisos, botões, save)** | **próximo** |
+| **3. Specials de setor (luzes, portas, elevadores, pisos, botões, save)** | **em andamento:** subpasso 0 e 3a (luzes) feitos; próximo: 3e (botões) |
 | 4. Arma (psprites) | planejado |
 | 5. Um monstro como task | planejado |
 
@@ -373,14 +373,13 @@ Ordem atual de um tic de nível (`G.tic_view_antes`, 1 a 6;
 4. `player_mod.tick_fx`
 5. renascer? → `"morte"`
 6. `thinker.tick`: mobjs na ordem de `world.mobjs`
-7. `emit :game.specials` em `Nivel` (subpasso 0 do passo 3). Acorda, na
-   ordem de declaração em `Nivel` (P7), as pools já migradas e a task que
-   chama `G.specials_resto()` → `specials_mod.tick`, que ainda faz, nesta
-   ordem:
-   1. luzes (`self.lights`)
-   2. linhas com scroll (efeito 48)
-   3. thinkers de setor (`self.thinkers`: portas, elevadores, pisos, tetos)
-   4. botões (`self.buttons`)
+7. `emit :game.specials` em `Nivel`. Acorda, na ordem de declaração em
+   `Nivel` (P7):
+   1. pool `luzes` (tasks de `setores.atm`, passo 3a), na ordem dos setores;
+   2. a task que chama `G.specials_resto()` → `specials_mod.tick`, que ainda
+      faz, nesta ordem: linhas com scroll (efeito 48); thinkers de setor
+      (`self.thinkers`: portas, elevadores, pisos, tetos); botões
+      (`self.buttons`).
 8. `res:update_anims(leveltime)`
 9. saída? → `"saida"`
 10. `leveltime + 1`
@@ -469,10 +468,11 @@ automapa, `-`/`=` mudam o tamanho da tela.
 ### 5.2 Equivalência da lógica (driver Atmos × referência)
 
 ```sh
-make test-drivers          # semantica do Atmos (P1-P9) + 3 roteiros contra a tag passo1
+make test-drivers          # semantica do Atmos (P1-P9) + 4 roteiros contra a tag passo1
 sh tests/test_drivers.sh 0 1 fluxo         # roteiro com todas as transicoes
 sh tests/test_drivers.sh 4000 1            # pseudoaleatorio, 4000 quadros, semente 1
 sh tests/test_drivers.sh 6000 2 exits      # tambem termina niveis
+sh tests/test_drivers.sh 1200 1 luzes -warp 4 1   # passo 3a: E4M1 e E1M2 parados
 REF_TAG=passo2 sh tests/test_drivers.sh 0 1 fluxo   # outra referencia
 ```
 
@@ -597,9 +597,9 @@ no código (`specials.lua`, 1.538 linhas, ainda imperativo):
 
 | Função | Papel hoje |
 |---|---|
-| `M.new` → `M.spawn_specials` | cria luzes a partir de `sector.special`, na ordem dos setores |
-| `M.tick` | luzes → scroll → `self.thinkers` (despacha por `th.kind`: door, plat, floor, ceiling) → botões |
-| `tick_lights` | flash e fire usam `rng.p_random()`; strobe; glow |
+| `M.new` → `M.spawn_specials` | cria as luzes (tasks, desde o 3a) e as portas de setor a partir de `sector.special`, na ordem dos setores |
+| `M.tick` | scroll → `self.thinkers` (despacha por `th.kind`: door, plat, floor, ceiling) → botões (as luzes já não passam por aqui) |
+| `setores.atm` | tasks de setor (3a: `Pisca`, `Strobe`, `Brilho`, `Fogo`); flash, strobe e fire usam `rng.p_random()` |
 | `tick_door`, `tick_plat`, `tick_floor`, `tick_ceiling` | máquinas de estado com `direction`, `count`, `status`, `dead` |
 | `spawn_door`, `vertical_door`, `do_plat_*`, `do_floor`, `do_stairs`, `do_crusher`… | criam thinkers e marcam `sector.specialdata` |
 | `M.move_plane` | geometria pura (mantenha em Lua) |
@@ -622,6 +622,20 @@ transparente em `Nivel` chama `G.specials_resto()` (todo o
 `tools/mutacoes.py`: só diverge quando um special fere o jogador
 (esmagador), e nenhum roteiro passa por isso ainda (o roteiro do 3d deve
 detectá-la).
+
+**Subpasso 3a (feito):** luzes em `setores.atm` (`Pisca`, `Strobe`,
+`Brilho`, `Fogo`). A pool `luzes` é declarada em `Nivel` **antes** de montar
+o nível e passada ao Lua com `G.set_pools`; `specials.lua` cria as tasks com
+`spawn_in(self.pools.luzes, ...)` dentro de `build_level`, no mesmo ponto do
+`P_Random` de antes. Sem `main.atm` (testes unitários), `pools` é `nil` e as
+luzes ficam paradas. Roteiro `luzes` (E4M1 tem fogo; nenhum mapa dos
+roteiros antigos tinha). `tools/mutacoes.py` aceita mutações em qualquer
+arquivo e roteiro; `tools/metricas_passo3.py` mede cada subpasso;
+`tools/custo_drivers.py` compara também com a tag `passo2`. Detalhes,
+números e problemas em `docs/registro/03-specials.md`.
+
+**Registro:** `docs/registro/03-specials.md` é atualizado **em cada commit
+do passo 3** (tabela de subpassos no topo e uma seção por subpasso).
 
 Em cada subpasso seguinte:
 1. tire a parte migrada de `specials_mod.tick` (ou seja, de

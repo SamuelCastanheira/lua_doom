@@ -9,7 +9,7 @@ do que mudou, do porquê e do que deu errado no caminho.
 | 0 | branch `lua` | – | renderer inteiro em C; lógica em Lua com thinkers (referência original) |
 | 1 | `passo1` | [01-ambiente-e-driver.md](01-ambiente-e-driver.md) | ambiente `atmos.env.doom`, `game.lua` em fases, `main.atm`, modo replay |
 | 2 | `passo2` | [02-fluxo-de-telas.md](02-fluxo-de-telas.md) | fluxo de telas em tasks; pedidos em vez de chamadas |
-| 3 | – | – | specials de setor (planejado: [../PLANO_ATMOS.md](../PLANO_ATMOS.md)) |
+| 3 | `passo3` (ao fim) | [03-specials.md](03-specials.md) | specials de setor em tasks; atualizado a cada commit (subpasso 0 e 3a: luzes) |
 
 ## Cadeia de equivalência
 

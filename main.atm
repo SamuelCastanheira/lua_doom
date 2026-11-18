@@ -71,14 +71,19 @@ task Titulo () {
 ;; As partes ainda em Lua rodam em G.specials_resto; a cada subpasso, uma
 ;; parte sai dele e ganha a sua pool aqui, antes ou depois do resto.
 task Nivel (save) {
+    pin luzes = tasks()                   ;; 3a: luzes (setores.atm)
+    G.set_pools([luzes=luzes])            ;; specials.lua cria as tasks nelas
+    defer {
+        G.set_pools(nil)
+    }
     if save {
         G.load_level(save)
     } else {
         G.start_level()
     }
     G.enter(:view)
-    spawn {                               ;; specials ainda em Lua (todos)
-        loop on :game.specials {
+    spawn {                               ;; specials ainda em Lua: scroll,
+        loop on :game.specials {          ;; portas/elevadores/pisos, botoes
             G.specials_resto()
         }
     }

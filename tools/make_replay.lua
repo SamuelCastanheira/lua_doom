@@ -14,6 +14,12 @@ local seed = tonumber(arg[3] or "1")
 local exits = arg[4] == "exits"
 -- "fluxo": roteiro fixo que passa por todas as transicoes de tela (passo 2)
 local fluxo = arg[4] == "fluxo"
+-- "luzes": roteiro do passo 3a, rodado com "-warp 4 1". Jogador quase parado
+-- (iddqd para nao morrer), olhando em volta: E4M1 (fogo, flash) e, depois de
+-- idclev12, E1M2 (glow, flash, strobes rapidos, lentos e sincronizados). Os
+-- monstros continuam consumindo P_Random entre as luzes, o que testa a ordem
+-- dentro do tic. "quadros" e o tempo em cada mapa.
+local luzes = arg[4] == "luzes"
 
 local function rand(n)
   seed = (seed * 1103515245 + 12345) % 2147483648
@@ -74,6 +80,31 @@ local function exit_level(kind)
     wait(60)
   end
   wait(60)
+end
+
+if luzes then
+  local function olha_em_volta(n)
+    local stop = f + n
+    while f < stop do
+      wait(150)
+      at(f, "left", "down")
+      at(f + 25, "left", "up")
+      f = f + 26
+    end
+  end
+  wait(40)
+  type_text("iddqd")
+  olha_em_volta(frames)                                -- E4M1
+  type_text("idclev12")                                -- nivel.trocar -> E1M2
+  wait(40)
+  type_text("iddqd")
+  olha_em_volta(frames)                                -- E1M2
+  lines[#lines + 1] = string.format("%d quit", f + 20)
+  local fh = assert(io.open(out_path, "w"))
+  fh:write(table.concat(lines, "\n"), "\n")
+  fh:close()
+  print(string.format("%s: %d eventos, ate o quadro %d", out_path, #lines, f + 20))
+  return
 end
 
 if fluxo then

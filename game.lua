@@ -462,7 +462,7 @@ function M.new(argv)
     self.world = world
     self.res = res
     self.player = nil
-    self.specials = specials_mod.new(world, res, sound)
+    self.specials = specials_mod.new(world, res, sound, self.pools)
     local kills, items = thinker.spawn_map(world, self.skill, self)
     local secrets = 0
     for i = 1, #world.sectors do
@@ -948,6 +948,12 @@ function M.new(argv)
 
   function G.start_level()
     game.build_level(game)
+  end
+
+  -- Pools de tasks de setor da instancia de nivel atual (task Nivel, passo
+  -- 3). build_level as passa a specials_mod.new; nil fora de um nivel.
+  function G.set_pools(pools)
+    game.pools = pools
   end
 
   function G.load_level(data)

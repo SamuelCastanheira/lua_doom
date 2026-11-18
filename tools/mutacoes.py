@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""Teste de sensibilidade: o teste de equivalencia detecta erros no fluxo?
+"""Teste de sensibilidade: o teste de equivalencia detecta erros?
 
-Para cada mutacao (um erro plausivel no main.atm), roda a versao mutada no
-mesmo roteiro da ultima execucao de tests/test_drivers.sh e compara com a
-referencia (build/drivers/ref.log). Uma mutacao "sobrevive" se o log sair
-identico; nesse caso o roteiro nao cobre aquele comportamento.
+Para cada mutacao (um erro plausivel num arquivo, por padrao o main.atm),
+roda a versao mutada num roteiro e compara com a referencia desse roteiro
+(build/drivers/ref_<roteiro>.log, gravado por tests/test_drivers.sh). Uma
+mutacao "sobrevive" se o log sair identico; nesse caso o roteiro nao cobre
+aquele comportamento (ou o mutante e equivalente).
 
-Uso (depois de: sh tests/test_drivers.sh 0 1 fluxo):
-    python3 tools/mutacoes.py [roteiro]
+Uso (depois de rodar os roteiros usados, como faz "make test-mutacoes"):
+    sh tests/test_drivers.sh 0 1 fluxo
+    sh tests/test_drivers.sh 1200 1 luzes -warp 4 1
+    python3 tools/mutacoes.py [nome-da-mutacao ...]
 """
 import os
 import shutil
@@ -16,8 +19,12 @@ import sys
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 OUT = os.path.join(ROOT, "build", "drivers")
-SCRIPT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(OUT, "replay_1fluxo.txt")
-REF = os.path.join(OUT, "ref.log")
+
+# Roteiros: (arquivo do roteiro, log da referencia, argumentos do jogo).
+ROTEIROS = {
+    "fluxo": ("replay_1fluxo.txt", "ref_1fluxo.log", []),
+    "luzes": ("replay_1luzes.txt", "ref_1luzes.log", ["-warp", "4", "1"]),
+}
 
 # Mutantes equivalentes: mudam o codigo mas nao o comportamento. Sobreviver
 # e o esperado; a justificativa fica registrada.
@@ -28,6 +35,12 @@ EQUIVALENTES = {
     "entra-antes-de-montar":
         "build_level nao le game.gamestate (a unica leitura fora das telas "
         "e am_map.responder, na fase de entrada)",
+    "luzes-depois-do-resto":
+        "as luzes so escrevem lightlevel e consomem P_Random; o resto em Lua "
+        "(scroll, portas, elevadores, pisos, botoes) nao le lightlevel e nao "
+        "consome P_Random no tick (o esmagamento deste port, "
+        "collision.change_sector, so tira vida; o Doom original solta sangue "
+        "com P_Random em P_ChangeSector, e la a ordem importaria)",
 }
 
 # Mutantes NAO equivalentes que o roteiro ainda nao cobre. Sobreviver e
@@ -42,7 +55,12 @@ PENDENTES = {
         "pelo roteiro de esmagadores do passo 3d",
 }
 
-# (nome, descricao, trecho original, trecho mutado)
+# Trechos do Nivel (main.atm) usados por "luzes-depois-do-resto".
+LUZES_E_RESTO = '    pin luzes = tasks()                   ;; 3a: luzes (setores.atm)\n    G.set_pools([luzes=luzes])            ;; specials.lua cria as tasks nelas\n    defer {\n        G.set_pools(nil)\n    }\n    if save {\n        G.load_level(save)\n    } else {\n        G.start_level()\n    }\n    G.enter(:view)\n    spawn {                               ;; specials ainda em Lua: scroll,\n        loop on :game.specials {          ;; portas/elevadores/pisos, botoes\n            G.specials_resto()\n        }\n    }\n'
+RESTO_E_LUZES = '    spawn {                               ;; specials ainda em Lua: scroll,\n        loop on :game.specials {          ;; portas/elevadores/pisos, botoes\n            G.specials_resto()\n        }\n    }\n    pin luzes = tasks()                   ;; 3a: luzes (setores.atm)\n    G.set_pools([luzes=luzes])            ;; specials.lua cria as tasks nelas\n    defer {\n        G.set_pools(nil)\n    }\n    if save {\n        G.load_level(save)\n    } else {\n        G.start_level()\n    }\n    G.enter(:view)\n'
+
+# (nome, descricao, trecho original, trecho mutado[, arquivo[, roteiro]])
+# arquivo: padrao "main.atm"; roteiro: padrao "fluxo" (ver ROTEIROS).
 MUTACOES = [
     ("sem-cancel-catchup",
      "Nivel nao interrompe a recuperacao de tics ao sair do nivel",
@@ -92,6 +110,38 @@ MUTACOES = [
      "Specials de setor rodam depois de texturas, saida e leveltime (fora do ponto do tic)",
      "                    emit :game.specials\n                    G.tic_view_depois()   ;; nil | \"saida\"\n",
      "                    val d = G.tic_view_depois()\n                    emit :game.specials\n                    d\n"),
+    # --- passo 3a: luzes como tasks (roteiro "luzes": E4M1 e E1M2)
+    ("pisca-sem-espera-inicial",
+     "Luz que pisca age no proprio tic em que nasce (sem a espera inicial)",
+     "val task Pisca (setor, maxl, minl) {\n    espera(band(rng.p_random(), 64) + 1)\n",
+     "val task Pisca (setor, maxl, minl) {\n    rng.p_random()\n",
+     "setores.atm", "luzes"),
+    ("fogo-intervalo-3",
+     "Fogo tremula a cada 3 tics em vez de 4",
+     "        espera(4)\n",
+     "        espera(3)\n",
+     "setores.atm", "luzes"),
+    ("strobe-sincronizado-sorteia",
+     "Strobe sincronizado sorteia a primeira espera (consome P_Random a mais)",
+     "    val primeira = if sincronizado => 1 => (band(rng.p_random(), 7) + 1)\n",
+     "    val primeira = band(rng.p_random(), 7) + 1\n",
+     "setores.atm", "luzes"),
+    ("brilho-nao-volta",
+     "Glow inverte a direcao sem desfazer o ultimo passo (passa do minimo)",
+     "        set setor.lightlevel = setor.lightlevel + GLOWSPEED\n        loop {                                ;; clareia ate o maximo\n",
+     "        loop {                                ;; clareia ate o maximo\n",
+     "setores.atm", "luzes"),
+    ("luzes-ordem-inversa",
+     "Luzes criadas na ordem inversa dos setores (ordem da pool trocada)",
+     "  for i = 1, #self.world.sectors do\n    local sector = self.world.sectors[i]\n    local spec = sector.special\n",
+     "  for i = #self.world.sectors, 1, -1 do\n    local sector = self.world.sectors[i]\n    local spec = sector.special\n",
+     "specials.lua", "luzes"),
+    ("luzes-depois-do-resto",
+     "Pool de luzes acorda depois dos specials ainda em Lua (ordem do M.tick trocada)",
+     # move a task do resto para antes da pool de luzes (sem duplica-la)
+     LUZES_E_RESTO,
+     RESTO_E_LUZES,
+     "main.atm", "luzes"),
     ("novo-nao-descarta",
      "New Game no meio do jogo e ignorado (o Jogo atual continua)",
      "            await <:jogo.novo || :jogo.carregar>   ;; descarta o jogo atual\n",
@@ -99,18 +149,19 @@ MUTACOES = [
 ]
 
 
-def mkrun(path, main_atm):
+def mkrun(path, arquivo, conteudo):
     shutil.rmtree(path, ignore_errors=True)
     os.makedirs(path)
     for name in os.listdir(ROOT):
-        if name.endswith((".lua", ".so", ".dll", ".wad")) or name == "atmos":
+        if name.endswith((".lua", ".so", ".dll", ".atm", ".wad")) or name == "atmos":
             os.symlink(os.path.join(ROOT, name), os.path.join(path, name))
-    with open(os.path.join(path, "main.atm"), "w") as f:
-        f.write(main_atm)
+    os.remove(os.path.join(path, arquivo))
+    with open(os.path.join(path, arquivo), "w") as f:
+        f.write(conteudo)
 
 
-def compare(log):
-    ref = open(REF).read().splitlines()
+def compare(ref_log, log):
+    ref = open(ref_log).read().splitlines()
     got = open(log).read().splitlines() if os.path.exists(log) else []
     first = None
     diff = 0
@@ -125,28 +176,40 @@ def compare(log):
 
 
 def main():
-    if not os.path.exists(REF):
-        sys.exit("rode antes: sh tests/test_drivers.sh 0 1 fluxo")
-    src = open(os.path.join(ROOT, "main.atm")).read()
-    print(f"roteiro: {os.path.relpath(SCRIPT, ROOT)}  referencia: {len(open(REF).read().splitlines())} quadros\n")
+    so = set(sys.argv[1:])
+    mutacoes = [m for m in MUTACOES if not so or m[0] in so]
+    usados = sorted({(m[5] if len(m) > 5 else "fluxo") for m in mutacoes})
+    for r in usados:
+        ref_log = os.path.join(OUT, ROTEIROS[r][1])
+        if not os.path.exists(ref_log):
+            sys.exit(f"falta {os.path.relpath(ref_log, ROOT)}: rode antes o roteiro {r} "
+                     "com tests/test_drivers.sh (ou make test-mutacoes)")
+        n = len(open(ref_log).read().splitlines())
+        print(f"roteiro {r}: {ROTEIROS[r][0]}  referencia: {n} quadros")
+    print()
     print(f"{'mutacao':24} {'resultado':12} {'1o quadro':>9} {'quadros dif.':>12}  descricao")
     survived = 0
     equivalent = 0
     pending = 0
-    for name, desc, old, new in MUTACOES:
+    for m in mutacoes:
+        name, desc, old, new = m[:4]
+        arquivo = m[4] if len(m) > 4 else "main.atm"
+        roteiro = m[5] if len(m) > 5 else "fluxo"
+        script, ref_name, game_args = ROTEIROS[roteiro]
+        src = open(os.path.join(ROOT, arquivo)).read()
         if src.count(old) != 1:
             print(f"{name:24} {'NAO APLICADA':12} {'':>9} {'':>12}  trecho nao encontrado")
             survived += 1
             continue
         run = os.path.join(ROOT, "build", "mut", name)
-        mkrun(run, src.replace(old, new))
+        mkrun(run, arquivo, src.replace(old, new))
         log = os.path.join(run, "replay.log")
-        env = dict(os.environ, DOOM_REPLAY=SCRIPT, DOOM_REPLAY_OUT=log)
+        env = dict(os.environ, DOOM_REPLAY=os.path.join(OUT, script), DOOM_REPLAY_OUT=log)
         with open(os.path.join(run, "saida.txt"), "w") as out:
-            subprocess.run(["atmos", "main.atm", "--", "-nosound", "-nomusic"],
+            subprocess.run(["atmos", "main.atm", "--", "-nosound", "-nomusic"] + game_args,
                            cwd=run, env=env, stdout=out, stderr=subprocess.STDOUT,
                            timeout=600)
-        first, diff, nref, ngot = compare(log)
+        first, diff, nref, ngot = compare(os.path.join(OUT, ref_name), log)
         if first is None and name in EQUIVALENTES:
             result = "equivalente"
             equivalent += 1
@@ -166,7 +229,7 @@ def main():
             print(f"{'':24} {'':12} {'':>9} {'':>12}    -> {PENDENTES[name]}")
         elif name in PENDENTES:
             print(f"{'':24} {'':12} {'':>9} {'':>12}    -> agora detectada: tire de PENDENTES")
-    total = len(MUTACOES) - equivalent
+    total = len(mutacoes) - equivalent
     print(f"\n{total - survived - pending}/{total} mutacoes nao equivalentes detectadas"
           f" ({equivalent} equivalentes, {pending} pendentes de cobertura, justificadas acima)")
     sys.exit(1 if survived else 0)
