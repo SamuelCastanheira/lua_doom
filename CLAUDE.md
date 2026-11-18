@@ -41,7 +41,7 @@ Atmos) e escreve em **português**. Responda em português.
 | Recursos visuais do Doom original (céu por episódio, texturas animadas, luz de sprites e arma, contraste falso, gama F11, R_CheckBBox) | concluído |
 | 1. Ambiente e driver Atmos | concluído (`passo1`) |
 | 2. Fluxo de telas em tasks | concluído (`passo2`) |
-| **3. Specials de setor (luzes, portas, elevadores, pisos, botões, save)** | **em andamento:** subpasso 0, 3a (luzes) e 3e (botões) feitos; próximo: 3b (portas) |
+| **3. Specials de setor (luzes, portas, elevadores, pisos, botões, save)** | **em andamento:** subpasso 0, 3a (luzes), 3e (botões) e 3b (portas) feitos; próximo: 3c (elevadores) |
 | 4. Arma (psprites) | planejado |
 | 5. Um monstro como task | planejado |
 
@@ -160,6 +160,7 @@ partir de 1):
 300 exit secret     # saida secreta
 500 die             # comando de teste: o jogador morre
 600 use 136         # comando de teste: "use" na linha 136 do WAD (passo 3e)
+700 cross 602       # comando de teste: cruza a linha 602 pela frente (passo 3b)
 900 quit            # fecha a janela
 ```
 
@@ -383,10 +384,12 @@ Ordem atual de um tic de nível (`G.tic_view_antes`, 1 a 6;
 7. `emit :game.specials` em `Nivel`. Acorda, na ordem de declaração em
    `Nivel` (P7):
    1. pool `luzes` (tasks de `setores.atm`, passo 3a), na ordem dos setores;
-   2. a task que chama `G.specials_resto()` → `specials_mod.tick`, que ainda
-      faz, nesta ordem: linhas com scroll (efeito 48); thinkers de setor
-      (`self.thinkers`: portas, elevadores, pisos, tetos);
-   3. pool `botoes` (task `Botao`, passo 3e), na ordem de criação.
+   2. a task que chama `G.specials_resto()` → `specials_mod.tick`, que só
+      faz as linhas com scroll (efeito 48);
+   3. pool `movers` (passo 3b), na ordem de criação: portas (task `Porta`)
+      e, ainda Lua, elevadores, pisos e tetos (task `ThinkerLua`, que chama
+      `M.tick_thinker`);
+   4. pool `botoes` (task `Botao`, passo 3e), na ordem de criação.
 8. `res:update_anims(leveltime)`
 9. saída? → `"saida"`
 10. `leveltime + 1`
@@ -475,12 +478,13 @@ automapa, `-`/`=` mudam o tamanho da tela.
 ### 5.2 Equivalência da lógica (driver Atmos × referência)
 
 ```sh
-make test-drivers          # semantica do Atmos (P1-P9) + 5 roteiros contra a tag passo1
+make test-drivers          # semantica do Atmos (P1-P9) + 6 roteiros contra a tag passo1; saves comparados byte a byte
 sh tests/test_drivers.sh 0 1 fluxo         # roteiro com todas as transicoes
 sh tests/test_drivers.sh 4000 1            # pseudoaleatorio, 4000 quadros, semente 1
 sh tests/test_drivers.sh 6000 2 exits      # tambem termina niveis
 sh tests/test_drivers.sh 1200 1 luzes -warp 4 1   # passo 3a: E4M1 e E1M2 parados
 sh tests/test_drivers.sh 0 1 botoes -warp 1 1     # passo 3e: switches, save e load
+sh tests/test_drivers.sh 0 1 portas -warp 1 1     # passo 3b: portas em cada fase, save e load
 REF_TAG=passo2 sh tests/test_drivers.sh 0 1 fluxo   # outra referencia
 ```
 
@@ -577,6 +581,10 @@ versionado é antigo (sem a gama); no Windows, recompile.
 
 ## 8. Comportamentos conhecidos (não "consertar" sem decidir)
 
+Lista completa do que difere do Doom original (specials, save, som, demos,
+multiplayer): `docs/DIFERENCAS_DOOM.md`. Ao corrigir algo, mova o item para
+a seção "Corrigido" desse arquivo.
+
 - **Bug preservado:** o `carry` de um nível vaza para um novo jogo iniciado
   na intermissão (o novo jogo começa com as armas do anterior). Correção
   proposta: `game.carry = nil` em `G.new_game`, num commit separado, com nova
@@ -606,12 +614,12 @@ no código (`specials.lua`, 1.538 linhas, ainda imperativo):
 | Função | Papel hoje |
 |---|---|
 | `M.new` → `M.spawn_specials` | cria as luzes (tasks, desde o 3a) e as portas de setor a partir de `sector.special`, na ordem dos setores |
-| `M.tick` | scroll → `self.thinkers` (despacha por `th.kind`: door, plat, floor, ceiling) → botões (as luzes já não passam por aqui) |
+| `M.tick` | só as linhas com scroll (luzes, movimentadores e botões são tasks) |
 | `setores.atm` | tasks de setor (3a: `Pisca`, `Strobe`, `Brilho`, `Fogo`); flash, strobe e fire usam `rng.p_random()` |
-| `tick_door`, `tick_plat`, `tick_floor`, `tick_ceiling` | máquinas de estado com `direction`, `count`, `status`, `dead` |
+| `tick_plat`, `tick_floor`, `tick_ceiling` | máquinas de estado com `direction`, `count`, `status`, `dead`, chamadas por `M.tick_thinker` (a porta virou task no 3b) |
 | `spawn_door`, `vertical_door`, `do_plat_*`, `do_floor`, `do_stairs`, `do_crusher`… | criam thinkers e marcam `sector.specialdata` |
 | `M.move_plane` | geometria pura (mantenha em Lua) |
-| `saveg.lua`, função de gravar e `M.apply` | serializam e recriam `specials.thinkers` e `specials.buttons` campo a campo |
+| `saveg.lua`, função de gravar e `M.apply` | percorrem as pools `movers` e `botoes` (`t.pub`) no mesmo formato de antes |
 
 Ordem sugerida: luzes → botões → portas → elevadores → pisos e tetos →
 save. As luzes vêm primeiro porque só são criadas ao montar o nível
@@ -653,6 +661,24 @@ porque o save precisa dele (o custo do save, medido). Comando de teste
 (E1M1 linha 136, E1M4 linhas 394 e 694, save com botão ativo, load).
 Lição: **a cada tipo migrado, confira que o que ele escreve está no hash**
 (daí os lados no hash, com `DOOM_REPLAY_SIDES`).
+
+**Subpasso 3b (feito):** portas como task `Porta` numa pool única
+`movers` (ordem de criação), com elevadores, pisos e tetos ainda Lua
+embrulhados em `ThinkerLua`; `self.thinkers` sumiu. A fase da porta é
+`porta.direction` no registro da porta (`sector.specialdata` = `pub`): o Lua
+ainda a inverte em `spawn_door` (o **recado**, lido na fase de specials; um
+`emit` imediato mudaria o jogo, mutação `recado-vira-evento`). O recado é a
+direção, não um booleano (dois "use" no mesmo tic). Este port **não**
+reabre a porta ao esmagar (o Doom original reabre). O save tem o mesmo
+formato; `tests/test_drivers.sh` compara os `.dsg` byte a byte. Comando
+`cross <linha>`. Resultado misto de expressividade (código 208 → 234,
+estado 9 → 8), registrado.
+
+Ferramentas: `tools/mutacoes.py` aceita mutações em vários arquivos e extrai
+os trechos do `Nivel` na hora; confira que a execução mutada **terminou**
+(número de quadros) antes de aceitar uma detecção. `tools/diagramas.py` +
+preview "diagramas" (`.claude/launch.json`) conferem os Mermaid do
+registro (`window.erros`).
 
 Ao mudar o `tests/ref-passo1.patch`, apague o worktree antigo
 (`git worktree remove --force build/ref-passo1`) ou aplique a mudança nele

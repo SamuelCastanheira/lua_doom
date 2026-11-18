@@ -91,6 +91,18 @@ local function play(self, name)
   end
 end
 
+-- Usados pelas tasks de setores.atm.
+M.RESULT_PASTDEST = RESULT_PASTDEST
+M.TICRATE = TICRATE
+M.VLD = {
+  NORMAL = VLD_NORMAL, CLOSE30 = VLD_CLOSE30, CLOSE = VLD_CLOSE, OPEN = VLD_OPEN,
+  RAISEIN5 = VLD_RAISEIN5, BLAZERAISE = VLD_BLAZERAISE, BLAZEOPEN = VLD_BLAZEOPEN,
+  BLAZECLOSE = VLD_BLAZECLOSE,
+}
+function M.play(self, name)
+  play(self, name)
+end
+
 function M.move_plane(world, sector, speed, dest, floor_or_ceiling, direction, crush)
   local last = sector.floorheight
   if floor_or_ceiling ~= 0 then
@@ -279,7 +291,7 @@ local function tag_line(tag)
 end
 
 -- pools: pools de tasks da task Nivel (main.atm), por exemplo
--- { luzes = <tasks>, botoes = <tasks> }. Sem main.atm (testes unitarios com game falso) e nil,
+-- { luzes = <tasks>, movers = <tasks>, botoes = <tasks> }. Sem main.atm (testes unitarios com game falso) e nil,
 -- e as partes ja migradas para tasks ficam paradas.
 function M.new(world, res, sound, pools)
   local self = {
@@ -287,7 +299,6 @@ function M.new(world, res, sound, pools)
     res = res,
     sound = sound,
     pools = pools,
-    thinkers = {},
     scroll_lines = {},
     exit_requested = false,
     secret_exit = false,
@@ -326,6 +337,26 @@ end
 
 local function spawn_luz(self, nome, ...)
   return spawn_task(self, "luzes", nome, ...)
+end
+
+-- Movimentadores (passo 3b): portas, elevadores, pisos e tetos ficam numa
+-- pool so, "movers", na ordem de criacao (a da antiga lista self.thinkers):
+-- a ordem entre eles importa (um mobj na fronteira de dois setores tem o
+-- chao e o teto calculados pelos dois). As portas sao tasks Porta; os
+-- outros ainda sao thinkers Lua, embrulhados na task ThinkerLua, que so
+-- chama M.tick_thinker a cada fase (ate os passos 3c e 3d).
+local function add_thinker(self, th)
+  return spawn_task(self, "movers", "ThinkerLua", self, th)
+end
+M.add_thinker = add_thinker
+
+-- Porta (passo 3b): task Porta de setores.atm. "porta" e o registro da
+-- porta (kind, sector, type, direction, topheight, speed, topwait,
+-- topcountdown): fica em sector.specialdata e e o pub da task. O Lua ainda
+-- escreve porta.direction quando alguem usa a porta de novo (spawn_door), e
+-- a task le na sua fase (o "recado"; ver docs/NOTAS_MONOGRAFIA.md, secao 5).
+function M.start_door(self, porta)
+  return spawn_task(self, "movers", "Porta", self, porta)
 end
 
 local function spawn_light_flash(self, sector)
@@ -385,13 +416,11 @@ local function spawn_door(self, sector, dtype, reverse)
     speed = speed,
     topwait = VDOORWAIT,
     topcountdown = 0,
-    dead = false,
   }
   if dtype == VLD_CLOSE30 then
     door.topheight = sector.ceilingheight
   end
-  sector.specialdata = door
-  self.thinkers[#self.thinkers + 1] = door
+  M.start_door(self, door)             -- a task marca sector.specialdata
   if door.direction == 1 then
     if dtype < VLD_BLAZERAISE then
       play(self, "doropn")
@@ -422,10 +451,8 @@ local function spawn_door_close_in_30(self, sector)
     speed = VDOORSPEED,
     topwait = VDOORWAIT,
     topcountdown = 30 * TICRATE,
-    dead = false,
   }
-  sector.specialdata = door
-  self.thinkers[#self.thinkers + 1] = door
+  M.start_door(self, door)
 end
 
 local function spawn_door_raise_in_5(self, sector)
@@ -442,10 +469,8 @@ local function spawn_door_raise_in_5(self, sector)
     speed = VDOORSPEED,
     topwait = VDOORWAIT,
     topcountdown = 5 * 60 * TICRATE,
-    dead = false,
   }
-  sector.specialdata = door
-  self.thinkers[#self.thinkers + 1] = door
+  M.start_door(self, door)
 end
 
 function M.spawn_specials(self)
@@ -479,53 +504,6 @@ function M.spawn_specials(self)
     local ln = self.world.lines[i]
     if ln.special == 48 then
       self.scroll_lines[#self.scroll_lines + 1] = ln
-    end
-  end
-end
-
-local function tick_door(self, door)
-  if door.direction == 0 then
-    door.topcountdown = door.topcountdown - 1
-    if door.topcountdown <= 0 then
-      local dtype = door.type
-      if dtype == VLD_NORMAL or dtype == VLD_BLAZERAISE or dtype == VLD_CLOSE then
-        door.direction = -1
-        if dtype == VLD_BLAZERAISE then
-          play(self, "bdcls")
-        else
-          play(self, "dorcls")
-        end
-      elseif dtype == VLD_CLOSE30 or dtype == VLD_RAISEIN5 then
-        door.direction = 1
-        play(self, "doropn")
-      end
-    end
-    return
-  end
-  local dest = door.sector.floorheight
-  if door.direction == 1 then
-    dest = door.topheight
-  end
-  local res = M.move_plane(self.world, door.sector, door.speed, dest, 1, door.direction, false)
-  mark(self)
-  if res ~= RESULT_PASTDEST then
-    return
-  end
-  if door.direction == 1 then
-    if door.type == VLD_NORMAL or door.type == VLD_BLAZERAISE then
-      door.direction = 0
-      door.topcountdown = door.topwait
-    else
-      door.sector.specialdata = nil
-      door.dead = true
-    end
-  else
-    if door.type == VLD_CLOSE30 then
-      door.direction = 0
-      door.topcountdown = TICRATE * 30
-    else
-      door.sector.specialdata = nil
-      door.dead = true
     end
   end
 end
@@ -618,9 +596,9 @@ local function tick_ceiling(self, ceil)
   end
 end
 
--- Partes dos specials que ainda sao thinkers Lua. Ja sao tasks: as luzes
--- (passo 3a), que acordam antes desta funcao, e os botoes (passo 3e), que
--- acordam depois dela (pools "luzes" e "botoes" do Nivel, main.atm).
+-- O que ainda e Lua na fase de specials: as linhas com scroll (efeito 48).
+-- Ja sao tasks, nas pools do Nivel (main.atm): luzes (3a), que acordam antes
+-- desta funcao, e movers (3b) e botoes (3e), que acordam depois.
 function M.tick(self)
   local before = self.stamp
   for i = 1, #self.scroll_lines do
@@ -630,26 +608,19 @@ function M.tick(self)
       mark(self)
     end
   end
-  local alive = {}
-  for i = 1, #self.thinkers do
-    local th = self.thinkers[i]
-    if not th.dead then
-      if th.kind == "door" then
-        tick_door(self, th)
-      elseif th.kind == "plat" then
-        tick_plat(self, th)
-      elseif th.kind == "floor" then
-        tick_floor(self, th)
-      elseif th.kind == "ceiling" then
-        tick_ceiling(self, th)
-      end
-      if not th.dead then
-        alive[#alive + 1] = th
-      end
-    end
-  end
-  self.thinkers = alive
   return self.stamp ~= before
+end
+
+-- Um tic de um thinker Lua de setor que ainda nao virou task (chamado pela
+-- task ThinkerLua). Sai nos passos 3c (elevadores) e 3d (pisos e tetos).
+function M.tick_thinker(self, th)
+  if th.kind == "plat" then
+    tick_plat(self, th)
+  elseif th.kind == "floor" then
+    tick_floor(self, th)
+  elseif th.kind == "ceiling" then
+    tick_ceiling(self, th)
+  end
 end
 
 function M.do_door(self, line, dtype, reverse)
@@ -759,7 +730,7 @@ function M.do_plat_dwus(self, line, blaze)
         plat.low = plat.high - 8 * FRACUNIT
       end
       sec.specialdata = plat
-      self.thinkers[#self.thinkers + 1] = plat
+      add_thinker(self, plat)
       play(self, "pstart")
       ok = true
     end
@@ -788,7 +759,7 @@ function M.do_floor(self, line, dest_fn, direction, speed, crush)
         dead = false,
       }
       sec.specialdata = floor
-      self.thinkers[#self.thinkers + 1] = floor
+      add_thinker(self, floor)
       ok = true
     end
   end
@@ -812,7 +783,7 @@ function M.do_stairs(self, line, step, speed)
         floorpic = nil,
         dead = false,
       }
-      self.thinkers[#self.thinkers + 1] = sec.specialdata
+      add_thinker(self, sec.specialdata)
       ok = true
       local texture = sec.floorpic
       local cur = sec
@@ -845,7 +816,7 @@ function M.do_stairs(self, line, step, speed)
           floorpic = nil,
           dead = false,
         }
-        self.thinkers[#self.thinkers + 1] = nxt.specialdata
+        add_thinker(self, nxt.specialdata)
         cur = nxt
       end
     end
@@ -868,7 +839,7 @@ local function start_floor(self, sec, dest, direction, speed, crush, floorpic)
     dead = false,
   }
   sec.specialdata = floor
-  self.thinkers[#self.thinkers + 1] = floor
+  add_thinker(self, floor)
   return true
 end
 
@@ -908,7 +879,7 @@ function M.do_crusher(self, line, ctype)
         dead = false,
       }
       sec.specialdata = ceil
-      self.thinkers[#self.thinkers + 1] = ceil
+      add_thinker(self, ceil)
       ok = true
     end
   end
@@ -976,7 +947,7 @@ function M.do_plat_perpetual(self, line)
         dead = false,
       }
       sec.specialdata = plat
-      self.thinkers[#self.thinkers + 1] = plat
+      add_thinker(self, plat)
       play(self, "pstart")
       ok = true
     end
@@ -1018,7 +989,7 @@ function M.do_plat_raise(self, line, amount, change)
         dead = false,
       }
       sec.specialdata = plat
-      self.thinkers[#self.thinkers + 1] = plat
+      add_thinker(self, plat)
       play(self, "pstart")
       ok = true
     end
@@ -1028,9 +999,13 @@ end
 
 function M.stop_plat(self, line)
   local ok = false
-  for i = 1, #self.thinkers do
-    local th = self.thinkers[i]
-    if th.kind == "plat" and not th.dead and th.sector.tag == line.tag then
+  local movers = self.pools and self.pools.movers
+  if not movers then
+    return false
+  end
+  for _, t in pairs(movers) do
+    local th = t.pub
+    if th and th.kind == "plat" and not th.dead and th.sector.tag == line.tag then
       th.status = PLAT_WAITING
       th.count = 2147483647
       ok = true

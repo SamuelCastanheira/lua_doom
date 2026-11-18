@@ -46,6 +46,10 @@ local function replay_backend(path)
         -- so para testes: aciona a linha N (indice do WAD), como o "use" do
         -- jogador encostado nela; usado para switches repetiveis (passo 3e)
         ev = { key = "", replay_use = tonumber(dir) }
+      elseif key == "cross" then
+        -- so para testes: cruza a linha N (indice do WAD) pela frente, como o
+        -- jogador andando por cima dela; portas de 30 s etc. (passo 3b)
+        ev = { key = "", replay_cross = tonumber(dir) }
       else
         ev = { key = key, down = dir ~= "up" }
       end

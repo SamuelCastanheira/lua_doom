@@ -27,6 +27,15 @@ local luzes = arg[4] == "luzes"
 -- linha), salva com um botao no meio do timer e carrega esse save (o botao
 -- volta com o timer gravado). "quadros" e ignorado.
 local botoes = arg[4] == "botoes"
+-- "portas": roteiro do passo 3b, rodado com "-warp 1 1". Usa os comandos de
+-- teste "use <linha>" e "cross <linha>":
+--   E1M1 linha 148 (porta comum): usar de novo abrindo, fechando, esperando
+--   e duas vezes no mesmo quadro (o "recado" da porta); save e load em cada
+--   fase, em slots diferentes (5: abrindo, 4: esperando, 3: fechando);
+--   E1M6 linha 602 (cruzar: fecha e reabre depois de 30 s);
+--   E1M2 linhas 497 (abre e fica) e 527 (porta vermelha, com idkfa).
+-- "quadros" e ignorado.
+local portas = arg[4] == "portas"
 
 local function rand(n)
   seed = (seed * 1103515245 + 12345) % 2147483648
@@ -87,6 +96,63 @@ local function exit_level(kind)
     wait(60)
   end
   wait(60)
+end
+
+if portas then
+  local function use(n)
+    lines[#lines + 1] = string.format("%d use %d", f, n)
+    f = f + 1
+  end
+  local function cross(n)
+    lines[#lines + 1] = string.format("%d cross %d", f, n)
+    f = f + 1
+  end
+  local function down(n) for _ = 1, n do tap("down") end end
+  local function up(n) for _ = 1, n do tap("up") end end
+  local P = 148
+  wait(40)
+  type_text("iddqd")
+  wait(20)
+  -- o recado: usar de novo em cada fase
+  use(P); wait(10)                                     -- abrindo
+  use(P); wait(6)                                      -- abrindo -> fechando
+  use(P); wait(100)                                    -- fechando -> abrindo; espera no topo
+  use(P); wait(4)                                      -- esperando -> fechando
+  lines[#lines + 1] = string.format("%d use %d", f, P) -- dois "use" no mesmo
+  use(P); wait(120)                                    -- quadro: segue fechando
+  -- Save A (abrindo), slot 5: main 0 -> 3 Save -> slot 0 -> 5
+  keys({ "escape" }); down(3); keys({ "return" }); wait(10); down(5)
+  use(P); wait(8); keys({ "return" })
+  wait(10)
+  -- Load A: main 3 -> 2 Load -> slot 0 -> 5
+  keys({ "escape" }); up(1); keys({ "return" }); wait(10); down(5); keys({ "return" })
+  wait(120)                                            -- termina de abrir; espera
+  -- Save B (esperando), slot 4: main 2 -> 3 Save -> slot 5 -> 4
+  keys({ "escape" }); down(1); keys({ "return" }); wait(10); up(1); keys({ "return" })
+  wait(20)
+  -- Load B: main 3 -> 2 Load -> slot 5 -> 4
+  keys({ "escape" }); up(1); keys({ "return" }); wait(10); up(1); keys({ "return" })
+  wait(300)                                            -- espera o resto e fecha
+  -- Save C (fechando), slot 3: main 2 -> 3 Save -> slot 4 -> 3
+  use(P); wait(90)                                     -- abre e espera no topo
+  keys({ "escape" }); down(1); keys({ "return" }); wait(10); up(1)
+  use(P); wait(5); keys({ "return" })                  -- esperando -> fechando
+  wait(10)
+  -- Load C: main 3 -> 2 Load -> slot 4 -> 3
+  keys({ "escape" }); up(1); keys({ "return" }); wait(10); up(1); keys({ "return" })
+  wait(150)
+  -- porta de 30 s: E1M6, linha 602 (cruzar)
+  type_text("idclev16"); wait(40); type_text("iddqd"); wait(20)
+  cross(602); wait(1200)                               -- fecha, 30 s, reabre
+  -- E1M2: porta que abre e fica (497) e porta vermelha (527)
+  type_text("idclev12"); wait(40); type_text("idkfa"); wait(20)
+  use(497); wait(20); use(527); wait(300)
+  lines[#lines + 1] = string.format("%d quit", f + 20)
+  local fh = assert(io.open(out_path, "w"))
+  fh:write(table.concat(lines, "\n"), "\n")
+  fh:close()
+  print(string.format("%s: %d eventos, ate o quadro %d", out_path, #lines, f + 20))
+  return
 end
 
 if botoes then

@@ -17,6 +17,7 @@
 
 val rng    = require "random"
 val compat = require "compat"
+val S      = require "specials"       ;; geometria (move_plane) e sons
 val band   = compat.band
 
 val GLOWSPEED    = 8
@@ -112,4 +113,104 @@ val task Botao (linha, attr, textura, timer) {
     }
 }
 
-[Pisca=Pisca, Strobe=Strobe, Brilho=Brilho, Fogo=Fogo, Botao=Botao]
+;; ---------------------------------------------------------- movimentadores
+;; Passo 3b. Portas, elevadores, pisos e tetos ficam todos na pool "movers",
+;; na ordem de criacao (a da antiga lista self.thinkers). Os que ainda nao
+;; viraram task entram embrulhados em ThinkerLua.
+
+;; Thinker Lua de setor ainda nao migrado (elevador, piso, teto): a cada fase
+;; chama o tick antigo, na posicao dele na pool, ate o thinker acabar.
+val task ThinkerLua (sp, th) {
+    set pub = th                          ;; o save e stop_plat leem por aqui
+    loop {
+        await :game.specials
+        S.tick_thinker(sp, th)
+        until (th.dead)
+    }
+}
+
+;; Porta (EV_DoDoor, EV_VerticalDoor, T_VerticalDoor). "porta" e o registro
+;; da porta, compartilhado com o Lua: fica em sector.specialdata e e o pub.
+;;
+;; A fase da porta e porta.direction: 1 abrindo, 0 esperando, -1 fechando.
+;; Ela fica no registro (e nao so na posicao do codigo) por dois motivos:
+;;   * o recado: quando alguem usa a porta de novo, spawn_door (Lua) inverte
+;;     porta.direction no meio do tic; a task percebe na sua fase e muda de
+;;     fase agindo ja nesse tic, como o T_VerticalDoor lia a direcao nova;
+;;   * o save grava direction e topcountdown (o mesmo formato de antes).
+
+;; Anda ate o destino. Devolve :chegou, ou :troca se o Lua mudou a direcao
+;; (o recado). "direto": a fase comeca agindo ja, sem esperar (troca).
+val func mover (sp, porta, dir, direto) {
+    var espera = !direto
+    loop {
+        if espera {
+            await :game.specials
+        }
+        set espera = true
+        until (porta.direction != dir, :troca)
+        val destino = if dir == 1 => porta.topheight => porta.sector.floorheight
+        val r = S.move_plane(sp.world, porta.sector, porta.speed, destino, 1, dir, false)
+        until (r == S.RESULT_PASTDEST, :chegou)
+    }
+}
+
+;; Espera porta.topcountdown tics (o save le esse contador). Devolve :fim,
+;; ou :troca se o Lua mudou a direcao.
+val func esperar_porta (porta) {
+    loop {
+        await :game.specials
+        until (porta.direction != 0, :troca)
+        set porta.topcountdown = porta.topcountdown - 1
+        until (porta.topcountdown <= 0, :fim)
+    }
+}
+
+val task Porta (sp, porta) {
+    val V = S.VLD
+    set pub = porta
+    set porta.sector.specialdata = porta  ;; setor ocupado
+    defer {                               ;; ao terminar ou ser abortada
+        set porta.sector.specialdata = nil
+        set porta.dead = true
+    }
+    var direto = false
+    loop {
+        val d = porta.direction
+        val r = if d == 0 => esperar_porta(porta) => mover(sp, porta, d, direto)
+        set direto = (r == :troca)
+        ifs {
+            (r == :troca) => {}           ;; recado: segue na direcao nova
+            (r == :fim) => {              ;; acabou a espera
+                val t = porta.type
+                ifs {
+                    (t == V.NORMAL) || (t == V.CLOSE) => {
+                        set porta.direction = -1
+                        S.play(sp, "dorcls")
+                    }
+                    (t == V.BLAZERAISE) => {
+                        set porta.direction = -1
+                        S.play(sp, "bdcls")
+                    }
+                    (t == V.CLOSE30) || (t == V.RAISEIN5) => {
+                        set porta.direction = 1
+                        S.play(sp, "doropn")
+                    }
+                }
+            }
+            (d == 1) => {                 ;; chegou em cima
+                until ((porta.type != V.NORMAL) && (porta.type != V.BLAZERAISE))
+                set porta.direction = 0
+                set porta.topcountdown = porta.topwait
+            }
+            else => {                     ;; chegou embaixo
+                until (porta.type != V.CLOSE30)
+                set porta.direction = 0
+                set porta.topcountdown = S.TICRATE * 30
+            }
+        }
+    }
+}
+
+[Pisca=Pisca, Strobe=Strobe, Brilho=Brilho, Fogo=Fogo, Botao=Botao,
+ ThinkerLua=ThinkerLua, Porta=Porta]

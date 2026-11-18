@@ -15,11 +15,12 @@
 # (mobjs, setores, jogador, RNG, tela atual). A primeira linha divergente
 # aponta o quadro em que a ordem ou o tempo mudou.
 #
-#   sh tests/test_drivers.sh [quadros] [semente] [exits|fluxo|luzes|botoes] [args do jogo...]
+#   sh tests/test_drivers.sh [quadros] [semente] [exits|fluxo|luzes|botoes|portas] [args do jogo...]
 #   exits: o roteiro tambem termina niveis -> intermissao e finale
 #   fluxo: roteiro fixo que passa por todas as transicoes (quadros ignorado)
 #   luzes: jogador parado no E4M1 e no E1M2 (rode com -warp 4 1; passo 3a)
 #   botoes: switches repetiveis, save e load (rode com -warp 1 1; passo 3e)
+#   portas: portas em cada fase, save e load (rode com -warp 1 1; passo 3b)
 #
 # REF_TAG=<tag> muda a referencia (padrao: passo1).
 set -e
@@ -86,6 +87,15 @@ cp "$OUT/ref.log" "$OUT/ref_$SEED$EXITS.log"
   lua5.4 main.lua -nosound -nomusic "$@" >"$ROOT/$OUT/lan.out" 2>&1) || true
 
 status=0
+# Saves sao parte do resultado: os arquivos gravados pelas duas versoes tem
+# de ser identicos byte a byte (o formato nao mudou na migracao).
+for f in "$OUT"/run_ref/doomsav*.dsg; do
+  [ -e "$f" ] || continue
+  if ! cmp -s "$f" "$OUT/run_atm/$(basename "$f")"; then
+    echo "DIVERGENCIA no save $(basename "$f") (referencia x atmos)"
+    status=1
+  fi
+done
 for cand in atm lan; do
   if ! cmp -s "$OUT/ref.log" "$OUT/$cand.log"; then
     echo "DIVERGENCIA $cand x $REF_TAG (semente $SEED $EXITS $*):"
@@ -149,5 +159,23 @@ if [ "$EXITS" = "botoes" ] && [ $status -eq 0 ]; then
   grep -q "^pedido jogo.carregar" "$OUT/atm.out" || { echo "COBERTURA INCOMPLETA: sem load"; status=1; }
   grep -q "^vista E1M4" "$OUT/ref.out" || { echo "COBERTURA INCOMPLETA: nao chegou ao E1M4"; status=1; }
   [ $status -eq 0 ] && echo "  cobertura dos botoes: save com botao ativo, load, E1M1 e E1M4"
+fi
+# No roteiro "portas" (passo 3b): um save em cada fase da porta (slot 5
+# abrindo, 4 esperando, 3 fechando), tres loads, E1M6 (30 s) e E1M2.
+if [ "$EXITS" = "portas" ] && [ $status -eq 0 ]; then
+  fase() {
+    got=$(grep -ao '"kind":"door"[^}]*' "$OUT/run_atm/doomsav$1.dsg" 2>/dev/null | grep -c "\"direction\":$2,")
+    if [ "$got" -lt 1 ]; then
+      echo "COBERTURA INCOMPLETA: o slot $1 nao tem porta com direction $2"
+      status=1
+    fi
+  }
+  fase 5 1; fase 4 0; fase 3 -1
+  n=$(grep -c "^pedido jogo.carregar" "$OUT/atm.out" || true)
+  [ "$n" -ge 3 ] || { echo "COBERTURA INCOMPLETA: $n loads (esperado 3)"; status=1; }
+  for m in E1M6 E1M2; do
+    grep -q "^vista $m" "$OUT/ref.out" || { echo "COBERTURA INCOMPLETA: nao chegou ao $m"; status=1; }
+  done
+  [ $status -eq 0 ] && echo "  cobertura das portas: save e load abrindo, esperando e fechando; E1M6 (30 s); E1M2"
 fi
 exit $status

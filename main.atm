@@ -75,13 +75,15 @@ task Nivel (save) {
     ;; existem antes de montar o nivel: build_level cria as luzes e o load
     ;; (saveg.apply) recria os botoes.
     pin luzes = tasks()                   ;; 3a: luzes (setores.atm)
-    spawn {                               ;; ainda em Lua: scroll e
-        loop on :game.specials {          ;; portas/elevadores/pisos
+    spawn {                               ;; ainda em Lua: linhas com scroll
+        loop on :game.specials {
             G.specials_resto()
         }
     }
+    pin movers = tasks()                  ;; 3b: portas (Porta) e, ainda Lua,
+                                          ;; elevadores/pisos (ThinkerLua)
     pin botoes = tasks()                  ;; 3e: botoes (setores.atm)
-    G.set_pools([luzes=luzes, botoes=botoes])   ;; specials.lua cria as tasks
+    G.set_pools([luzes=luzes, movers=movers, botoes=botoes])
     defer {
         G.set_pools(nil)
     }

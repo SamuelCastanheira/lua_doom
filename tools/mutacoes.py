@@ -11,6 +11,7 @@ Uso (depois de rodar os roteiros usados, como faz "make test-mutacoes"):
     sh tests/test_drivers.sh 0 1 fluxo
     sh tests/test_drivers.sh 1200 1 luzes -warp 4 1
     sh tests/test_drivers.sh 0 1 botoes -warp 1 1
+    sh tests/test_drivers.sh 0 1 portas -warp 1 1
     python3 tools/mutacoes.py [nome-da-mutacao ...]
 """
 import os
@@ -26,6 +27,7 @@ ROTEIROS = {
     "fluxo": ("replay_1fluxo.txt", "ref_1fluxo.log", []),
     "luzes": ("replay_1luzes.txt", "ref_1luzes.log", ["-warp", "4", "1"]),
     "botoes": ("replay_1botoes.txt", "ref_1botoes.log", ["-warp", "1", "1"]),
+    "portas": ("replay_1portas.txt", "ref_1portas.log", ["-warp", "1", "1"]),
 }
 
 # Mutantes equivalentes: mudam o codigo mas nao o comportamento. Sobreviver
@@ -39,15 +41,16 @@ EQUIVALENTES = {
         "e am_map.responder, na fase de entrada)",
     "luzes-depois-do-resto":
         "as luzes so escrevem lightlevel e consomem P_Random; o resto em Lua "
-        "(scroll, portas, elevadores, pisos, botoes) nao le lightlevel e nao "
-        "consome P_Random no tick (o esmagamento deste port, "
+        "(desde o 3b, so as linhas com scroll; no 3a tambem portas, "
+        "elevadores e pisos) nao le lightlevel e nao consome P_Random no tick "
+        "(o esmagamento deste port, "
         "collision.change_sector, so tira vida; o Doom original solta sangue "
         "com P_Random em P_ChangeSector, e la a ordem importaria)",
     "botoes-antes-do-resto":
         "os botoes so escrevem a textura (top/mid/bottom) do lado do switch; o "
-        "resto em Lua escreve textureoffset (linhas com scroll) e alturas de "
-        "setor, nao le texturas de lado e nao consome P_Random no tick: "
-        "campos disjuntos, sem dependencia de leitura",
+        "resto em Lua (linhas com scroll: textureoffset) e os movimentadores "
+        "(alturas de setor) nao leem texturas de lado e nao consomem P_Random "
+        "no tick: campos disjuntos, sem dependencia de leitura",
 }
 
 # Mutantes NAO equivalentes que o roteiro ainda nao cobre. Sobreviver e
@@ -60,18 +63,56 @@ PENDENTES = {
         "move_plane -> change_sector -> dano) e a barra de status ler a vida "
         "um tic antes; nenhum roteiro atual passa por isso. Deve ser detectada "
         "pelo roteiro de esmagadores do passo 3d",
+    "portas-fora-de-movers":
+        "so diverge com uma porta e um elevador (ou piso) vizinhos andando no "
+        "mesmo tic e um mobj na fronteira: o centro num setor, o corpo no "
+        "outro. thing_height_clip calcula o chao e o teto pelos dois setores, "
+        "entao a ordem decide se o mobj ve a altura velha ou nova do vizinho. "
+        "Por isso a pool movers e unica (ordem por construcao). Nenhum roteiro "
+        "passa por esse cenario; seria preciso construi-lo",
+    "portas-fora-de-movers-fluxo":
+        "o mesmo cenario de portas-fora-de-movers; o roteiro fluxo abre portas "
+        "e usa elevadores, mas nunca os dois vizinhos com um mobj na fronteira",
 }
 
-# Trechos do Nivel (main.atm) usados por "luzes-depois-do-resto".
-LUZES_E_RESTO = '    pin luzes = tasks()                   ;; 3a: luzes (setores.atm)\n    spawn {                               ;; ainda em Lua: scroll e\n        loop on :game.specials {          ;; portas/elevadores/pisos\n            G.specials_resto()\n        }\n    }\n'
-RESTO_E_LUZES = '    spawn {                               ;; ainda em Lua: scroll e\n        loop on :game.specials {          ;; portas/elevadores/pisos\n            G.specials_resto()\n        }\n    }\n    pin luzes = tasks()                   ;; 3a: luzes (setores.atm)\n'
+# Trechos do Nivel (main.atm) para as mutacoes de ordem das pools, extraidos
+# na hora (o texto do Nivel muda a cada subpasso do passo 3).
+def _trechos_nivel():
+    m = open(os.path.join(ROOT, "main.atm")).read()
+    i = m.index("    pin luzes = tasks()")
+    luz = m[i:m.index("\n", i) + 1]
+    ini = m.index("    spawn {", i)
+    fim = m.index("\n    }\n", m.index("G.specials_resto()", ini)) + len("\n    }\n")
+    resto = m[ini:fim]
+    j = m.index("    pin botoes = tasks()")
+    bot = m[j:m.index("\n", j) + 1]
+    meio = m[fim:j]                       # o que esta entre o resto e os botoes
+    return luz, resto, meio, bot
 
-# Trechos do Nivel (main.atm) usados por "botoes-antes-do-resto".
-RESTO_E_BOTOES = '    spawn {                               ;; ainda em Lua: scroll e\n        loop on :game.specials {          ;; portas/elevadores/pisos\n            G.specials_resto()\n        }\n    }\n    pin botoes = tasks()                  ;; 3e: botoes (setores.atm)\n'
-BOTOES_E_RESTO = '    pin botoes = tasks()                  ;; 3e: botoes (setores.atm)\n    spawn {                               ;; ainda em Lua: scroll e\n        loop on :game.specials {          ;; portas/elevadores/pisos\n            G.specials_resto()\n        }\n    }\n'
+
+_LUZ, _RESTO, _MEIO, _BOT = _trechos_nivel()
+LUZES_E_RESTO = _LUZ + _RESTO
+RESTO_E_LUZES = _RESTO + _LUZ
+RESTO_E_BOTOES = _RESTO + _MEIO + _BOT
+BOTOES_E_RESTO = _BOT + _RESTO + _MEIO
+
+# Mutacao de ordem do 3b: portas numa pool propria, depois dos outros
+# movimentadores (main.atm, specials.lua e saveg.lua).
+PORTAS_SEPARADAS = [
+    ("main.atm", '    pin movers = tasks()                  ;; 3b: portas (Porta) e, ainda Lua,\n                                          ;; elevadores/pisos (ThinkerLua)\n', '    pin movers = tasks()                  ;; 3b: portas (Porta) e, ainda Lua,\n                                          ;; elevadores/pisos (ThinkerLua)\n    pin portas = tasks()\n'),
+    ("main.atm", '    G.set_pools([luzes=luzes, movers=movers, botoes=botoes])', '    G.set_pools([luzes=luzes, movers=movers, portas=portas, botoes=botoes])'),
+    ("specials.lua", "  return spawn_task(self, \"movers\", \"Porta\", self, porta)\n",
+                     "  return spawn_task(self, \"portas\", \"Porta\", self, porta)\n"),
+    ("saveg.lua", "    for _, t in pairs(movers) do\n",
+                  "    local todas = {}\n    for _, t in pairs(movers) do todas[#todas + 1] = t end\n"
+                  "    for _, t in pairs(game.pools.portas) do todas[#todas + 1] = t end\n"
+                  "    for _, t in ipairs(todas) do\n"),
+]
 
 # (nome, descricao, trecho original, trecho mutado[, arquivo[, roteiro]])
 # arquivo: padrao "main.atm"; roteiro: padrao "fluxo" (ver ROTEIROS).
+# Mutacao em varios arquivos: "trecho original" e uma lista de
+# (arquivo, original, mutado), e "trecho mutado" e arquivo ficam None.
 MUTACOES = [
     ("sem-cancel-catchup",
      "Nivel nao interrompe a recuperacao de tics ao sair do nivel",
@@ -180,10 +221,55 @@ MUTACOES = [
      "where_attr[rec.where or \"\"] or \"toptexture\", rec.texture or 0, 35)",
      "saveg.lua", "botoes"),
     ("botoes-antes-do-resto",
-     "Pool de botoes acorda antes dos specials ainda em Lua (ordem do M.tick trocada)",
+     "Pool de botoes acorda antes do resto em Lua e dos movimentadores (ordem do M.tick trocada)",
      RESTO_E_BOTOES,
      BOTOES_E_RESTO,
      "main.atm", "botoes"),
+    # --- passo 3b: portas como tasks (roteiro "portas": E1M1, E1M6, E1M2)
+    ("porta-sem-espera-inicial",
+     "Porta anda no proprio spawn, antes da sua fase (sem o await inicial)",
+     "    var espera = !direto\n",
+     "    var espera = false\n",
+     "setores.atm", "portas"),
+    ("recado-ignorado-movendo",
+     "Porta em movimento ignora o recado (outro use nao inverte)",
+     "        until (porta.direction != dir, :troca)\n",
+     "",
+     "setores.atm", "portas"),
+    ("recado-ignorado-esperando",
+     "Porta esperando ignora o recado (outro use no topo nao fecha)",
+     "        until (porta.direction != 0, :troca)\n",
+     "",
+     "setores.atm", "portas"),
+    ("recado-um-tic-depois",
+     "Depois do recado, a porta so anda no tic seguinte (perde o tic da troca)",
+     "        set direto = (r == :troca)\n",
+     "        set direto = false\n",
+     "setores.atm", "portas"),
+    ("recado-vira-evento",
+     "O recado vira um evento imediato: o use emite :game.specials para os "
+     "movimentadores na hora (dentro do pensamento do jogador)",
+     "      if door.direction == -1 then\n        door.direction = 1\n      else\n        door.direction = -1\n      end\n",
+     "      if door.direction == -1 then\n        door.direction = 1\n      else\n        door.direction = -1\n      end\n"
+     "      emit_in(self.pools.movers, \"game.specials\")\n",
+     "specials.lua", "portas"),
+    ("porta-nao-libera-setor",
+     "Porta termina sem liberar o setor (specialdata fica ocupado)",
+     "        set porta.sector.specialdata = nil\n        set porta.dead = true\n",
+     "        set porta.dead = true\n",
+     "setores.atm", "portas"),
+    ("load-perde-contagem",
+     "Load recria a porta com a contagem zerada (topcountdown nao restaurado)",
+     "          topcountdown = rec.topcountdown or 0,\n",
+     "          topcountdown = 0,\n",
+     "saveg.lua", "portas"),
+    ("portas-fora-de-movers",
+     "Portas numa pool propria depois dos outros movimentadores (ordem entre "
+     "porta e elevador trocada)",
+     PORTAS_SEPARADAS, None, None, "portas"),
+    ("portas-fora-de-movers-fluxo",
+     "O mesmo, no roteiro fluxo (jogo com elevadores e portas)",
+     PORTAS_SEPARADAS, None, None, "fluxo"),
     ("novo-nao-descarta",
      "New Game no meio do jogo e ignorado (o Jogo atual continua)",
      "            await <:jogo.novo || :jogo.carregar>   ;; descarta o jogo atual\n",
@@ -191,15 +277,17 @@ MUTACOES = [
 ]
 
 
-def mkrun(path, arquivo, conteudo):
+def mkrun(path, mudados):
+    """mudados: {arquivo: conteudo mutado}."""
     shutil.rmtree(path, ignore_errors=True)
     os.makedirs(path)
     for name in os.listdir(ROOT):
         if name.endswith((".lua", ".so", ".dll", ".atm", ".wad")) or name == "atmos":
             os.symlink(os.path.join(ROOT, name), os.path.join(path, name))
-    os.remove(os.path.join(path, arquivo))
-    with open(os.path.join(path, arquivo), "w") as f:
-        f.write(conteudo)
+    for arquivo, conteudo in mudados.items():
+        os.remove(os.path.join(path, arquivo))
+        with open(os.path.join(path, arquivo), "w") as f:
+            f.write(conteudo)
 
 
 def compare(ref_log, log):
@@ -238,13 +326,22 @@ def main():
         arquivo = m[4] if len(m) > 4 else "main.atm"
         roteiro = m[5] if len(m) > 5 else "fluxo"
         script, ref_name, game_args = ROTEIROS[roteiro]
-        src = open(os.path.join(ROOT, arquivo)).read()
-        if src.count(old) != 1:
+        # "old" pode ser uma lista de (arquivo, original, mutado)
+        edits = old if isinstance(old, list) else [(arquivo, old, new)]
+        mudados = {}
+        aplicavel = True
+        for arq, o, n in edits:
+            src = mudados.get(arq) or open(os.path.join(ROOT, arq)).read()
+            if src.count(o) != 1:
+                aplicavel = False
+                break
+            mudados[arq] = src.replace(o, n)
+        if not aplicavel:
             print(f"{name:24} {'NAO APLICADA':12} {'':>9} {'':>12}  trecho nao encontrado")
             survived += 1
             continue
         run = os.path.join(ROOT, "build", "mut", name)
-        mkrun(run, arquivo, src.replace(old, new))
+        mkrun(run, mudados)
         log = os.path.join(run, "replay.log")
         env = dict(os.environ, DOOM_REPLAY=os.path.join(OUT, script), DOOM_REPLAY_OUT=log,
                    DOOM_REPLAY_SIDES="1")

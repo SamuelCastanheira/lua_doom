@@ -1,8 +1,8 @@
 diff --git a/game.lua b/game.lua
-index 3451edb..6ec09bd 100644
+index 3451edb..9022ec6 100644
 --- a/game.lua
 +++ b/game.lua
-@@ -655,6 +655,21 @@ function M.new(argv)
+@@ -655,6 +655,29 @@ function M.new(argv)
        end
        return
      end
@@ -21,10 +21,18 @@ index 3451edb..6ec09bd 100644
 +      end
 +      return
 +    end
++    if ev.replay_cross then
++      -- comando de teste do modo replay (video.lua): cruza a linha N
++      local line = game.world and game.world.lines[ev.replay_cross + 1]
++      if video.replay and line and game.player and game.player.mo and game.gamestate == "view" then
++        game.cross_special(line, 0, game.player.mo)
++      end
++      return
++    end
      if ev.mouse then
        if ev.dx then
          game.mousex = game.mousex + ev.dx
-@@ -891,6 +906,15 @@ function M.new(argv)
+@@ -891,6 +914,15 @@ function M.new(argv)
          local s = world.sectors[i]
          t[#t + 1] = string.format("%d,%d,%d", s.floorheight, s.ceilingheight, s.lightlevel)
        end
@@ -41,10 +49,10 @@ index 3451edb..6ec09bd 100644
      local p = game.player
      if p then
 diff --git a/video.lua b/video.lua
-index 78d8b7e..c8e8a51 100644
+index 78d8b7e..12e2fba 100644
 --- a/video.lua
 +++ b/video.lua
-@@ -38,6 +38,13 @@ local function replay_backend(path)
+@@ -38,6 +38,17 @@ local function replay_backend(path)
        elseif key == "exit" then
          -- so para testes: termina o nivel como o switch de saida
          ev = { key = "", replay_exit = true, secret = dir == "secret" }
@@ -55,6 +63,10 @@ index 78d8b7e..c8e8a51 100644
 +        -- so para testes: aciona a linha N (indice do WAD), como o "use" do
 +        -- jogador encostado nela; usado para switches repetiveis (passo 3e)
 +        ev = { key = "", replay_use = tonumber(dir) }
++      elseif key == "cross" then
++        -- so para testes: cruza a linha N (indice do WAD) pela frente, como o
++        -- jogador andando por cima dela; portas de 30 s etc. (passo 3b)
++        ev = { key = "", replay_cross = tonumber(dir) }
        else
          ev = { key = key, down = dir ~= "up" }
        end

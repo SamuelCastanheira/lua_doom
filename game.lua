@@ -701,6 +701,14 @@ function M.new(argv)
       end
       return
     end
+    if ev.replay_cross then
+      -- comando de teste do modo replay (video.lua): cruza a linha N
+      local line = game.world and game.world.lines[ev.replay_cross + 1]
+      if video.replay and line and game.player and game.player.mo and game.gamestate == "view" then
+        game.cross_special(line, 0, game.player.mo)
+      end
+      return
+    end
     if ev.mouse then
       if ev.dx then
         game.mousex = game.mousex + ev.dx

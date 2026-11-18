@@ -13,9 +13,9 @@ ordem em que foram feitos.
 |---|---|---|
 | 0. Ponto do evento `:game.specials` | `fc557ad` | concluído |
 | 3a. Luzes | `9dd1641` | concluído |
-| 3e. Botões | (este commit) | concluído |
-| 3b. Portas | – | próximo |
-| 3c. Elevadores | – | planejado |
+| 3e. Botões | `e7c956a` | concluído |
+| 3b. Portas | (este commit) | concluído |
+| 3c. Elevadores | – | próximo |
 | 3d. Pisos, tetos, esmagadores, escadas, donut | – | planejado |
 
 Ordem e justificativa: luzes primeiro porque só nascem ao montar o nível e o
@@ -235,6 +235,92 @@ val task Brilho (setor, maxl, minl) {
 
 - Constantes que eram campos por luz (`maxtime = 64`, `mintime = 7`,
   `brighttime`) voltaram a ser constantes no texto da task.
+
+### Diagramas
+
+**Fluxo em Lua, antes (tag `passo2`).** As luzes eram criadas uma vez e
+percorridas por um despachante a cada tic:
+
+```mermaid
+flowchart TD
+    BL["game.build_level"] --> NEW["specials_mod.new"] --> SS["M.spawn_specials<br/>(setores na ordem do mapa)"]
+    SS -->|"special 1"| F1["spawn_light_flash<br/>count = P_Random"]
+    SS -->|"2, 3, 4, 12, 13"| F2["spawn_strobe<br/>count = P_Random (se não sincronizado)"]
+    SS -->|"8"| F3["spawn_glow"]
+    SS -->|"17"| F4["spawn_fire"]
+    L17["M.start_light_strobing<br/>(linha 17, no meio do tic)"] --> F2
+    F1 & F2 & F3 & F4 --> LST[("self.lights")]
+    TV["G.tic_view (cada tic)"] --> TK["specials_mod.tick"] --> TL["tick_lights:<br/>para cada luz, if kind == ..."]
+    LST --> TL
+    TL -->|"glow"| G1["direction: ±GLOWSPEED"]
+    TL -->|"flash, strobe, fire"| G2["count - 1; se 0: troca a luz<br/>e recalcula count"]
+```
+
+**Fluxo em Lua, depois.** O Lua só calcula a geometria e cria a task; o
+`Nivel` emite o tic dos specials:
+
+```mermaid
+flowchart TD
+    NV["task Nivel<br/>pin luzes; G.set_pools"] --> SL["G.start_level / G.load_level"] --> BL["game.build_level"]
+    BL --> NEW["specials_mod.new(..., pools)"] --> SS["M.spawn_specials"]
+    SS --> SP["spawn_light_flash / spawn_strobe /<br/>spawn_glow / spawn_fire<br/>(min/max de luz)"]
+    L17["M.start_light_strobing (linha 17)"] --> SP
+    SP --> ST["spawn_task → spawn_in(pools.luzes, T, ...)<br/>a task roda até o 1º await (P8)"]
+    ST --> POOL[("pool luzes")]
+    EM["Nivel: emit :game.specials (cada tic)"] --> POOL
+```
+
+**Máquinas de estados das tasks** (`setores.atm`). Cada estado é um ponto
+de espera no código; as transições acontecem em `:game.specials`:
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    state "Pisca" as P {
+        [*] --> P_espera: espera(P_Random & 64 + 1)
+        P_espera --> P_apaga: luz == max
+        P_espera --> P_acende: luz != max
+        P_apaga --> P_espera: luz = min<br/>espera(P_Random & 7 + 1)
+        P_acende --> P_espera: luz = max<br/>espera(P_Random & 64 + 1)
+    }
+```
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    state "Strobe" as S {
+        [*] --> S_espera: espera(1) se sincronizado,<br/>senão espera(P_Random & 7 + 1)
+        S_espera --> S_claro: luz == min
+        S_espera --> S_escuro: luz != min
+        S_claro --> S_espera: luz = max<br/>espera(5)
+        S_escuro --> S_espera: luz = min<br/>espera(escuro)
+    }
+```
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    state "Brilho" as B {
+        [*] --> Escurecendo
+        Escurecendo --> Escurecendo: luz -= 8
+        Escurecendo --> Clareando: luz <= min<br/>(desfaz com luz += 8)
+        Clareando --> Clareando: luz += 8
+        Clareando --> Escurecendo: luz >= max<br/>(desfaz com luz -= 8)
+    }
+```
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    state "Fogo" as F {
+        [*] --> F_espera
+        F_espera --> F_sorteia: 4 tics
+        F_sorteia --> F_espera: a = (P_Random & 3) * 16<br/>luz = min se luz - a < min,<br/>senão max - a
+    }
+```
+
+Em todas, o fim do `Nivel` aborta a task em qualquer estado (a pool é
+fechada); não há estado final.
 
 ### Validação
 
@@ -493,6 +579,53 @@ O que mudou na leitura:
   (seções 1 e 4): **num tipo de uma fase só, o save devolve exatamente o
   contador que a task eliminaria**.
 
+### Diagramas
+
+**Fluxo em Lua, antes (tag `passo2`).**
+
+```mermaid
+flowchart TD
+    K["tecla use"] --> HI["G.handle_input (held)"]
+    TV["G.tic_view"] --> BT["player_mod.build_ticcmd (BT_USE)"] --> PT["player_mod.think"]
+    PT --> UL["collision.use_lines"] --> GU["game.use_special"] --> SU["specials.use_special"]
+    SH["shoot_special / cross_special"] --> CS
+    SU -->|"tabela retrigger"| CS["change_switch(line, use_again = true)<br/>troca SW1 ↔ SW2"]
+    CS --> LST[("self.buttons<br/>{line, attr, texture, timer = 35}")]
+    TV --> TK["specials_mod.tick"] --> LOOP["fim de M.tick:<br/>timer - 1; se ≤ 0: devolve a textura<br/>senão: keep; self.buttons = keep"]
+    LST --> LOOP
+    SV["saveg (gravar)"] -->|"campo a campo"| LST
+    AP["saveg.apply (carregar)"] -->|"recria itens"| LST
+```
+
+**Fluxo em Lua, depois.**
+
+```mermaid
+flowchart TD
+    PT["player_mod.think → collision.use_lines<br/>→ game.use_special → specials.use_special"] -->|"retrigger"| CS["change_switch(line, true)<br/>troca SW1 ↔ SW2"]
+    UC["comando de teste use N<br/>(G.handle_input)"] --> GU["game.use_special"] --> CS
+    CS --> SB["M.start_button(line, attr, tex, 35)"]
+    AP["saveg.apply (carregar)"] --> SB2["M.start_button(..., timer gravado)"]
+    SB & SB2 --> ST["spawn_task → spawn_in(pools.botoes, Botao, ...)<br/>a task roda até o 1º await (P8)"]
+    ST --> POOL[("pool botoes")]
+    EM["Nivel: emit :game.specials"] --> POOL
+    SV["saveg (gravar)"] -->|"pairs(pool): t.pub"| POOL
+```
+
+**Máquina de estados da task `Botao`:**
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> Contando: pub = (linha, attr, textura, timer)
+    Contando --> Contando: game.specials<br/>pub.timer -= 1
+    Contando --> Restaura: pub.timer <= 0
+    Restaura --> [*]: lado[attr] = textura<br/>(sai da pool)
+    Contando --> [*]: fim do Nivel (abortada)
+```
+
+O `pub.timer` é o contador que o save lê. Sem o save, o estado
+"Contando" seria só `espera(timer)`.
+
 ### Validação
 
 **Comando de teste `use <linha>`.** Os roteiros de teclas dificilmente
@@ -638,3 +771,413 @@ aplica o patch num worktree limpo.
 | `tools/mutacoes.py` | roteiro `botoes`; 6 mutações do 3e; mutação de ordem do 3a regerada |
 | `tools/metricas_passo3.py` | medição por trechos; `spawn_task` no 3a; sem comentários nas listas |
 | `Makefile` | roteiro `botoes` em `test-drivers` e `test-mutacoes` |
+
+---
+
+## Subpasso 3b: portas
+
+### Resumo
+
+As portas viraram a task `Porta` (`setores.atm`). Portas, elevadores, pisos
+e tetos ficam agora numa **pool única `movers`**, na ordem de criação; os
+que ainda não migraram entram embrulhados na task genérica `ThinkerLua`, que
+só chama o tick antigo. A lista `self.thinkers` sumiu. O "use" numa porta
+em movimento continua sendo uma escrita do Lua no registro da porta (o
+**recado**), lida pela task na sua fase. O save grava o mesmo formato de
+antes, e os arquivos `.dsg` saem **byte a byte iguais** aos da referência.
+
+O resultado de expressividade é **misto** e está registrado como tal: o
+estado da porta não diminuiu e o código cresceu; o ganho foi a lista que
+sumiu, a limpeza num `defer` e a ordem garantida por construção.
+
+### Situação antes (tag `passo2`)
+
+- `spawn_door` (`specials.lua:371`): se o setor já tem uma porta comum,
+  inverte `door.direction`; senão monta a tabela da porta, marca
+  `sector.specialdata` e acrescenta a `self.thinkers`.
+- `spawn_door_close_in_30` e `spawn_door_raise_in_5` (`specials.lua:424`,
+  `444`): portas nascidas do setor (tipos 10 e 14), em `spawn_specials`.
+- `tick_door` (`specials.lua:551`): máquina de estados em `direction`
+  (1, 0, −1) e `topcountdown`; ao terminar, `specialdata = nil` e
+  `dead = true`.
+- `M.tick` (`specials.lua:696-714`): percorre `self.thinkers`, despacha por
+  `kind` (door, plat, floor, ceiling) e reconstrói a lista sem os mortos.
+- `saveg.lua`: `dump_thinker` (`saveg.lua:375`) grava cada thinker campo a
+  campo (`saveg.lua:455`), e o load os recria na lista (`saveg.lua:705`).
+
+### Três descobertas que mudaram o desenho
+
+1. **Neste port, a porta não reabre ao bater em alguém.** Quando
+   `move_plane` devolve "esmagou", `tick_door` só tenta de novo no tic
+   seguinte. O Doom original (`T_VerticalDoor`) reabriria. O comportamento
+   do port foi preservado.
+2. **O recado tem de ser a própria direção, não um booleano.** Dois "use" no
+   mesmo tic (jogador e monstro, ou o comando de teste duas vezes) invertem
+   duas vezes, e o resultado depende da direção atual (esperando →
+   fechando → abrindo). Um `inverter = true` perderia isso. Por isso o Lua
+   continua escrevendo `porta.direction` no registro da porta, e a task lê
+   na fase de specials.
+3. **A ordem entre portas e outros movimentadores importa, num caso
+   raro.** Um mobj com o centro no setor de uma porta e o corpo no setor de
+   um elevador tem chão e teto calculados pelos dois setores
+   (`thing_height_clip`). Se a porta e o elevador andam no mesmo tic, a
+   ordem decide se o mobj vê a altura velha ou nova do vizinho. Para não
+   depender de nenhum roteiro, a ordem é mantida **por construção**: uma
+   pool só, e os thinkers ainda Lua embrulhados em `ThinkerLua`.
+
+### Solução
+
+**Pools do `Nivel`:**
+
+```
+pin luzes = tasks()                   ;; 3a
+spawn {                               ;; ainda em Lua: linhas com scroll
+    loop on :game.specials { G.specials_resto() }
+}
+pin movers = tasks()                  ;; 3b: portas (Porta) e, ainda Lua,
+                                      ;; elevadores/pisos (ThinkerLua)
+pin botoes = tasks()                  ;; 3e
+G.set_pools([luzes=luzes, movers=movers, botoes=botoes])
+```
+
+**A porta.** A fase é `porta.direction` (1 abrindo, 0 esperando, −1
+fechando), guardada no registro da porta, que é o `pub` da task e o
+`sector.specialdata`. Ela fica no registro por dois motivos: o recado (o Lua
+precisa escrevê-la) e o save (o formato grava `direction` e
+`topcountdown`). Cada fase é uma função que devolve como terminou:
+
+```
+val func mover (sp, porta, dir, direto) {     ;; :chegou | :troca
+    var espera = !direto
+    loop {
+        if espera { await :game.specials }
+        set espera = true
+        until (porta.direction != dir, :troca)          ;; o recado
+        val destino = if dir == 1 => porta.topheight => porta.sector.floorheight
+        val r = S.move_plane(sp.world, porta.sector, porta.speed, destino, 1, dir, false)
+        until (r == S.RESULT_PASTDEST, :chegou)
+    }
+}
+
+val func esperar_porta (porta) {               ;; :fim | :troca
+    loop {
+        await :game.specials
+        until (porta.direction != 0, :troca)
+        set porta.topcountdown = porta.topcountdown - 1
+        until (porta.topcountdown <= 0, :fim)
+    }
+}
+```
+
+e a task decide a fase seguinte conforme o tipo da porta:
+
+```
+val task Porta (sp, porta) {
+    set pub = porta
+    set porta.sector.specialdata = porta  ;; setor ocupado
+    defer {                               ;; ao terminar ou ser abortada
+        set porta.sector.specialdata = nil
+        set porta.dead = true
+    }
+    var direto = false
+    loop {
+        val d = porta.direction
+        val r = if d == 0 => esperar_porta(porta) => mover(sp, porta, d, direto)
+        set direto = (r == :troca)
+        ifs {
+            (r == :troca) => {}           ;; recado: segue na direção nova
+            (r == :fim) => { ... }        ;; fim da espera: fecha ou abre, com som
+            (d == 1) => {                 ;; chegou em cima
+                until ((porta.type != V.NORMAL) && (porta.type != V.BLAZERAISE))
+                set porta.direction = 0
+                set porta.topcountdown = porta.topwait
+            }
+            else => {                     ;; chegou embaixo
+                until (porta.type != V.CLOSE30)
+                set porta.direction = 0
+                set porta.topcountdown = S.TICRATE * 30
+            }
+        }
+    }
+}
+```
+
+`direto`: quando o recado chega, a fase nova age **já nesse tic**, como o
+`tick_door` lia a direção nova no mesmo `M.tick`.
+
+**Save e load.** O save percorre a pool `movers` em ordem e grava
+`dump_thinker(t.pub)`, o mesmo registro e o mesmo formato. O load chama
+`M.start_door` para portas e `M.add_thinker` para elevadores e pisos, na
+ordem gravada. **Não há código de retomada separado**: a task começa na fase
+do `porta.direction` gravado (o laço da `Porta` já é um despachante por
+fase). Isso responde, para a porta, a pergunta do custo do save
+(`NOTAS_MONOGRAFIA.md`, seção 1): o custo não aparece como um `ifs` de
+retomada, porque a fase já precisava estar no registro por causa do recado.
+
+### Diagramas
+
+**Fluxo em Lua, antes (tag `passo2`):**
+
+```mermaid
+flowchart TD
+    USE["use_special / cross_special / shoot_special"] --> VD["vertical_door / do_door /<br/>locked_blaze_door"] --> SD["spawn_door"]
+    SS["spawn_specials (setores 10 e 14)"] --> S30["spawn_door_close_in_30 /<br/>spawn_door_raise_in_5"]
+    SD -->|"setor já tem porta comum"| TG["door.direction invertida"]
+    SD -->|"setor livre"| NEW["tabela door; specialdata = door"]
+    S30 --> NEW
+    NEW --> LST[("self.thinkers<br/>portas, elevadores, pisos, tetos")]
+    PLT["do_plat_* / do_floor / do_stairs /<br/>do_crusher / do_donut"] --> LST
+    TV["G.tic_view"] --> TK["specials_mod.tick"] --> LOOP["para cada thinker vivo:<br/>if kind == door / plat / floor / ceiling"]
+    LST --> LOOP
+    LOOP --> TD["tick_door: direction 1, 0, -1;<br/>ao terminar specialdata = nil, dead = true"]
+    LOOP --> REB["self.thinkers = vivos"]
+    SV["saveg: dump_thinker"] --> LST
+    AP["saveg.apply"] -->|"recria na lista"| LST
+```
+
+**Fluxo em Lua, depois:**
+
+```mermaid
+flowchart TD
+    USE["use_special / cross_special / shoot_special"] --> VD["vertical_door / do_door"] --> SD["spawn_door"]
+    SD -->|"setor já tem porta comum"| TG["porta.direction invertida<br/>(o recado)"]
+    SD -->|"setor livre"| SDR["M.start_door(porta)"]
+    SS["spawn_specials (10, 14)"] --> SDR
+    PLT["do_plat_* / do_floor / do_stairs /<br/>do_crusher / do_donut"] --> ADD["add_thinker(th)"]
+    SDR --> TP["spawn_in(pools.movers, Porta)"]
+    ADD --> TL["spawn_in(pools.movers, ThinkerLua)"]
+    TP & TL --> POOL[("pool movers<br/>ordem de criação")]
+    EM["Nivel: emit :game.specials"] --> POOL
+    POOL --> PT["Porta: lê porta.direction"]
+    POOL --> TT["ThinkerLua: M.tick_thinker(th)"]
+    TG -.->|"lido na fase"| PT
+    SV["saveg: pairs(movers), dump_thinker(t.pub)"] --> POOL
+    AP["saveg.apply"] --> SDR
+    AP --> ADD
+```
+
+**O recado dentro de um tic:**
+
+```mermaid
+sequenceDiagram
+    participant J as Jogador (etapa 3)
+    participant L as spawn_door (Lua)
+    participant R as registro da porta
+    participant N as Nivel (etapa 7)
+    participant P as task Porta
+    J->>L: use na porta (abrindo)
+    L->>R: direction = -1
+    Note over P: parada em await :game.specials
+    N->>P: emit :game.specials
+    P->>R: lê direction (-1, não é 1)
+    P->>P: mover devolve troca
+    P->>R: move_plane para baixo, já neste tic
+```
+
+**Máquina de estados da task `Porta`** (a fase é `porta.direction`):
+
+```mermaid
+stateDiagram-v2
+    [*] --> Abrindo: comum, abre e fica, blaze
+    [*] --> Fechando: fecha, fecha 30 s, blaze fecha
+    [*] --> Esperando: setor 10 ou 14, ou load
+    Abrindo --> Esperando: chegou em cima (comum, blaze)
+    Abrindo --> Fim: chegou em cima (outros tipos)
+    Abrindo --> Fechando: recado (use)
+    Esperando --> Fechando: fim da espera (comum, fecha, blaze) ou recado
+    Esperando --> Abrindo: fim da espera (fecha 30 s, abre em 5 min) ou recado duplo
+    Fechando --> Abrindo: recado (use)
+    Fechando --> Esperando: chegou embaixo (fecha 30 s)
+    Fechando --> Fim: chegou embaixo (outros tipos)
+    Fim --> [*]: defer libera o setor
+```
+
+O fim do `Nivel` aborta a porta em qualquer estado; o `defer` roda também
+nesse caso.
+
+**Máquina de estados da task `ThinkerLua`** (elevadores, pisos e tetos até o
+3c e o 3d):
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> Ativo: pub = th
+    Ativo --> Ativo: game.specials, M.tick_thinker(th)
+    Ativo --> [*]: th.dead
+```
+
+### Comparação de código
+
+Antes, a mudança de fase estava espalhada entre três lugares: o `if` sobre
+`direction` em `tick_door`, a inversão em `spawn_door` e a remoção em
+`M.tick`. Depois, a inversão continua em `spawn_door` (é o recado), e o
+resto está na task. O que de fato saiu:
+
+- `dead = true` e `sector.specialdata = nil` em dois lugares de
+  `tick_door` → um `defer`, que roda também quando o `Nivel` aborta a porta;
+- a lista e sua reconstrução a cada tic (`alive`, `self.thinkers = alive`)
+  e o despacho `kind == "door"` em `M.tick`;
+- o contador de espera virou uma função (`esperar_porta`), mas continua no
+  registro, porque o save e o recado precisam dele.
+
+O que **não** ficou mais simples: a porta, que pode ser interrompida a
+qualquer momento por um evento externo e precisa salvar a fase, continua
+sendo uma máquina de estados de três estados. Em Atmos, ela é um laço com um
+despachante por fase, de tamanho parecido com o `tick_door`.
+
+### Validação
+
+**Comando de teste `cross <linha>`** (cruzar uma linha pela frente), para as
+portas de 30 s, criadas ao cruzar (tipos 16 e 76). Entrou também no
+`tests/ref-passo1.patch` (72 linhas, conferido num checkout limpo da tag).
+
+**Roteiro `portas`** (`-warp 1 1`). Contagem por script das portas nos
+mapas: E1M1 tem 8 portas comuns (tipo 1); E1M2, portas que abrem e ficam
+(31) e vermelhas (28); portas de 30 s só por linha, no E1M6, E2M2 e E2M7.
+**Nenhum mapa do WAD tem setores 10 ou 14** (portas nascidas do setor): esse
+caminho foi migrado, mas não é exercitado. O roteiro:
+
+1. E1M1, linha 148: usar de novo abrindo, fechando e esperando, e duas vezes
+   no mesmo quadro;
+2. save e load em cada fase, em slots diferentes;
+3. E1M6, linha 602: cruzar (fecha, espera 30 s, reabre);
+4. E1M2: linhas 497 (abre e fica) e 527 (vermelha, com `idkfa`).
+
+Os três saves gravaram a porta exatamente na fase pretendida, iguais nas
+duas versões:
+
+| Slot | `direction` | `topcountdown` | Referência × atual |
+|---|---|---|---|
+| 5 | 1 (abrindo) | 0 | idênticos |
+| 4 | 0 (esperando) | 33 | idênticos |
+| 3 | −1 (fechando) | 72 | idênticos |
+
+**Saves comparados byte a byte.** `tests/test_drivers.sh` passou a comparar
+todos os `.dsg` gravados pela referência e pela versão atual, em todos os
+roteiros. Como o formato do save não mudou na migração, qualquer diferença
+no save é uma divergência.
+
+**Equivalência.** `make test-drivers`, idêntico à tag `passo1` nos 6
+roteiros (incluindo `portas`: 2.958 quadros, 2.161 estados distintos).
+
+**Mutações do 3b** (roteiro `portas`):
+
+| Mutação | Arquivo | Erro simulado | 1º quadro | Quadros dif. |
+|---|---|---|---|---|
+| `porta-sem-espera-inicial` | `setores.atm` | porta anda no próprio spawn | 76 | 412 |
+| `recado-ignorado-movendo` | `setores.atm` | outro use durante o movimento não inverte | 88 | 35 |
+| `recado-ignorado-esperando` | `setores.atm` | outro use no topo não fecha | 196 | 186 |
+| `recado-um-tic-depois` | `setores.atm` | depois do recado, só anda no tic seguinte | 88 | 103 |
+| `recado-vira-evento` | `specials.lua` | o use emite `:game.specials` na hora | 87 | 98 |
+| `porta-nao-libera-setor` | `setores.atm` | `defer` não libera o setor | 361 | 312 |
+| `load-perde-contagem` | `saveg.lua` | load zera o `topcountdown` | 607 | 66 |
+| `portas-fora-de-movers` | 3 arquivos | portas numa pool própria, depois dos outros | – | 0 (pendente) |
+| `portas-fora-de-movers-fluxo` | 3 arquivos | o mesmo, no roteiro `fluxo` | – | 0 (pendente) |
+
+`recado-vira-evento` demonstra o argumento da `NOTAS_MONOGRAFIA.md`
+(seção 5): um evento imediato, em vez do recado lido na fase, muda o jogo
+logo no quadro seguinte ao "use".
+
+**Pendente `portas-fora-de-movers`.** Não é equivalente (descoberta 3), mas
+exige uma porta e um elevador vizinhos andando no mesmo tic com um mobj na
+fronteira, e nenhum roteiro passa por isso. A primeira versão dessa mutação
+mudava só um arquivo e quebrava o save (o save procurava `timer` numa
+porta): "detectada" por erro, o que não testava a ordem. `tools/mutacoes.py`
+passou a aceitar mutações em vários arquivos, e a versão correta cria a pool
+no `Nivel`, muda `start_door` e faz o save percorrer as duas pools.
+
+`make test-mutacoes` (todas as mutações do projeto): **27/30 não equivalentes detectadas**, 4 equivalentes justificadas, 3 pendentes (`specials-no-fim-do-tic` e as duas `portas-fora-de-movers`).
+
+### Problemas encontrados
+
+1. **A decisão 3 do plano não se aplicava** (porta que reabre ao esmagar):
+   este port não faz isso. Descoberto ao ler o `tick_door`, antes de codar.
+2. **O recado booleano perderia o duplo "use"** (descoberta 2).
+3. **Mutação "detectada" por erro** (`portas-fora-de-movers`, acima).
+   Lição: conferir que a execução mutada **terminou** (o número de quadros
+   na saída do script) antes de aceitar uma detecção.
+4. **Mutações de ordem antigas deixaram de aplicar** quando o texto do
+   `Nivel` mudou. Os trechos agora são extraídos do `main.atm` na hora.
+
+### Métricas
+
+`python3 tools/metricas_passo3.py` (o estado passou a contar também os
+campos do registro compartilhado que a task lê ou escreve, `porta.x`;
+para a porta, só as partes da porta entram no estado):
+
+| Métrica | Antes | Depois |
+|---|---|---|
+| Linhas de código (Lua) | 208 | 160 |
+| Linhas de código (Atmos) | – | 74 |
+| Linhas de código (total) | 208 | 234 |
+| Estado da porta (campos) | 9 | 8 |
+| Ramos de despacho por tipo (`kind ==`) | 9 | 8 |
+| Referências à lista (`self.thinkers`, `specials.thinkers`; sem comentários) | 32 | 0 |
+
+Os campos antes: `dead`, `direction`, `kind`, `sector`, `speed`,
+`topcountdown`, `topheight`, `topwait`, `type`. Depois, os mesmos sem
+`kind` (que só o Lua usa). Os despachos `kind ==` que sobraram são de
+elevadores e pisos (`M.tick_thinker`, `stop_plat`, `dump_thinker`) e saem no
+3c e no 3d.
+
+**Leitura honesta:** a porta é o primeiro caso em que o código **cresceu**
+(+26 linhas) e o estado **não diminuiu**. A porta pode ser interrompida a
+qualquer momento por um evento de fora (o "use") e precisa salvar a fase:
+nas duas versões, a fase é um dado. Os ganhos são estruturais (a lista e sua
+reconstrução sumiram; a liberação do setor está num `defer`; a ordem entre
+movimentadores está garantida por construção), não de tamanho.
+
+### Custo
+
+`python3 tools/custo_drivers.py 5 [roteiro]` (ms por quadro; a máquina
+estava mais carregada nesta medição do que no 3e, então só vale comparar
+drivers da mesma coluna):
+
+| Driver | `fluxo` | `luzes` | `portas` |
+|---|---|---|---|
+| `passo1` `main.lua` | 1,000 | 1,311 | 2,260 |
+| `passo1` `main.atm` | 1,087 | 1,390 | 2,513 |
+| `passo2` `main.atm` | 1,127 | 1,444 | (não comparável) |
+| atual (3b) | 1,192 | 1,609 | 2,668 |
+
+Em relação ao `passo2`, o atual custa +5,8% no `fluxo` (no 3e: +4,0%) e
++11,4% no `luzes` (no 3e: +9,5%). Em relação ao `passo1` imperativo: +19,2%
+no `fluxo` (no 3e: +17,5%). O 3b acrescenta uma task por porta e por
+thinker em movimento (`ThinkerLua`). No `portas`, o `passo2` não conhece
+`use` nem `cross`; contra o `passo1` `main.atm`, que conhece, o atual custa
++6,2%.
+
+### Diferenças conhecidas
+
+Nenhuma no comportamento. A porta deste port não reabre ao esmagar (o Doom
+original reabre); preservado. Portas nascidas do setor (tipos 10 e 14) não
+existem nos mapas do `doom.wad` e não são exercitadas. Fora do jogo (testes
+unitários com `game` falso), portas, elevadores e pisos não são criados.
+
+### Como reproduzir
+
+```sh
+make test-drivers                  # P1-P9 + 6 roteiros; saves comparados byte a byte
+make test-mutacoes
+python3 tools/metricas_passo3.py
+sh tests/test_drivers.sh 0 1 portas -warp 1 1 >/dev/null
+python3 tools/custo_drivers.py 5 build/drivers/replay_1portas.txt -warp 1 1
+python3 tools/diagramas.py         # confere a sintaxe dos diagramas desta pagina
+```
+
+### Arquivos alterados
+
+| Arquivo | Mudança |
+|---|---|
+| `setores.atm` | tasks `Porta` e `ThinkerLua`; funções `mover` e `esperar_porta` |
+| `specials.lua` | `add_thinker`, `M.start_door`, `M.tick_thinker`; exporta `RESULT_PASTDEST`, `TICRATE`, `VLD`, `play`; saíram `self.thinkers`, `tick_door` e o laço de thinkers de `M.tick`; `stop_plat` percorre a pool |
+| `saveg.lua` | save percorre a pool `movers`; load chama `start_door` e `add_thinker` |
+| `main.atm` | pool `movers` entre o resto em Lua e os botões |
+| `game.lua`, `video.lua` | comando de teste `cross` |
+| `tests/ref-passo1.patch` | `cross` também na referência |
+| `tests/test_drivers.sh` | saves comparados byte a byte; cobertura do roteiro `portas` |
+| `tools/make_replay.lua` | roteiro `portas` |
+| `tools/mutacoes.py` | mutações em vários arquivos; trechos do `Nivel` extraídos na hora; 9 mutações do 3b |
+| `tools/metricas_passo3.py` | 3b; estado com campos de registro; estado só das partes da porta |
+| `tools/diagramas.py` (novo) | página para conferir os diagramas Mermaid |
+| `Makefile` | roteiro `portas` |

@@ -215,3 +215,81 @@ porta fechando que reabre com outro "use" ou ao bater num monstro). É onde
 `watching`, `emit @t` e `defer` deveriam mostrar uma vantagem que um `if`
 sobre `direction` não tem. Se a expressividade se mantiver nesse caso, e não
 só em sequências simples, o argumento fica bem mais forte.
+
+**Resultado do teste decisivo (passo 3b, portas): misto.** Medido por
+`tools/metricas_passo3.py`:
+
+- o código **cresceu** (208 → 234 linhas) e o estado da porta **não
+  diminuiu** (9 → 8 campos; só `kind` saiu);
+- a porta pode ser interrompida a qualquer momento por um evento de fora (o
+  "use") e precisa salvar a fase: nas duas versões, a fase é um dado
+  (`direction`). Em Atmos, a porta continua sendo uma máquina de três
+  estados, escrita como um laço com um despachante por fase;
+- os ganhos são **estruturais**: a lista de thinkers e sua reconstrução
+  sumiram (32 referências → 0); a liberação do setor está num `defer`, que
+  roda também quando o nível aborta a porta; a ordem entre movimentadores
+  está garantida por construção (uma pool só);
+- o save **não** precisou de código de retomada separado, porque a fase já
+  estava no registro por causa do recado.
+
+Leitura para a monografia: as tasks reduzem estado quando o comportamento é
+uma **sequência** (luzes) e perdem essa vantagem quando é uma **máquina
+interrompível e serializável** (porta). Nesse caso, o ganho está no ciclo de
+vida (criação, término, aborto, ordem), não no tamanho do código.
+
+---
+
+## 5. Eventos são imediatos; o Doom adia para a fase: o "recado no `pub`"
+
+Surgiu ao planejar as portas (passo 3b).
+
+**O caso.** Quando alguém aperta "use" numa porta que já está se movendo, o
+Doom inverte a direção dela. No Lua antigo, isso é
+`door.direction = -door.direction`, feito durante o pensamento do jogador
+(etapa 3 do tic). Nada se move nessa hora: a porta só anda na fase de
+specials (etapa 7), já na direção nova.
+
+**A tentação em Atmos** seria a porta reagir a um evento:
+`emit @porta :reabrir`. Mas um `emit` acorda a task **imediatamente**,
+dentro do pensamento do jogador. A porta se moveria antes dos monstros e das
+luzes, fora da ordem do Doom, e o replay divergiria.
+
+**A solução: um recado no `pub`.** A porta não sai da pool e nenhuma task
+nova é criada. O Lua, que sabe que o setor está ocupado
+(`setor.specialdata` aponta para a task), só deixa um recado:
+
+```lua
+sector.specialdata.pub.inverter = true     -- não cria nem emite nada
+```
+
+e a própria task, na próxima fase de specials, lê o recado e muda de fase:
+
+```
+loop {
+    await :game.specials
+    if pub.inverter {               ;; recado do Lua
+        set pub.inverter = false
+        ;; troca de fase
+    } else {
+        ;; anda um passo na fase atual
+    }
+}
+```
+
+O Lua escreve na etapa 3 e a task lê na etapa 7 do mesmo tic, exatamente
+como a mudança de `direction` era lida pelo `tick_door`.
+
+**Para a monografia:**
+
+- Os eventos do Atmos têm semântica **síncrona e imediata** (quem espera
+  acorda dentro do `emit`). O Doom tem uma semântica de **fases**: uma
+  mudança pedida em qualquer ponto do tic só produz efeito na fase da
+  entidade. Quando as duas não coincidem, o canal certo não é um evento, e
+  sim um **dado lido na fase** (o recado no `pub`).
+- O argumento pode ser **demonstrado** com uma mutação: a variante com
+  `emit` imediato tem de ser detectada pelo replay.
+- Isso não anula a vantagem das tasks: o recado é lido num único ponto, e a
+  sequência abrir → esperar → fechar continua linear. O risco a evitar é a
+  task virar a mesma máquina de estados do Lua, só que em Atmos. A ideia é
+  manter as fases como funções em sequência, cada uma devolvendo `:ok`,
+  `:inverter` ou `:esmagou`, com o laço da porta decidindo a próxima.

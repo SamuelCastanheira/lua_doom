@@ -452,11 +452,16 @@ local function dump_state(game)
       { "special", ln.special or 0 },
     }
   end
+  -- Movimentadores (passo 3b): tasks na pool "movers" do Nivel, na ordem de
+  -- criacao (a da antiga lista specials.thinkers). O pub de cada uma e o
+  -- registro do thinker (porta: direction, topcountdown...; elevador, piso:
+  -- a tabela Lua embrulhada em ThinkerLua). O formato gravado nao mudou.
   local thinkers = {}
-  if game.specials and game.specials.thinkers then
-    for i = 1, #game.specials.thinkers do
-      local th = game.specials.thinkers[i]
-      if not th.dead then
+  local movers = game.pools and game.pools.movers
+  if movers then
+    for _, t in pairs(movers) do
+      local th = t.pub
+      if th and not th.dead then
         local rec = dump_thinker(th, world)
         if rec then
           thinkers[#thinkers + 1] = rec
@@ -731,9 +736,13 @@ function M.apply(game, data)
           dest = rec.dest or 0,
           dead = false,
         }
-        if th.kind == "door" or th.kind == "plat" or th.kind == "floor" then
+        -- passo 3b: recria a task na pool "movers", na ordem gravada
+        local sp = require("specials")
+        if th.kind == "door" then
+          sp.start_door(game.specials, th)       -- a task marca specialdata
+        elseif th.kind == "plat" or th.kind == "floor" then
           sector.specialdata = th
-          game.specials.thinkers[#game.specials.thinkers + 1] = th
+          sp.add_thinker(game.specials, th)
         end
       end
     end

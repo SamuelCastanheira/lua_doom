@@ -117,6 +117,39 @@ SUBPASSOS = {
         "atm": [("setores.atm", "blk", "val task Botao")],
         "lista": [("specials.lua", r"self\.buttons"), ("saveg.lua", r"specials\.buttons")],
     },
+    "3b portas": {
+        "antes": [
+            ("specials.lua", "fn", "local function spawn_door"),
+            ("specials.lua", "fn", "local function spawn_door_close_in_30"),
+            ("specials.lua", "fn", "local function spawn_door_raise_in_5"),
+            ("specials.lua", "fn", "local function tick_door"),
+            ("specials.lua", "trecho", "  local alive = {}", "  local keep = {}"),
+            ("specials.lua", "fn", "function M.stop_plat"),
+            ("saveg.lua", "trecho", "  local thinkers = {}", "  local buttons = {}"),
+            ("saveg.lua", "trecho", "    local thinkers = data.thinkers or {}", "    local buttons = data.buttons or {}"),
+        ],
+        "lua": [
+            ("specials.lua", "fn", "local function add_thinker"),
+            ("specials.lua", "fn", "function M.start_door"),
+            ("specials.lua", "fn", "local function spawn_door"),
+            ("specials.lua", "fn", "local function spawn_door_close_in_30"),
+            ("specials.lua", "fn", "local function spawn_door_raise_in_5"),
+            ("specials.lua", "fn", "function M.tick_thinker"),
+            ("specials.lua", "fn", "function M.stop_plat"),
+            ("saveg.lua", "trecho", "  -- Movimentadores (passo 3b)", "  -- Botoes (passo 3e)"),
+            ("saveg.lua", "trecho", "    local thinkers = data.thinkers or {}", "    local buttons = data.buttons or {}"),
+        ],
+        "atm": [("setores.atm", "blk", h) for h in (
+            "val task ThinkerLua", "val func mover", "val func esperar_porta", "val task Porta")],
+        # estado: so as partes da porta (sem stop_plat, load e ThinkerLua,
+        # que tratam tambem de elevadores e pisos)
+        "estado_antes": [("specials.lua", "fn", h) for h in (
+            "local function spawn_door", "local function spawn_door_close_in_30",
+            "local function spawn_door_raise_in_5", "local function tick_door")],
+        "estado_depois": [("setores.atm", "blk", h) for h in (
+            "val func mover", "val func esperar_porta", "val task Porta")],
+        "lista": [("specials.lua", r"self\.thinkers"), ("saveg.lua", r"specials\.thinkers")],
+    },
 }
 
 
@@ -140,13 +173,22 @@ def campos_lua(ref_text):
     return (chaves - locais) | acessos
 
 
+# Parametros que sao so contexto ou um registro compartilhado (os campos do
+# registro e que contam, logo abaixo).
+CONTEXTO = {"sp", "porta", "th"}
+
+
 def estado_atm(atm_text):
     """Estado das tasks: parametros de cada task (o que vive entre awaits;
-    as locais das tasks do 3a nao atravessam um await)."""
+    as locais das tasks do 3a nao atravessam um await) mais os campos de
+    registros compartilhados com o Lua que a task le ou escreve (porta.x,
+    pub.x)."""
     nomes = set()
     for m in re.finditer(r"task \w+ \(([^)]*)\)", atm_text):
         nomes.update(x.strip() for x in m.group(1).split(",") if x.strip())
-    return nomes
+    for m in re.finditer(r"\b(?:porta|pub)\.(\w+)", atm_text):
+        nomes.add(m.group(1))
+    return nomes - CONTEXTO
 
 
 def main():
@@ -161,7 +203,9 @@ def main():
         print(f"{'linhas de codigo (Lua)':44} {rl:>7} {ll:>7}")
         print(f"{'linhas de codigo (Atmos)':44} {'-':>7} {al:>7}")
         print(f"{'linhas de codigo (total)':44} {rl:>7} {ll + al:>7}")
-        cr, ea = campos_lua(ref), estado_atm(atm)
+        er = juntar(REF, s["estado_antes"]) if "estado_antes" in s else ref
+        ed = juntar(None, s["estado_depois"]) if "estado_depois" in s else atm
+        cr, ea = campos_lua(er), estado_atm(ed)
         print(f"{'estado por entidade (campos x parametros)':44} {len(cr):>7} {len(ea):>7}")
         print(f"{'':44}   antes: {', '.join(sorted(cr))}")
         print(f"{'':44}   depois: {', '.join(sorted(ea))}")
