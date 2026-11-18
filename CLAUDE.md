@@ -130,9 +130,12 @@ Mais três tasks no nível superior: **entrada** (`loop ev on :input`),
 
 A cada `step()`, emite nesta ordem:
 1. um evento por entrada: `{tag="input.key.down"|"input.key.up"|"input.mouse"|"input.quit", key=, ...}`;
-2. o relógio real em µs (número; não usado pelo jogo);
-3. de 0 a 4 `{tag="tic", n=}` (35 Hz, acumulador igual ao laço original);
-4. `"frame"`.
+2. de 0 a 4 `{tag="tic", n=}` (35 Hz, acumulador igual ao laço original);
+3. `"frame"`.
+
+O relógio real (números em µs) **não é emitido de propósito** (commit
+`14ac179`): `await 1s` e `loop on 1s` nunca acordam, em vez de quebrarem o
+determinismo do replay.
 
 `env.cancel_catchup()` interrompe os tics restantes do `step` (usado quando
 o nível termina, como o `break` do laço original).
@@ -245,8 +248,40 @@ watching :parar { ... }                    ;; executa o bloco ate o evento
 loop in 3 { ... }                          ;; repete N vezes
 match v { :CENTRO => ... :SAIR => break() }
 await until (num_capturados == 10)
+await <:jogo.novo || :jogo.carregar>       ;; padrao composto (usado no main.atm)
 loop on 1s { ... }                         ;; relogio real: NAO usar no jogo
 ```
+
+### 3.1.1 Recursos do Atmos para o passo 3
+
+Lidos no manual (`github.com/atmos-lang/atmos`, `doc/manual.md`) e no
+runtime instalado (`/usr/local/share/lua/5.4/atmos/run.lua` e `init.lua`):
+
+| Recurso | Uso previsto |
+|---|---|
+| `spawn_in(pool, T, ...)` (função global, chamável de **Lua puro**) | `specials.lua`/`collision.lua` criam a task da porta no meio do tic. O spawn é **síncrono**: a task roda até o primeiro `await` antes de voltar ao Lua (P8), então `sector.specialdata` fica marcado na hora e `use_special` devolve o resultado sincronamente (o `enemy.lua:345` usa o retorno). `spawn` não aborta ninguém, então não fere a regra 4.3. |
+| `task` como expressão | a task corrente: `set setor.specialdata = task` |
+| `defer { ... }` | limpar `specialdata` no fim **ou** no aborto (fim de nível) |
+| `emit @t (e)` | evento direcionado (por exemplo, `:reabrir` à porta do setor) |
+| `toggle t(false)` / `toggle t(true)` | elevador "em estase" do Doom (`P_StopPlat` / `P_ActivateInStasis`): a task fica viva, surda a eventos, e retoma de onde parou |
+| `tasks(n)` | pool com limite (como `MAXPLATS`, `MAXCEILINGS`, `MAXBUTTONS`); spawn em pool cheia devolve `nil` |
+| `loop _, t in pool`, `t.pub`, `#pool` | percorrer as tasks vivas (save, passo 3f) |
+| `abort(t)` | encerrar uma task de fora |
+
+Cuidados:
+- **Toda task que termina emite um evento** (a própria task) para o escopo
+  pai (`task_result` em `run.lua`). Cada porta que fecha gera um `emit`
+  extra: não use `await(true)` (qualquer evento) em `Nivel`, e conte isso no
+  custo.
+- **O alcance padrão do `emit` é a task corrente** (não global). Um
+  `:game.specials` emitido em `Nivel` só alcança a subárvore de `Nivel`.
+- **Um `spawn` dentro de `if c { ... }` fica preso ao bloco do `if`** e é
+  abortado quando ele termina. Em `Nivel`, crie tasks nas pools
+  (`spawn @pool` ou `spawn_in`), não em blocos condicionais.
+- **Versão:** o repositório já está na v0.9 em desenvolvimento (muda o
+  recolhimento de pools com `atmos.gc` e o evento de fim de task). Não
+  atualize no meio do TCC; se atualizar, rode `make test-drivers` antes e
+  depois.
 
 ### 3.2 Armadilhas de sintaxe (todas já aconteceram)
 
@@ -273,10 +308,22 @@ Verificadas em `tests/atmos_semantica.atm` (`atmos tests/atmos_semantica.atm`):
 - **P5.** Eventos-tabela com tag hierárquica casam com `:a.b`; `await :a`
   casa com `a.qualquer`.
 - **P6.** Ramos que acordam com o mesmo evento rodam na ordem do código.
+- **P7.** Pools declaradas em sequência acordam na **ordem de declaração**
+  (não na de criação das tasks); dentro de cada pool, na ordem de criação.
+  Uma task transparente declarada entre duas pools acorda entre elas
+  (luzes → scroll → movers). No runtime: o `emit` percorre `t._.dns` em
+  ordem de índice.
+- **P8.** `spawn_in(pool, T, ...)` chamado de uma função Lua roda a task até
+  o primeiro `await` antes de voltar ao Lua.
+- **P9.** Uma task criada durante o evento A acorda no evento B seguinte,
+  mesmo no mesmo tic. Uma task criada durante B, por outra task da mesma
+  pool, só acorda no próximo B. No runtime: cada `emit` incrementa
+  `M.TIME` e só acorda tasks com `t._.time < time`; o laço é
+  `for i = 1, #t._.dns`, com o tamanho fixado no início, como o
+  `for i = 1, #self.thinkers` do `M.tick`.
 
-Também: tasks filhas de uma mesma pool acordam na **ordem de criação**.
-**Ainda não verificado:** se pools diferentes acordam na ordem léxica
-(ver seção 4.2).
+Os testes P7 e P9 foram conferidos com mutantes: invertendo a ordem das
+pools, o P7 falha; tirando o `await` inicial da task, o P9 falha.
 
 ### 3.4 CLI e execução
 
@@ -326,12 +373,20 @@ senão `tic_menu`, `pedidos()`, `emit :game.tic`, `pedidos()`.
 
 Ao transformar thinkers em tasks:
 - **Pools em ordem de criação:** faça `spawn @(pool)` na mesma ordem em que
-  a lista Lua recebia itens.
+  a lista Lua recebia itens, e declare as pools na ordem das fases do
+  `M.tick` (P7).
 - **Emit direcionado:** para entidades misturadas numa lista
   (`world.mobjs`), mantenha o laço Lua e faça `emit @(mo.task) :mobj.tic`.
+- **Criar a partir do Lua:** use `spawn_in(pool, T, ...)` no ponto em que o
+  Lua hoje acrescenta o thinker à lista (seção 3.1.1, P8). A fila de pedidos
+  da regra 4.3 não serve aqui: ela só é esvaziada depois do `:game.tic`, e a
+  task nasceria tarde demais.
 - **Toda task de setor começa com `await`** do evento da sua fase, antes de
-  mexer no setor. O thinker original só se mexe a partir do tic seguinte à
-  criação.
+  mexer no setor. O thinker original se mexe na **próxima fase de specials**
+  depois de criado: no **mesmo tic** se foi criado pelo jogador (etapa 3) ou
+  por um monstro (etapa 6), como no Doom (`P_PlayerThink` antes de
+  `P_RunThinkers`); no tic seguinte só se foi criado durante a própria fase
+  de specials. O `await` inicial reproduz exatamente isso (P9).
 - `luzes` do tipo flash e fire consomem `P_Random`: a ordem é crítica.
 
 ### 4.3 Fila de pedidos: o Lua nunca emite
@@ -351,6 +406,8 @@ depois de cada `handle_input`, depois de `tic_menu` e depois de
 `emit :game.tic`. Motivo: um `emit` de dentro de uma chamada Lua poderia
 abortar a task que fez a chamada, e o restante do código Lua não rodaria.
 Para novos eventos que precisem sair do Lua, use o mesmo mecanismo.
+Criar tasks é diferente: `spawn_in` a partir do Lua é permitido, porque
+não aborta ninguém (regra 4.2).
 
 ### 4.4 Outras fontes de não determinismo
 
@@ -394,7 +451,7 @@ automapa, `-`/`=` mudam o tamanho da tela.
 ### 5.2 Equivalência da lógica (driver Atmos × referência)
 
 ```sh
-make test-drivers          # semantica do Atmos + 3 roteiros contra a tag passo1
+make test-drivers          # semantica do Atmos (P1-P9) + 3 roteiros contra a tag passo1
 sh tests/test_drivers.sh 0 1 fluxo         # roteiro com todas as transicoes
 sh tests/test_drivers.sh 4000 1            # pseudoaleatorio, 4000 quadros, semente 1
 sh tests/test_drivers.sh 6000 2 exits      # tambem termina niveis
@@ -487,7 +544,7 @@ versionado é antigo (sem a gama); no Windows, recompile.
 | `attempt to index a number (src)` em `damage_mobj` | ordem dos argumentos | `game.damage_mobj(alvo, origem, dano, inflictor)` |
 | Script sh terminava calado | `shift 3` com menos argumentos aborta no `dash`; `trap` devolvia 0 | laço de `shift`; `trap` preservando `$?` |
 | `Terminated` ao testar janela | `\| head` no comando de teste | testar com `kill -TERM` e `wait`; o jogo fecha limpo ("janela fechada") |
-| Task agindo um tic antes do thinker | spawn e ação no mesmo tic | começar a task com `await` (regra 4.2) |
+| Task agindo uma fase antes do thinker | a task age no próprio spawn, antes do evento da sua fase | começar a task com `await` (regra 4.2, P9) |
 | Medição de custo com "divergência" | pasta reaproveitada com save residual | `tools/custo_drivers.py` (pastas limpas) |
 
 ---
@@ -497,7 +554,10 @@ versionado é antigo (sem a gama); no Windows, recompile.
 - **Bug preservado:** o `carry` de um nível vaza para um novo jogo iniciado
   na intermissão (o novo jogo começa com as armas do anterior). Correção
   proposta: `game.carry = nil` em `G.new_game`, num commit separado, com nova
-  referência. Detalhes no registro do passo 2, seção 8.1.
+  referência. Detalhes no registro do passo 2, seção 8.1. Alternativa que
+  expressa a causa (o `carry` pertence ao escopo `Jogo`):
+  `defer { G.game.carry = nil }` no início de `task Jogo`, que roda também
+  quando o `Jogo` é abortado por `:jogo.novo`.
 - `game.gamestate` continua existindo (tela exibida, lida por redesenho,
   paleta, mouse, cheats, menu e automapa), mas só `G.enter` o escreve.
 - O wipe continua em Lua (`redraw`, fase de quadro).
@@ -528,7 +588,13 @@ no código (`specials.lua`, 1.538 linhas, ainda imperativo):
 | `saveg.lua`, função de gravar e `M.apply` | serializam e recriam `specials.thinkers` e `specials.buttons` campo a campo |
 
 Ordem sugerida: luzes → botões → portas → elevadores → pisos e tetos →
-save. Em cada subpasso:
+save. As luzes vêm primeiro porque só são criadas ao montar o nível
+(`spawn_specials`), nunca por linhas: dá para validar pools, `await` e
+`P_Random` antes de criar tasks a partir do Lua (`spawn_in`), o que começa
+nos botões e nas portas. Os disparos vêm de `collision.lua:534`
+(`cross_special`), `collision.lua:921` (`use_special`),
+`collision.lua:1108` (`shoot_special`) e `enemy.lua:345` (monstro abre
+porta, usa o retorno). Em cada subpasso:
 1. troque o despacho no `M.tick` por um evento (por exemplo,
    `:game.specials`) no **mesmo ponto** do `G.tic_view`;
 2. crie as pools dentro de `Nivel`, na ordem das listas;
