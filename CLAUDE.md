@@ -41,7 +41,7 @@ Atmos) e escreve em **português**. Responda em português.
 | Recursos visuais do Doom original (céu por episódio, texturas animadas, luz de sprites e arma, contraste falso, gama F11, R_CheckBBox) | concluído |
 | 1. Ambiente e driver Atmos | concluído (`passo1`) |
 | 2. Fluxo de telas em tasks | concluído (`passo2`) |
-| **3. Specials de setor (luzes, portas, elevadores, pisos, botões, save)** | **em andamento:** subpasso 0, 3a (luzes), 3e (botões) e 3b (portas) feitos; próximo: 3c (elevadores) |
+| **3. Specials de setor (luzes, portas, elevadores, pisos, botões, save)** | **em andamento:** subpasso 0, 3a (luzes), 3e (botões), 3b (portas) e 3c (elevadores) feitos; próximo: 3d (pisos, tetos, esmagadores) |
 | 4. Arma (psprites) | planejado |
 | 5. Um monstro como task | planejado |
 
@@ -386,9 +386,9 @@ Ordem atual de um tic de nível (`G.tic_view_antes`, 1 a 6;
    1. pool `luzes` (tasks de `setores.atm`, passo 3a), na ordem dos setores;
    2. a task que chama `G.specials_resto()` → `specials_mod.tick`, que só
       faz as linhas com scroll (efeito 48);
-   3. pool `movers` (passo 3b), na ordem de criação: portas (task `Porta`)
-      e, ainda Lua, elevadores, pisos e tetos (task `ThinkerLua`, que chama
-      `M.tick_thinker`);
+   3. pool `movers` (passo 3b), na ordem de criação: portas (task `Porta`),
+      elevadores (task `Elevador`, 3c) e, ainda Lua, pisos e tetos (task
+      `ThinkerLua`, que chama `M.tick_thinker`);
    4. pool `botoes` (task `Botao`, passo 3e), na ordem de criação.
 8. `res:update_anims(leveltime)`
 9. saída? → `"saida"`
@@ -478,13 +478,14 @@ automapa, `-`/`=` mudam o tamanho da tela.
 ### 5.2 Equivalência da lógica (driver Atmos × referência)
 
 ```sh
-make test-drivers          # semantica do Atmos (P1-P9) + 6 roteiros contra a tag passo1; saves comparados byte a byte
+make test-drivers          # semantica do Atmos (P1-P9) + 7 roteiros contra a tag passo1; saves comparados byte a byte
 sh tests/test_drivers.sh 0 1 fluxo         # roteiro com todas as transicoes
 sh tests/test_drivers.sh 4000 1            # pseudoaleatorio, 4000 quadros, semente 1
 sh tests/test_drivers.sh 6000 2 exits      # tambem termina niveis
 sh tests/test_drivers.sh 1200 1 luzes -warp 4 1   # passo 3a: E4M1 e E1M2 parados
 sh tests/test_drivers.sh 0 1 botoes -warp 1 1     # passo 3e: switches, save e load
 sh tests/test_drivers.sh 0 1 portas -warp 1 1     # passo 3b: portas em cada fase, save e load
+sh tests/test_drivers.sh 0 1 elevadores -warp 1 3 # passo 3c: elevadores em cada fase, parados, save e load
 REF_TAG=passo2 sh tests/test_drivers.sh 0 1 fluxo   # outra referencia
 ```
 
@@ -616,7 +617,7 @@ no código (`specials.lua`, 1.538 linhas, ainda imperativo):
 | `M.new` → `M.spawn_specials` | cria as luzes (tasks, desde o 3a) e as portas de setor a partir de `sector.special`, na ordem dos setores |
 | `M.tick` | só as linhas com scroll (luzes, movimentadores e botões são tasks) |
 | `setores.atm` | tasks de setor (3a: `Pisca`, `Strobe`, `Brilho`, `Fogo`); flash, strobe e fire usam `rng.p_random()` |
-| `tick_plat`, `tick_floor`, `tick_ceiling` | máquinas de estado com `direction`, `count`, `status`, `dead`, chamadas por `M.tick_thinker` (a porta virou task no 3b) |
+| `tick_floor`, `tick_ceiling` | máquinas de estado com `direction`, `dead`, chamadas por `M.tick_thinker` (porta e elevador viraram tasks no 3b e no 3c) |
 | `spawn_door`, `vertical_door`, `do_plat_*`, `do_floor`, `do_stairs`, `do_crusher`… | criam thinkers e marcam `sector.specialdata` |
 | `M.move_plane` | geometria pura (mantenha em Lua) |
 | `saveg.lua`, função de gravar e `M.apply` | percorrem as pools `movers` e `botoes` (`t.pub`) no mesmo formato de antes |
@@ -673,6 +674,18 @@ reabre a porta ao esmagar (o Doom original reabre). O save tem o mesmo
 formato; `tests/test_drivers.sh` compara os `.dsg` byte a byte. Comando
 `cross <linha>`. Resultado misto de expressividade (código 208 → 234,
 estado 9 → 8), registrado.
+
+**Subpasso 3c (feito):** elevadores como task `Elevador` na pool
+`movers`, no mesmo desenho das portas: a fase é `plat.status` no registro,
+e `stop_plat` (Lua) continua escrevendo `status = WAITING` e `count`
+enorme (o recado). Parar com `toggle` **não** é equivalente: o original
+continua descontando o `count` do elevador parado, e só o save mostra isso
+(mutação `parar-com-toggle`, detectada só pela comparação de saves). O
+roteiro `elevadores` para os elevadores **enquanto andam** (com eles
+esperando, o recado não troca de fase e as mutações sobreviviam).
+`tools/mutacoes.py` compara também os saves de cada roteiro
+(`build/drivers/saves_<roteiro>/`). Resultado misto, como as portas
+(código 157 → 180, estado 10 → 9).
 
 Ferramentas: `tools/mutacoes.py` aceita mutações em vários arquivos e extrai
 os trechos do `Nivel` na hora; confira que a execução mutada **terminou**

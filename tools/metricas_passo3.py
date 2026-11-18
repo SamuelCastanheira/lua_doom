@@ -150,6 +150,22 @@ SUBPASSOS = {
             "val func mover", "val func esperar_porta", "val task Porta")],
         "lista": [("specials.lua", r"self\.thinkers"), ("saveg.lua", r"specials\.thinkers")],
     },
+    "3c elevadores": {
+        "antes": [("specials.lua", "fn", h) for h in (
+            "local function tick_plat", "function M.do_plat_dwus",
+            "function M.do_plat_perpetual", "function M.do_plat_raise",
+            "function M.stop_plat")],
+        "lua": [("specials.lua", "fn", h) for h in (
+            "function M.start_plat", "function M.do_plat_dwus",
+            "function M.do_plat_perpetual", "function M.do_plat_raise",
+            "function M.stop_plat")],
+        "atm": [("setores.atm", "blk", h) for h in (
+            "val func mover_plat", "val func esperar_plat", "val task Elevador")],
+        "estado_antes": [("specials.lua", "fn", h) for h in (
+            "local function tick_plat", "function M.do_plat_dwus",
+            "function M.do_plat_perpetual", "function M.do_plat_raise")],
+        "lista": [("specials.lua", r"tick_plat")],
+    },
 }
 
 
@@ -170,12 +186,14 @@ def campos_lua(ref_text):
         for m in re.finditer(r"\b(?:light|flash|door|plat|floor|ceil|btn)\.(\w+)", t):
             acessos.add(m.group(1))
     locais = set(re.findall(r"\blocal (\w+)", ref_text))
+    for m in re.finditer(r"function [\w.:]+\(([^)]*)\)", ref_text):
+        locais.update(x.strip() for x in m.group(1).split(",") if x.strip())
     return (chaves - locais) | acessos
 
 
 # Parametros que sao so contexto ou um registro compartilhado (os campos do
 # registro e que contam, logo abaixo).
-CONTEXTO = {"sp", "porta", "th"}
+CONTEXTO = {"sp", "porta", "plat", "th", "st", "direto"}
 
 
 def estado_atm(atm_text):
@@ -186,7 +204,7 @@ def estado_atm(atm_text):
     nomes = set()
     for m in re.finditer(r"task \w+ \(([^)]*)\)", atm_text):
         nomes.update(x.strip() for x in m.group(1).split(",") if x.strip())
-    for m in re.finditer(r"\b(?:porta|pub)\.(\w+)", atm_text):
+    for m in re.finditer(r"\b(?:porta|plat|pub)\.(\w+)", atm_text):
         nomes.add(m.group(1))
     return nomes - CONTEXTO
 

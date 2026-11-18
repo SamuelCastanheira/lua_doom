@@ -99,6 +99,10 @@ M.VLD = {
   RAISEIN5 = VLD_RAISEIN5, BLAZERAISE = VLD_BLAZERAISE, BLAZEOPEN = VLD_BLAZEOPEN,
   BLAZECLOSE = VLD_BLAZECLOSE,
 }
+M.PLAT = {
+  DOWN = PLAT_DOWN, UP = PLAT_UP, WAITING = PLAT_WAITING,
+  DWUS = PLAT_DWUS, PERPETUAL = PLAT_PERPETUAL, BLAZEDWUS = PLAT_BLAZEDWUS,
+}
 function M.play(self, name)
   play(self, name)
 end
@@ -343,8 +347,9 @@ end
 -- pool so, "movers", na ordem de criacao (a da antiga lista self.thinkers):
 -- a ordem entre eles importa (um mobj na fronteira de dois setores tem o
 -- chao e o teto calculados pelos dois). As portas sao tasks Porta; os
--- outros ainda sao thinkers Lua, embrulhados na task ThinkerLua, que so
--- chama M.tick_thinker a cada fase (ate os passos 3c e 3d).
+-- elevadores, tasks Elevador (3c); pisos e tetos ainda sao thinkers Lua,
+-- embrulhados na task ThinkerLua, que so chama M.tick_thinker a cada fase
+-- (ate o passo 3d).
 local function add_thinker(self, th)
   return spawn_task(self, "movers", "ThinkerLua", self, th)
 end
@@ -357,6 +362,14 @@ M.add_thinker = add_thinker
 -- a task le na sua fase (o "recado"; ver docs/NOTAS_MONOGRAFIA.md, secao 5).
 function M.start_door(self, porta)
   return spawn_task(self, "movers", "Porta", self, porta)
+end
+
+-- Elevador (passo 3c): task Elevador de setores.atm, na mesma pool. "plat" e
+-- o registro do elevador (kind, sector, type, status, speed, low, high, wait,
+-- count): fica em sector.specialdata e e o pub da task. stop_plat (Lua) ainda
+-- escreve status e count no registro (o recado), e a task le na sua fase.
+function M.start_plat(self, plat)
+  return spawn_task(self, "movers", "Elevador", self, plat)
 end
 
 local function spawn_light_flash(self, sector)
@@ -508,40 +521,6 @@ function M.spawn_specials(self)
   end
 end
 
-local function tick_plat(self, plat)
-  if plat.status == PLAT_WAITING then
-    plat.count = plat.count - 1
-    if plat.count <= 0 then
-      if plat.sector.floorheight <= plat.low then
-        plat.status = PLAT_UP
-      else
-        plat.status = PLAT_DOWN
-      end
-      play(self, "pstart")
-    end
-    return
-  end
-  local dest = plat.low
-  local direction = -1
-  if plat.status == PLAT_UP then
-    dest = plat.high
-    direction = 1
-  end
-  local res = M.move_plane(self.world, plat.sector, plat.speed, dest, 0, direction, false)
-  mark(self)
-  if res == RESULT_PASTDEST then
-    if plat.status == PLAT_DOWN or plat.type == PLAT_PERPETUAL then
-      plat.status = PLAT_WAITING
-      plat.count = plat.wait
-      play(self, "pstop")
-    else
-      plat.sector.specialdata = nil
-      plat.dead = true
-      play(self, "pstop")
-    end
-  end
-end
-
 local function tick_floor(self, floor)
   local res = M.move_plane(self.world, floor.sector, floor.speed, floor.dest, 0, floor.direction, floor.crush)
   mark(self)
@@ -612,11 +591,9 @@ function M.tick(self)
 end
 
 -- Um tic de um thinker Lua de setor que ainda nao virou task (chamado pela
--- task ThinkerLua). Sai nos passos 3c (elevadores) e 3d (pisos e tetos).
+-- task ThinkerLua). Sai no passo 3d (pisos e tetos).
 function M.tick_thinker(self, th)
-  if th.kind == "plat" then
-    tick_plat(self, th)
-  elseif th.kind == "floor" then
+  if th.kind == "floor" then
     tick_floor(self, th)
   elseif th.kind == "ceiling" then
     tick_ceiling(self, th)
@@ -724,13 +701,11 @@ function M.do_plat_dwus(self, line, blaze)
         high = sec.floorheight,
         wait = PLATWAIT * TICRATE,
         count = 0,
-        dead = false,
       }
       if plat.low == plat.high then
         plat.low = plat.high - 8 * FRACUNIT
       end
-      sec.specialdata = plat
-      add_thinker(self, plat)
+      M.start_plat(self, plat)          -- a task marca sec.specialdata
       play(self, "pstart")
       ok = true
     end
@@ -944,10 +919,8 @@ function M.do_plat_perpetual(self, line)
         high = high,
         wait = PLATWAIT * TICRATE,
         count = 0,
-        dead = false,
       }
-      sec.specialdata = plat
-      add_thinker(self, plat)
+      M.start_plat(self, plat)          -- a task marca sec.specialdata
       play(self, "pstart")
       ok = true
     end
@@ -986,10 +959,8 @@ function M.do_plat_raise(self, line, amount, change)
         high = high,
         wait = 0,
         count = 0,
-        dead = false,
       }
-      sec.specialdata = plat
-      add_thinker(self, plat)
+      M.start_plat(self, plat)          -- a task marca sec.specialdata
       play(self, "pstart")
       ok = true
     end
@@ -997,6 +968,9 @@ function M.do_plat_raise(self, line, amount, change)
   return ok
 end
 
+-- Para os elevadores com a tag da linha: escreve no registro de cada um
+-- (status = esperando, count enorme); a task Elevador le na sua fase e fica
+-- esperando para sempre (este port nunca reativa; ver docs/DIFERENCAS_DOOM.md).
 function M.stop_plat(self, line)
   local ok = false
   local movers = self.pools and self.pools.movers

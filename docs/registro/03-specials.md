@@ -14,9 +14,9 @@ ordem em que foram feitos.
 | 0. Ponto do evento `:game.specials` | `fc557ad` | concluído |
 | 3a. Luzes | `9dd1641` | concluído |
 | 3e. Botões | `e7c956a` | concluído |
-| 3b. Portas | (este commit) | concluído |
-| 3c. Elevadores | – | próximo |
-| 3d. Pisos, tetos, esmagadores, escadas, donut | – | planejado |
+| 3b. Portas | `6c6f439` | concluído |
+| 3c. Elevadores | (este commit) | concluído |
+| 3d. Pisos, tetos, esmagadores, escadas, donut | – | próximo |
 
 Ordem e justificativa: luzes primeiro porque só nascem ao montar o nível e o
 save não as grava; botões em seguida porque são o caso mais simples criado
@@ -1181,3 +1181,281 @@ python3 tools/diagramas.py         # confere a sintaxe dos diagramas desta pagin
 | `tools/metricas_passo3.py` | 3b; estado com campos de registro; estado só das partes da porta |
 | `tools/diagramas.py` (novo) | página para conferir os diagramas Mermaid |
 | `Makefile` | roteiro `portas` |
+
+---
+
+## Subpasso 3c: elevadores
+
+### Resumo
+
+Os elevadores viraram a task `Elevador` (`setores.atm`), na mesma pool
+`movers` das portas (a ordem entre movimentadores continua garantida por
+construção). O desenho repete o das portas: a fase é `plat.status`, no
+registro do elevador, e parar um elevador (`stop_plat`) continua sendo uma
+escrita do Lua nesse registro, lida pela task na sua fase. A hipótese do
+plano, parar com `toggle`, foi testada como mutação e **não é equivalente**:
+o elevador parado do original continua descontando um contador, e isso
+aparece no save.
+
+### Situação antes (tag `passo2`)
+
+- `tick_plat` (`specials.lua:598`): máquina de estados em `status`
+  (`PLAT_DOWN` 0, `PLAT_UP` 1, `PLAT_WAITING` 2) e `count`; ao chegar em
+  cima, o desce-sobe termina (`specialdata = nil`, `dead = true`); o
+  perpétuo volta a esperar.
+- `do_plat_dwus` (`specials.lua:810`, desce, espera e sobe; também o
+  rápido), `do_plat_perpetual` (`specials.lua:1030`, sobe e desce para
+  sempre; status inicial sorteado com `P_Random`) e `do_plat_raise`
+  (`specials.lua:1065`, sobe e troca a textura do piso) montam a tabela,
+  marcam `specialdata` e acrescentam a `self.thinkers`.
+- `stop_plat` (`specials.lua:1107`): para os elevadores com a tag da linha
+  escrevendo `status = PLAT_WAITING` e `count = 2147483647`. O elevador
+  "congela" porque passa a esperar por um tempo enorme, e **continua
+  descontando** esse contador a cada tic. Este port nunca o reativa
+  (`docs/DIFERENCAS_DOOM.md`).
+
+### Solução
+
+```
+val func mover_plat (sp, plat, st, direto) {  ;; :chegou | :troca
+    var espera = !direto
+    loop {
+        if espera { await :game.specials }
+        set espera = true
+        until (plat.status != st, :troca)              ;; o recado (stop_plat)
+        val destino = if st == P.UP => plat.high => plat.low
+        val dir = if st == P.UP => 1 => -1
+        val r = S.move_plane(sp.world, plat.sector, plat.speed, destino, 0, dir, false)
+        until (r == S.RESULT_PASTDEST, :chegou)
+    }
+}
+
+val func esperar_plat (plat, direto) {        ;; :fim | :troca
+    ...                                       ;; desconta plat.count a cada tic
+}
+
+val task Elevador (sp, plat) {
+    set pub = plat
+    set plat.sector.specialdata = plat
+    defer {
+        set plat.sector.specialdata = nil
+        set plat.dead = true
+    }
+    var direto = false
+    loop {
+        val st = plat.status
+        val r = if st == P.WAITING => esperar_plat(plat, direto) => mover_plat(sp, plat, st, direto)
+        set direto = (r == :troca)
+        ifs {
+            (r == :troca) => {}           ;; recado: segue no status novo
+            (r == :fim) => {              ;; acabou a espera: sobe ou desce
+                set plat.status = if plat.sector.floorheight <= plat.low => P.UP => P.DOWN
+                S.play(sp, "pstart")
+            }
+            else => {                     ;; chegou ao destino
+                S.play(sp, "pstop")
+                until ((st != P.DOWN) && (plat.type != P.PERPETUAL))   ;; subiu: acabou
+                set plat.status = P.WAITING
+                set plat.count = plat.wait
+            }
+        }
+    }
+}
+```
+
+`stop_plat` não mudou: escreve `status` e `count` no registro. Quando o
+elevador está andando, a task percebe a troca de fase e passa a esperar **já
+nesse tic** (`direto`), descontando o contador, como fazia o `tick_plat`. O
+save grava o mesmo registro e o load chama `M.start_plat`; os `.dsg` saem
+byte a byte iguais aos da referência.
+
+**Por que não `toggle`.** O plano previa parar o elevador com
+`toggle t(false)`, o que deixaria a task viva e surda a eventos. Testado
+como mutação (`parar-com-toggle`: o recado continua, e o `toggle` é
+acrescentado), o jogo fica idêntico em **todos os quadros**, mas o save do
+elevador parado difere: o original grava `count = 2147483647 − k` (o
+contador continua sendo descontado), e com `toggle` grava
+`2147483647`. Só a comparação de saves, acrescentada neste subpasso a
+`tools/mutacoes.py`, detectou isso. Lição para a monografia: um mecanismo
+estruturado que "parece" equivalente pode diferir no estado serializado,
+mesmo sem nenhuma diferença visível.
+
+### Diagramas
+
+**Fluxo em Lua, antes (tag `passo2`):**
+
+```mermaid
+flowchart TD
+    USE["use_special / cross_special"] --> DP["do_plat_dwus / do_plat_perpetual /<br/>do_plat_raise"]
+    DP --> NEW["tabela plat; specialdata = plat"] --> LST[("self.thinkers")]
+    STP["stop_plat (linhas 54, 89; também 57, 74)"] -->|"percorre self.thinkers"| W["status = WAITING<br/>count = 2147483647"]
+    W --> LST
+    TV["G.tic_view"] --> TK["specials_mod.tick"] --> LOOP["para cada thinker:<br/>if kind == plat"] --> TP["tick_plat: status 0, 1, 2;<br/>ao terminar specialdata = nil, dead = true"]
+    LST --> LOOP
+    SV["saveg: dump_thinker"] --> LST
+    AP["saveg.apply"] -->|"recria na lista"| LST
+```
+
+**Fluxo em Lua, depois:**
+
+```mermaid
+flowchart TD
+    USE["use_special / cross_special"] --> DP["do_plat_dwus / do_plat_perpetual /<br/>do_plat_raise"]
+    DP --> SP["M.start_plat(plat)"] --> TE["spawn_in(pools.movers, Elevador)"] --> POOL[("pool movers<br/>portas e elevadores")]
+    STP["stop_plat"] -->|"pairs(movers), kind == plat"| W["plat.status = WAITING<br/>plat.count = 2147483647<br/>(o recado)"]
+    EM["Nivel: emit :game.specials"] --> POOL
+    POOL --> EL["Elevador: lê plat.status"]
+    W -.->|"lido na fase"| EL
+    SV["saveg: pairs(movers), dump_thinker(t.pub)"] --> POOL
+    AP["saveg.apply"] --> SP
+```
+
+**Máquina de estados da task `Elevador`** (a fase é `plat.status`):
+
+```mermaid
+stateDiagram-v2
+    [*] --> Descendo: desce-sobe, blaze, perpétuo (sorteio)
+    [*] --> Subindo: sobe e troca a textura, perpétuo (sorteio)
+    [*] --> Esperando: load
+    Descendo --> Esperando: chegou embaixo (count = wait)
+    Descendo --> Esperando: recado (parar), count enorme
+    Subindo --> Fim: chegou em cima (desce-sobe, sobe)
+    Subindo --> Esperando: chegou em cima (perpétuo)
+    Subindo --> Esperando: recado (parar), count enorme
+    Esperando --> Subindo: fim da espera, piso embaixo
+    Esperando --> Descendo: fim da espera, piso em cima
+    Fim --> [*]: defer libera o setor
+```
+
+Um elevador parado fica em "Esperando" com um contador enorme, descontado a
+cada tic, até o fim do nível.
+
+### Validação
+
+**Roteiro `elevadores`** (`-warp 1 3`). Contagem por script dos elevadores
+nos mapas: o desce-sobe repetível aparece no E1M1 a E1M4; o perpétuo e a
+linha de parar só no E2M2 e no E2M3. O roteiro:
+
+1. E1M3, linha 178 (desce, espera, sobe): save e load em cada fase;
+2. E1M3, linha 360 (sobe e troca a textura);
+3. E2M3, linha 114 (cruzar: 12 elevadores perpétuos), linha 324 (cruzar:
+   parar), save e load com os elevadores parados, e a linha 114 de novo
+   (não reativa).
+
+| Slot | Elevador | `status` | `count` | Referência × atual |
+|---|---|---|---|---|
+| 5 | E1M3, setor 168 | 0 (descendo) | 0 | idênticos |
+| 4 | E1M3, setor 168 | 2 (esperando) | 36 | idênticos |
+| 3 | E1M3, setor 168 | 1 (subindo) | 0 | idênticos |
+| 2 | E2M3, 12 setores | 2 (parados) | 2147483647 − k | idênticos |
+
+Os tempos do roteiro foram ajustados olhando as fases gravadas: com a
+primeira espera, o slot 4 saía ainda descendo. Com o elevador parado 400
+tics depois de começar, os 12 estavam **esperando** no momento do recado,
+que então não trocava de fase, e `parar-ignorado` e `parar-um-tic-depois`
+sobreviviam. Com 330 tics, eles estão andando, e as duas são detectadas.
+
+**Saves nas mutações.** `tests/test_drivers.sh` guarda os saves da
+referência de cada roteiro (`build/drivers/saves_<roteiro>/`), e
+`tools/mutacoes.py` passou a compará-los com os da execução mutada. Uma
+mutação que só muda o save conta como detectada ("save difere").
+
+**Equivalência.** `make test-drivers`, idêntico à tag `passo1` nos 7
+roteiros (incluindo `elevadores`: 2.098 quadros, 1.615 estados distintos).
+
+**Mutações do 3c** (roteiro `elevadores`):
+
+| Mutação | Erro simulado | 1º quadro | Quadros dif. | Save |
+|---|---|---|---|---|
+| `elevador-sem-espera-inicial` | anda no próprio spawn | 116 | 1.281 | difere |
+| `parar-ignorado` | o recado de parar é ignorado em movimento | 1.636 | 463 | – |
+| `parar-um-tic-depois` | depois do recado, só espera no tic seguinte | – | 0 | **só o save difere** |
+| `parar-com-toggle` | `toggle(t, false)` além do recado | – | 0 | **só o save difere** |
+| `perpetuo-para-no-topo` | perpétuo termina ao chegar em cima | 1.419 | 680 | difere |
+| `espera-um-tic-a-menos` | `count = wait - 1` | 447 | 806 | difere |
+| `load-perde-status` | load recria sempre descendo | 447 | 779 | difere |
+
+Com as mutações do 3c, duas mutações de porta deixaram de aplicar (os
+trechos `var espera = !direto` e `set direto = ...` passaram a aparecer
+também no elevador); os trechos agora incluem o cabeçalho da função.
+
+`make test-mutacoes` (todas as mutações do projeto): **34/37 não
+equivalentes detectadas**, 4 equivalentes justificadas, 3 pendentes.
+
+### Problemas encontrados
+
+1. **Fase errada no roteiro**, corrigida olhando os saves (slot 4 ainda
+   descendo).
+2. **Recado sem efeito no roteiro**: todos os elevadores esperando no
+   momento de parar. A mutação sobrevivente apontou que o roteiro não
+   exercitava o caso, e não que fosse equivalente.
+3. **`toggle` não equivalente**, descoberto só pelo save.
+4. **Trechos de mutação deixaram de ser únicos** com código parecido entre
+   porta e elevador.
+
+### Métricas
+
+`python3 tools/metricas_passo3.py` (o script passou a contar `plat.x` como
+campo de registro e a excluir parâmetros de função dos campos):
+
+| Métrica | Antes | Depois |
+|---|---|---|
+| Linhas de código (Lua) | 157 | 125 |
+| Linhas de código (Atmos) | – | 55 |
+| Linhas de código (total) | 157 | 180 |
+| Estado do elevador (campos) | 10 | 9 |
+| Referências a `tick_plat` | 2 | 0 |
+
+Os campos antes: `count`, `dead`, `high`, `kind`, `low`, `sector`, `speed`,
+`status`, `type`, `wait`; depois, os mesmos sem `kind`. O mesmo resultado
+misto das portas, pelo mesmo motivo: o elevador é interrompível (parar) e
+serializável, então a fase continua sendo um dado.
+
+### Custo
+
+`python3 tools/custo_drivers.py 5 [roteiro]` (ms por quadro):
+
+| Driver | `fluxo` | `elevadores` |
+|---|---|---|
+| `passo1` `main.lua` | 0,741 | 3,473 |
+| `passo1` `main.atm` | 0,800 | 3,493 |
+| `passo2` `main.atm` | 0,846 | (não comparável) |
+| atual (3c) | 0,879 | 3,760 |
+
+No `fluxo`, o atual custa +3,9% em relação ao `passo2`. No `elevadores`, o
+`passo2` não conhece `use` nem `cross`; contra o `passo1` `main.atm`, o
+atual custa +7,6%. O custo alto desse roteiro (3,5 ms por quadro em todos os
+drivers) vem dos 12 elevadores perpétuos: cada um chama `move_plane` →
+`change_sector`, que percorre todos os mobjs a cada tic.
+
+### Diferenças conhecidas
+
+Nenhuma no comportamento. Do Doom original, preservadas: o elevador parado
+nunca é reativado (o original guarda o status antigo, `oldstatus`, e
+`P_ActivateInStasis` o retoma); um elevador que sobe e bate em algo não
+volta a descer (o original volta, em `T_PlatRaise`). Registradas em
+`docs/DIFERENCAS_DOOM.md`.
+
+### Como reproduzir
+
+```sh
+make test-drivers                  # P1-P9 + 7 roteiros; saves comparados byte a byte
+make test-mutacoes                 # inclui a comparacao de saves das mutacoes
+python3 tools/metricas_passo3.py
+sh tests/test_drivers.sh 0 1 elevadores -warp 1 3 >/dev/null
+python3 tools/custo_drivers.py 5 build/drivers/replay_1elevadores.txt -warp 1 3
+python3 tools/diagramas.py
+```
+
+### Arquivos alterados
+
+| Arquivo | Mudança |
+|---|---|
+| `setores.atm` | task `Elevador`; funções `mover_plat` e `esperar_plat` |
+| `specials.lua` | `M.start_plat`, `M.PLAT`; saíram `tick_plat` e o ramo de elevador de `M.tick_thinker` |
+| `saveg.lua` | load chama `start_plat` |
+| `tools/make_replay.lua` | roteiro `elevadores` |
+| `tests/test_drivers.sh` | saves da referência por roteiro; cobertura do roteiro `elevadores` |
+| `tools/mutacoes.py` | compara saves; 7 mutações do 3c; trechos de porta únicos |
+| `tools/metricas_passo3.py` | 3c; `plat.x`; parâmetros de função fora dos campos |
+| `Makefile` | roteiro `elevadores` |

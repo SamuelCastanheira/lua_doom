@@ -21,6 +21,7 @@ com uma nova referência e a divergência esperada documentada (como o bug do
 | Porta não reabre ao esmagar | `setores.atm` (task `Porta`; antes `tick_door`) | `T_VerticalDoor`: porta fechando que bate em algo volta a abrir (exceto as rápidas que só fecham) | fica tentando fechar a cada tic |
 | Esmagamento sem sangue nem restos | `collision.change_sector` | `P_ChangeSector` / `PIT_ChangeSector`: cadáveres viram restos (`S_GIBS`), itens largados são removidos, sangue com `P_Random` a cada 4 tics | só tira 10 de vida; não consome `P_Random` |
 | Esmagador não para | `specials.lua`, tabela de linhas (tipos 57 e 74) | `EV_CeilingCrushStop` | as linhas 57 e 74 chamam `stop_plat` (param elevadores) |
+| Elevador que sobe não volta ao bater | task `Elevador` (antes `tick_plat`) | `T_PlatRaise`: subindo, se bate em algo (sem esmagar), volta a descer | fica tentando subir |
 | Elevador parado não volta | `do_plat_perpetual` | `P_ActivateInStasis`: a linha 87 reativa um elevador perpétuo parado | um elevador parado (linhas 54 e 89) fica parado; `do_plat_perpetual` só cria em setor livre |
 | Esmagador parado não volta | (ausente) | `P_ActivateInStasisCeiling` | não existe |
 | Botão duplicado | `change_switch` | `P_StartButton` não cria um segundo botão para a mesma linha | apertar de novo antes de voltar cria outro botão, que devolve a textura trocada depois |
@@ -60,10 +61,11 @@ fecham em 30 s ou abrem em 5 min, nascidas do setor).
 
 ## Relação com os próximos passos
 
-- **3c (elevadores):** como este port nunca reativa um elevador parado,
-  migrar por equivalência significa só congelar a task. A reativação
-  (`P_ActivateInStasis`) seria uma correção posterior, que com `toggle t(true)`
-  ficaria trivial: um bom exemplo para a monografia.
+- **3c (elevadores, feito):** congelar a task com `toggle` **não** é
+  equivalente: o elevador parado deste port continua descontando o `count`
+  (só o save mostra; mutação `parar-com-toggle`). Por isso o parar ficou como
+  recado no registro. A reativação (`P_ActivateInStasis`) seria uma correção
+  posterior, com nova referência; aí o `toggle t(true)` passaria a servir.
 - **3d (pisos, tetos, esmagadores):** as linhas 57 e 74 trocadas e a falta de
   sangue no esmagamento mudam o que o roteiro de esmagadores consegue
   detectar, inclusive a mutação pendente `specials-no-fim-do-tic`

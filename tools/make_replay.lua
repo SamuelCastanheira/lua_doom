@@ -36,6 +36,13 @@ local botoes = arg[4] == "botoes"
 --   E1M2 linhas 497 (abre e fica) e 527 (porta vermelha, com idkfa).
 -- "quadros" e ignorado.
 local portas = arg[4] == "portas"
+-- "elevadores": roteiro do passo 3c, rodado com "-warp 1 3". E1M3: linha 178
+-- (desce, espera, sobe; repetivel), com save e load em cada fase (slot 5
+-- descendo, 4 esperando, 3 subindo), e linha 360 (sobe e troca a textura).
+-- E2M3: linha 114 (elevador perpetuo, cruzar), linha 324 (parar, cruzar),
+-- save e load do elevador parado (slot 2) e a linha 114 de novo (nao
+-- reativa). "quadros" e ignorado.
+local elevadores = arg[4] == "elevadores"
 
 local function rand(n)
   seed = (seed * 1103515245 + 12345) % 2147483648
@@ -96,6 +103,63 @@ local function exit_level(kind)
     wait(60)
   end
   wait(60)
+end
+
+if elevadores then
+  local function use(n)
+    lines[#lines + 1] = string.format("%d use %d", f, n)
+    f = f + 1
+  end
+  local function cross(n)
+    lines[#lines + 1] = string.format("%d cross %d", f, n)
+    f = f + 1
+  end
+  local function down(n) for _ = 1, n do tap("down") end end
+  local function up(n) for _ = 1, n do tap("up") end end
+  local E = 178
+  wait(40)
+  type_text("iddqd")
+  wait(20)
+  -- Save A (descendo), slot 5: main 0 -> 3 Save -> slot 0 -> 5
+  keys({ "escape" }); down(3); keys({ "return" }); wait(10); down(5)
+  use(E); wait(8); keys({ "return" })
+  wait(10)
+  -- Load A: main 3 -> 2 Load -> slot 0 -> 5
+  keys({ "escape" }); up(1); keys({ "return" }); wait(10); down(5); keys({ "return" })
+  wait(180)                                            -- chega embaixo; espera
+  -- Save B (esperando), slot 4: main 2 -> 3 Save -> slot 5 -> 4
+  keys({ "escape" }); down(1); keys({ "return" }); wait(10); up(1); keys({ "return" })
+  wait(10)
+  -- Load B: main 3 -> 2 Load -> slot 5 -> 4
+  keys({ "escape" }); up(1); keys({ "return" }); wait(10); up(1); keys({ "return" })
+  wait(130)                                            -- termina a espera; sobe
+  -- Save C (subindo), slot 3: main 2 -> 3 Save -> slot 4 -> 3
+  keys({ "escape" }); down(1); keys({ "return" }); wait(10); up(1); keys({ "return" })
+  wait(10)
+  -- Load C: main 3 -> 2 Load -> slot 4 -> 3
+  keys({ "escape" }); up(1); keys({ "return" }); wait(10); up(1); keys({ "return" })
+  wait(300)
+  use(360); wait(300)                                  -- sobe e troca a textura
+  -- E2M3: perpetuo, parar, save e load do elevador parado
+  type_text("idclev23"); wait(40); type_text("iddqd"); wait(20)
+  -- 330 tics: os elevadores estao andando quando a linha de parar e cruzada
+  -- (com 400 estavam todos esperando, e o recado nao trocava de fase: as
+  -- mutacoes parar-ignorado e parar-um-tic-depois sobreviviam)
+  cross(114); wait(330)                                -- perpetuo
+  cross(324); wait(60)                                 -- parar
+  -- Save D (parado), slot 2: main 2 -> 3 Save -> slot 3 -> 2
+  keys({ "escape" }); down(1); keys({ "return" }); wait(10); up(1); keys({ "return" })
+  wait(30)
+  -- Load D: main 3 -> 2 Load -> slot 3 -> 2
+  keys({ "escape" }); up(1); keys({ "return" }); wait(10); up(1); keys({ "return" })
+  wait(100)
+  cross(114); wait(200)                                -- nao reativa
+  lines[#lines + 1] = string.format("%d quit", f + 20)
+  local fh = assert(io.open(out_path, "w"))
+  fh:write(table.concat(lines, "\n"), "\n")
+  fh:close()
+  print(string.format("%s: %d eventos, ate o quadro %d", out_path, #lines, f + 20))
+  return
 end
 
 if portas then

@@ -740,7 +740,9 @@ function M.apply(game, data)
         local sp = require("specials")
         if th.kind == "door" then
           sp.start_door(game.specials, th)       -- a task marca specialdata
-        elseif th.kind == "plat" or th.kind == "floor" then
+        elseif th.kind == "plat" then
+          sp.start_plat(game.specials, th)       -- idem (passo 3c)
+        elseif th.kind == "floor" then
           sector.specialdata = th
           sp.add_thinker(game.specials, th)
         end

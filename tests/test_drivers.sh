@@ -15,12 +15,13 @@
 # (mobjs, setores, jogador, RNG, tela atual). A primeira linha divergente
 # aponta o quadro em que a ordem ou o tempo mudou.
 #
-#   sh tests/test_drivers.sh [quadros] [semente] [exits|fluxo|luzes|botoes|portas] [args do jogo...]
+#   sh tests/test_drivers.sh [quadros] [semente] [exits|fluxo|luzes|botoes|portas|elevadores] [args do jogo...]
 #   exits: o roteiro tambem termina niveis -> intermissao e finale
 #   fluxo: roteiro fixo que passa por todas as transicoes (quadros ignorado)
 #   luzes: jogador parado no E4M1 e no E1M2 (rode com -warp 4 1; passo 3a)
 #   botoes: switches repetiveis, save e load (rode com -warp 1 1; passo 3e)
 #   portas: portas em cada fase, save e load (rode com -warp 1 1; passo 3b)
+#   elevadores: elevadores em cada fase, parados, save e load (rode com -warp 1 3; passo 3c)
 #
 # REF_TAG=<tag> muda a referencia (padrao: passo1).
 set -e
@@ -79,8 +80,14 @@ if ! (cd "$OUT/run_ref" && DOOM_REPLAY="$ROOT/$SCRIPT" DOOM_REPLAY_OUT="$ROOT/$O
   lua5.4 main.lua -nosound -nomusic "$@" >"$ROOT/$OUT/ref.out" 2>&1); then
   echo "ERRO na referencia $REF_TAG:"; tail -5 "$OUT/ref.out"; exit 1
 fi
-# Copia por roteiro: tools/mutacoes.py compara cada mutacao com o seu roteiro.
+# Copia por roteiro: tools/mutacoes.py compara cada mutacao com o seu roteiro
+# (o log e os saves gravados pela referencia).
 cp "$OUT/ref.log" "$OUT/ref_$SEED$EXITS.log"
+rm -rf "$OUT/saves_$SEED$EXITS"
+mkdir -p "$OUT/saves_$SEED$EXITS"
+for f in "$OUT"/run_ref/doomsav*.dsg; do
+  [ -e "$f" ] && cp "$f" "$OUT/saves_$SEED$EXITS/"
+done
 (cd "$OUT/run_atm" && DOOM_REPLAY="$ROOT/$SCRIPT" DOOM_REPLAY_OUT="$ROOT/$OUT/atm.log" \
   atmos main.atm -- -nosound -nomusic "$@" >"$ROOT/$OUT/atm.out" 2>&1) || true
 (cd "$OUT/run_lan" && DOOM_REPLAY="$ROOT/$SCRIPT" DOOM_REPLAY_OUT="$ROOT/$OUT/lan.log" \
@@ -177,5 +184,23 @@ if [ "$EXITS" = "portas" ] && [ $status -eq 0 ]; then
     grep -q "^vista $m" "$OUT/ref.out" || { echo "COBERTURA INCOMPLETA: nao chegou ao $m"; status=1; }
   done
   [ $status -eq 0 ] && echo "  cobertura das portas: save e load abrindo, esperando e fechando; E1M6 (30 s); E1M2"
+fi
+# No roteiro "elevadores" (passo 3c): um save em cada fase do elevador
+# (slot 5 descendo, 4 esperando, 3 subindo), um com elevadores parados
+# (slot 2: esperando, count enorme), quatro loads, E1M3 e E2M3.
+if [ "$EXITS" = "elevadores" ] && [ $status -eq 0 ]; then
+  fase_p() {
+    got=$(grep -ao '"kind":"plat"[^}]*' "$OUT/run_atm/doomsav$1.dsg" 2>/dev/null | grep -c "\"status\":$2,")
+    if [ "$got" -lt 1 ]; then
+      echo "COBERTURA INCOMPLETA: o slot $1 nao tem elevador com status $2"
+      status=1
+    fi
+  }
+  fase_p 5 0; fase_p 4 2; fase_p 3 1
+  grep -aq '"count":21474' "$OUT/run_atm/doomsav2.dsg" 2>/dev/null || { echo "COBERTURA INCOMPLETA: o slot 2 nao tem elevador parado"; status=1; }
+  n=$(grep -c "^pedido jogo.carregar" "$OUT/atm.out" || true)
+  [ "$n" -ge 4 ] || { echo "COBERTURA INCOMPLETA: $n loads (esperado 4)"; status=1; }
+  grep -q "^vista E2M3" "$OUT/ref.out" || { echo "COBERTURA INCOMPLETA: nao chegou ao E2M3"; status=1; }
+  [ $status -eq 0 ] && echo "  cobertura dos elevadores: save e load descendo, esperando, subindo e parado; E1M3; E2M3"
 fi
 exit $status

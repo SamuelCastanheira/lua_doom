@@ -212,5 +212,77 @@ val task Porta (sp, porta) {
     }
 }
 
+;; Elevador (EV_DoPlat, T_PlatRaise). Passo 3c. "plat" e o registro do
+;; elevador, compartilhado com o Lua: fica em sector.specialdata e e o pub.
+;;
+;; A fase e plat.status (S.PLAT: DOWN descendo, UP subindo, WAITING
+;; esperando), no registro pelos mesmos motivos da porta:
+;;   * o recado: stop_plat (Lua) poe status = WAITING e count enorme no meio
+;;     do tic; a task percebe na sua fase e passa a esperar ja nesse tic, como
+;;     o tick antigo lia o status novo;
+;;   * o save grava status e count (o mesmo formato de antes).
+
+;; Anda ate o destino da fase "st" (DOWN ou UP). Devolve :chegou, ou :troca
+;; se o Lua mudou plat.status.
+val func mover_plat (sp, plat, st, direto) {
+    var espera = !direto
+    loop {
+        if espera {
+            await :game.specials
+        }
+        set espera = true
+        until (plat.status != st, :troca)
+        val P = S.PLAT
+        val destino = if st == P.UP => plat.high => plat.low
+        val dir = if st == P.UP => 1 => -1
+        val r = S.move_plane(sp.world, plat.sector, plat.speed, destino, 0, dir, false)
+        until (r == S.RESULT_PASTDEST, :chegou)
+    }
+}
+
+;; Espera plat.count tics (o save le esse contador; um elevador parado por
+;; stop_plat tem count enorme e fica aqui). Devolve :fim, ou :troca.
+val func esperar_plat (plat, direto) {
+    var espera = !direto
+    loop {
+        if espera {
+            await :game.specials
+        }
+        set espera = true
+        until (plat.status != S.PLAT.WAITING, :troca)
+        set plat.count = plat.count - 1
+        until (plat.count <= 0, :fim)
+    }
+}
+
+val task Elevador (sp, plat) {
+    val P = S.PLAT
+    set pub = plat
+    set plat.sector.specialdata = plat    ;; setor ocupado
+    defer {                               ;; ao terminar ou ser abortado
+        set plat.sector.specialdata = nil
+        set plat.dead = true
+    }
+    var direto = false
+    loop {
+        val st = plat.status
+        val r = if st == P.WAITING => esperar_plat(plat, direto) => mover_plat(sp, plat, st, direto)
+        set direto = (r == :troca)
+        ifs {
+            (r == :troca) => {}           ;; recado: segue no status novo
+            (r == :fim) => {              ;; acabou a espera: sobe ou desce
+                set plat.status = if plat.sector.floorheight <= plat.low => P.UP => P.DOWN
+                S.play(sp, "pstart")
+            }
+            else => {                     ;; chegou ao destino
+                S.play(sp, "pstop")
+                until ((st != P.DOWN) && (plat.type != P.PERPETUAL))   ;; subiu: acabou
+                set plat.status = P.WAITING
+                set plat.count = plat.wait
+            }
+        }
+    }
+}
+
 [Pisca=Pisca, Strobe=Strobe, Brilho=Brilho, Fogo=Fogo, Botao=Botao,
- ThinkerLua=ThinkerLua, Porta=Porta]
+ ThinkerLua=ThinkerLua, Porta=Porta, Elevador=Elevador]

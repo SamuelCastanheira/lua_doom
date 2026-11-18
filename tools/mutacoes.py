@@ -12,6 +12,7 @@ Uso (depois de rodar os roteiros usados, como faz "make test-mutacoes"):
     sh tests/test_drivers.sh 1200 1 luzes -warp 4 1
     sh tests/test_drivers.sh 0 1 botoes -warp 1 1
     sh tests/test_drivers.sh 0 1 portas -warp 1 1
+    sh tests/test_drivers.sh 0 1 elevadores -warp 1 3
     python3 tools/mutacoes.py [nome-da-mutacao ...]
 """
 import os
@@ -28,6 +29,7 @@ ROTEIROS = {
     "luzes": ("replay_1luzes.txt", "ref_1luzes.log", ["-warp", "4", "1"]),
     "botoes": ("replay_1botoes.txt", "ref_1botoes.log", ["-warp", "1", "1"]),
     "portas": ("replay_1portas.txt", "ref_1portas.log", ["-warp", "1", "1"]),
+    "elevadores": ("replay_1elevadores.txt", "ref_1elevadores.log", ["-warp", "1", "3"]),
 }
 
 # Mutantes equivalentes: mudam o codigo mas nao o comportamento. Sobreviver
@@ -228,8 +230,8 @@ MUTACOES = [
     # --- passo 3b: portas como tasks (roteiro "portas": E1M1, E1M6, E1M2)
     ("porta-sem-espera-inicial",
      "Porta anda no proprio spawn, antes da sua fase (sem o await inicial)",
-     "    var espera = !direto\n",
-     "    var espera = false\n",
+     "val func mover (sp, porta, dir, direto) {\n    var espera = !direto\n",
+     "val func mover (sp, porta, dir, direto) {\n    var espera = false\n",
      "setores.atm", "portas"),
     ("recado-ignorado-movendo",
      "Porta em movimento ignora o recado (outro use nao inverte)",
@@ -243,8 +245,8 @@ MUTACOES = [
      "setores.atm", "portas"),
     ("recado-um-tic-depois",
      "Depois do recado, a porta so anda no tic seguinte (perde o tic da troca)",
-     "        set direto = (r == :troca)\n",
-     "        set direto = false\n",
+     "        set direto = (r == :troca)\n        ifs {\n            (r == :troca) => {}           ;; recado: segue na direcao nova",
+     "        set direto = false\n        ifs {\n            (r == :troca) => {}           ;; recado: segue na direcao nova",
      "setores.atm", "portas"),
     ("recado-vira-evento",
      "O recado vira um evento imediato: o use emite :game.specials para os "
@@ -270,6 +272,43 @@ MUTACOES = [
     ("portas-fora-de-movers-fluxo",
      "O mesmo, no roteiro fluxo (jogo com elevadores e portas)",
      PORTAS_SEPARADAS, None, None, "fluxo"),
+    # --- passo 3c: elevadores como tasks (roteiro "elevadores": E1M3, E2M3)
+    ("elevador-sem-espera-inicial",
+     "Elevador anda no proprio spawn, antes da sua fase (sem o await inicial)",
+     "val func mover_plat (sp, plat, st, direto) {\n    var espera = !direto\n",
+     "val func mover_plat (sp, plat, st, direto) {\n    var espera = false\n",
+     "setores.atm", "elevadores"),
+    ("parar-ignorado",
+     "Elevador em movimento ignora o recado de parar",
+     "        until (plat.status != st, :troca)\n",
+     "",
+     "setores.atm", "elevadores"),
+    ("parar-um-tic-depois",
+     "Depois do recado de parar, o elevador so passa a esperar no tic seguinte",
+     "        set direto = (r == :troca)\n        ifs {\n            (r == :troca) => {}           ;; recado: segue no status novo",
+     "        set direto = false\n        ifs {\n            (r == :troca) => {}           ;; recado: segue no status novo",
+     "setores.atm", "elevadores"),
+    ("parar-com-toggle",
+     "Parar com toggle(task, false) alem do recado: o elevador congela sem "
+     "descontar o count (o original desconta o count enorme a cada tic)",
+     "      th.status = PLAT_WAITING\n      th.count = 2147483647\n",
+     "      th.status = PLAT_WAITING\n      th.count = 2147483647\n      toggle(t, false)\n",
+     "specials.lua", "elevadores"),
+    ("perpetuo-para-no-topo",
+     "Elevador perpetuo termina ao chegar em cima (tratado como desce-sobe)",
+     "                until ((st != P.DOWN) && (plat.type != P.PERPETUAL))   ;; subiu: acabou\n",
+     "                until (st != P.DOWN)\n",
+     "setores.atm", "elevadores"),
+    ("espera-um-tic-a-menos",
+     "Elevador espera um tic a menos embaixo (count = wait - 1)",
+     "                set plat.count = plat.wait\n",
+     "                set plat.count = plat.wait - 1\n",
+     "setores.atm", "elevadores"),
+    ("load-perde-status",
+     "Load recria o elevador sempre descendo (status nao restaurado)",
+     "          status = rec.status or 0,\n",
+     "          status = 0,\n",
+     "saveg.lua", "elevadores"),
     ("novo-nao-descarta",
      "New Game no meio do jogo e ignorado (o Jogo atual continua)",
      "            await <:jogo.novo || :jogo.carregar>   ;; descarta o jogo atual\n",
@@ -350,7 +389,18 @@ def main():
                            cwd=run, env=env, stdout=out, stderr=subprocess.STDOUT,
                            timeout=600)
         first, diff, nref, ngot = compare(os.path.join(OUT, ref_name), log)
-        if first is None and name in EQUIVALENTES:
+        # saves sao parte do resultado: compara com os da referencia
+        saves_ref = os.path.join(OUT, ref_name.replace("ref_", "saves_").replace(".log", ""))
+        saves_dif = []
+        if os.path.isdir(saves_ref):
+            for nome_dsg in sorted(os.listdir(saves_ref)):
+                a_dsg = os.path.join(saves_ref, nome_dsg)
+                b_dsg = os.path.join(run, nome_dsg)
+                if not os.path.exists(b_dsg) or open(a_dsg, "rb").read() != open(b_dsg, "rb").read():
+                    saves_dif.append(nome_dsg)
+        if first is None and saves_dif:
+            result = "detectada"          # so no save
+        elif first is None and name in EQUIVALENTES:
             result = "equivalente"
             equivalent += 1
         elif first is None and name in PENDENTES:
@@ -362,6 +412,8 @@ def main():
         else:
             result = "detectada"
         extra = "" if ngot == nref else f" ({ngot} quadros)"
+        if saves_dif:
+            extra += f" [save difere: {', '.join(saves_dif)}]"
         print(f"{name:24} {result:12} {first or '-':>9} {diff:>12}  {desc}{extra}")
         if result == "equivalente":
             print(f"{'':24} {'':12} {'':>9} {'':>12}    -> {EQUIVALENTES[name]}")
