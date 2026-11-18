@@ -10,6 +10,7 @@ aquele comportamento (ou o mutante e equivalente).
 Uso (depois de rodar os roteiros usados, como faz "make test-mutacoes"):
     sh tests/test_drivers.sh 0 1 fluxo
     sh tests/test_drivers.sh 1200 1 luzes -warp 4 1
+    sh tests/test_drivers.sh 0 1 botoes -warp 1 1
     python3 tools/mutacoes.py [nome-da-mutacao ...]
 """
 import os
@@ -24,6 +25,7 @@ OUT = os.path.join(ROOT, "build", "drivers")
 ROTEIROS = {
     "fluxo": ("replay_1fluxo.txt", "ref_1fluxo.log", []),
     "luzes": ("replay_1luzes.txt", "ref_1luzes.log", ["-warp", "4", "1"]),
+    "botoes": ("replay_1botoes.txt", "ref_1botoes.log", ["-warp", "1", "1"]),
 }
 
 # Mutantes equivalentes: mudam o codigo mas nao o comportamento. Sobreviver
@@ -41,6 +43,11 @@ EQUIVALENTES = {
         "consome P_Random no tick (o esmagamento deste port, "
         "collision.change_sector, so tira vida; o Doom original solta sangue "
         "com P_Random em P_ChangeSector, e la a ordem importaria)",
+    "botoes-antes-do-resto":
+        "os botoes so escrevem a textura (top/mid/bottom) do lado do switch; o "
+        "resto em Lua escreve textureoffset (linhas com scroll) e alturas de "
+        "setor, nao le texturas de lado e nao consome P_Random no tick: "
+        "campos disjuntos, sem dependencia de leitura",
 }
 
 # Mutantes NAO equivalentes que o roteiro ainda nao cobre. Sobreviver e
@@ -56,8 +63,12 @@ PENDENTES = {
 }
 
 # Trechos do Nivel (main.atm) usados por "luzes-depois-do-resto".
-LUZES_E_RESTO = '    pin luzes = tasks()                   ;; 3a: luzes (setores.atm)\n    G.set_pools([luzes=luzes])            ;; specials.lua cria as tasks nelas\n    defer {\n        G.set_pools(nil)\n    }\n    if save {\n        G.load_level(save)\n    } else {\n        G.start_level()\n    }\n    G.enter(:view)\n    spawn {                               ;; specials ainda em Lua: scroll,\n        loop on :game.specials {          ;; portas/elevadores/pisos, botoes\n            G.specials_resto()\n        }\n    }\n'
-RESTO_E_LUZES = '    spawn {                               ;; specials ainda em Lua: scroll,\n        loop on :game.specials {          ;; portas/elevadores/pisos, botoes\n            G.specials_resto()\n        }\n    }\n    pin luzes = tasks()                   ;; 3a: luzes (setores.atm)\n    G.set_pools([luzes=luzes])            ;; specials.lua cria as tasks nelas\n    defer {\n        G.set_pools(nil)\n    }\n    if save {\n        G.load_level(save)\n    } else {\n        G.start_level()\n    }\n    G.enter(:view)\n'
+LUZES_E_RESTO = '    pin luzes = tasks()                   ;; 3a: luzes (setores.atm)\n    spawn {                               ;; ainda em Lua: scroll e\n        loop on :game.specials {          ;; portas/elevadores/pisos\n            G.specials_resto()\n        }\n    }\n'
+RESTO_E_LUZES = '    spawn {                               ;; ainda em Lua: scroll e\n        loop on :game.specials {          ;; portas/elevadores/pisos\n            G.specials_resto()\n        }\n    }\n    pin luzes = tasks()                   ;; 3a: luzes (setores.atm)\n'
+
+# Trechos do Nivel (main.atm) usados por "botoes-antes-do-resto".
+RESTO_E_BOTOES = '    spawn {                               ;; ainda em Lua: scroll e\n        loop on :game.specials {          ;; portas/elevadores/pisos\n            G.specials_resto()\n        }\n    }\n    pin botoes = tasks()                  ;; 3e: botoes (setores.atm)\n'
+BOTOES_E_RESTO = '    pin botoes = tasks()                  ;; 3e: botoes (setores.atm)\n    spawn {                               ;; ainda em Lua: scroll e\n        loop on :game.specials {          ;; portas/elevadores/pisos\n            G.specials_resto()\n        }\n    }\n'
 
 # (nome, descricao, trecho original, trecho mutado[, arquivo[, roteiro]])
 # arquivo: padrao "main.atm"; roteiro: padrao "fluxo" (ver ROTEIROS).
@@ -142,6 +153,37 @@ MUTACOES = [
      LUZES_E_RESTO,
      RESTO_E_LUZES,
      "main.atm", "luzes"),
+    # --- passo 3e: botoes como tasks (roteiro "botoes": E1M1, save/load, E1M4)
+    ("botao-sem-espera-inicial",
+     "Botao conta o primeiro tic no proprio spawn (age uma fase antes)",
+     "    loop {\n        await :game.specials\n        set pub.timer = pub.timer - 1\n        until (pub.timer <= 0)\n    }\n",
+     "    loop {\n        set pub.timer = pub.timer - 1\n        until (pub.timer <= 0)\n        await :game.specials\n    }\n",
+     "setores.atm", "botoes"),
+    ("botao-um-tic-a-mais",
+     "Botao devolve a textura um tic depois (timer < 0 em vez de <= 0)",
+     "        until (pub.timer <= 0)\n",
+     "        until (pub.timer < 0)\n",
+     "setores.atm", "botoes"),
+    ("botao-nao-restaura",
+     "Botao termina sem devolver a textura original",
+     "    if lado {\n        set lado@attr = textura\n    }\n",
+     "",
+     "setores.atm", "botoes"),
+    ("save-esquece-botoes",
+     "Save nao grava os botoes ativos (a textura fica trocada depois do load)",
+     "      if btn and btn.timer > 0 then\n",
+     "      if false then\n",
+     "saveg.lua", "botoes"),
+    ("load-reinicia-timer",
+     "Load recria o botao com o timer cheio (35) em vez do gravado",
+     "where_attr[rec.where or \"\"] or \"toptexture\", rec.texture or 0, rec.timer or 0)",
+     "where_attr[rec.where or \"\"] or \"toptexture\", rec.texture or 0, 35)",
+     "saveg.lua", "botoes"),
+    ("botoes-antes-do-resto",
+     "Pool de botoes acorda antes dos specials ainda em Lua (ordem do M.tick trocada)",
+     RESTO_E_BOTOES,
+     BOTOES_E_RESTO,
+     "main.atm", "botoes"),
     ("novo-nao-descarta",
      "New Game no meio do jogo e ignorado (o Jogo atual continua)",
      "            await <:jogo.novo || :jogo.carregar>   ;; descarta o jogo atual\n",
@@ -204,7 +246,8 @@ def main():
         run = os.path.join(ROOT, "build", "mut", name)
         mkrun(run, arquivo, src.replace(old, new))
         log = os.path.join(run, "replay.log")
-        env = dict(os.environ, DOOM_REPLAY=os.path.join(OUT, script), DOOM_REPLAY_OUT=log)
+        env = dict(os.environ, DOOM_REPLAY=os.path.join(OUT, script), DOOM_REPLAY_OUT=log,
+                   DOOM_REPLAY_SIDES="1")
         with open(os.path.join(run, "saida.txt"), "w") as out:
             subprocess.run(["atmos", "main.atm", "--", "-nosound", "-nomusic"] + game_args,
                            cwd=run, env=env, stdout=out, stderr=subprocess.STDOUT,

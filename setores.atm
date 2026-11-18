@@ -91,4 +91,25 @@ val task Fogo (setor, maxl, minl) {
     }
 }
 
-[Pisca=Pisca, Strobe=Strobe, Brilho=Brilho, Fogo=Fogo]
+;; --------------------------------------------------------------- botoes
+;; Passo 3e. Antes: um item em self.buttons (line, attr, texture, timer),
+;; decrementado e removido da lista em M.tick (specials.lua, tag passo2).
+;;
+;; Switch repetivel (P_StartButton, P_UpdateSpecials): depois de "timer"
+;; tics, devolve a textura original ao lado da linha. O contador fica em pub
+;; porque o save precisa dele (saveg.lua le pub.timer); sem o save, seria so
+;; espera(timer). O load recria a task com o timer gravado.
+val task Botao (linha, attr, textura, timer) {
+    set pub = [linha=linha, attr=attr, textura=textura, timer=timer]
+    loop {
+        await :game.specials
+        set pub.timer = pub.timer - 1
+        until (pub.timer <= 0)
+    }
+    val lado = linha.sides@1
+    if lado {
+        set lado@attr = textura
+    }
+}
+
+[Pisca=Pisca, Strobe=Strobe, Brilho=Brilho, Fogo=Fogo, Botao=Botao]

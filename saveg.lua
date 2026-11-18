@@ -464,21 +464,27 @@ local function dump_state(game)
       end
     end
   end
+  -- Botoes (passo 3e): tasks Botao na pool "botoes" do Nivel; o estado de
+  -- cada um esta no pub da task (linha, attr, textura, timer). A ordem da
+  -- pool e a de criacao, a mesma da antiga lista specials.buttons.
   local buttons = {}
-  if game.specials and game.specials.buttons then
-    for i = 1, #game.specials.buttons do
-      local btn = game.specials.buttons[i]
-      local line = btn.line
-      local idx = -1
-      if line and line.i_line ~= nil then
-        idx = line.i_line
+  local botoes = game.pools and game.pools.botoes
+  if botoes then
+    for _, t in pairs(botoes) do
+      local btn = t.pub
+      if btn and btn.timer > 0 then
+        local line = btn.linha
+        local idx = -1
+        if line and line.i_line ~= nil then
+          idx = line.i_line
+        end
+        buttons[#buttons + 1] = {
+          { "line", idx },
+          { "where", btn.attr or "toptexture" },
+          { "texture", btn.textura or 0 },
+          { "timer", btn.timer or 0 },
+        }
       end
-      buttons[#buttons + 1] = {
-        { "line", idx },
-        { "where", btn.attr or "toptexture" },
-        { "texture", btn.texture or 0 },
-        { "timer", btn.timer or 0 },
-      }
     end
   end
   return {
@@ -737,12 +743,9 @@ function M.apply(game, data)
       local li = rec.line or -1
       local line = world.lines[li + 1]
       if line then
-        game.specials.buttons[#game.specials.buttons + 1] = {
-          line = line,
-          attr = where_attr[rec.where or ""] or "toptexture",
-          texture = rec.texture or 0,
-          timer = rec.timer or 0,
-        }
+        -- passo 3e: recria a task Botao com o timer gravado
+        require("specials").start_button(game.specials, line,
+          where_attr[rec.where or ""] or "toptexture", rec.texture or 0, rec.timer or 0)
       end
     end
   end

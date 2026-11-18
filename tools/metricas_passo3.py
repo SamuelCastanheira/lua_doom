@@ -60,35 +60,69 @@ def atm_block(text, header):
     return "\n".join(out)
 
 
-def lua_part(ref, path, headers):
+def trecho(text, start, stop):
+    """Linhas de "start" (inclusive) ate "stop" (exclusive)."""
+    i = text.find(start)
+    if i < 0:
+        return ""
+    j = text.find(stop, i + len(start))
+    return text[i:j] if j > i else ""
+
+
+def parte(ref, item):
+    """item: (arquivo, tipo, a[, b]); tipo "fn" (funcao Lua), "blk" (bloco
+    Atmos) ou "trecho" (de a ate b)."""
+    path, kind, a = item[:3]
     text = read(ref, path)
-    return "\n".join(lua_function(text, h) for h in headers)
+    if kind == "fn":
+        return lua_function(text, a)
+    if kind == "blk":
+        return atm_block(text, a)
+    return trecho(text, a, item[3])
 
 
-def atm_part(path, headers):
-    text = read(None, path)
-    return "\n".join(atm_block(text, h) for h in headers)
+def juntar(ref, itens):
+    return "\n".join(parte(ref, it) for it in itens)
 
 
 SUBPASSOS = {
     "3a luzes": {
-        "ref": ("specials.lua", [
+        "antes": [("specials.lua", "fn", h) for h in (
             "local function spawn_light_flash", "local function spawn_strobe",
             "local function spawn_glow", "local function spawn_fire",
-            "local function tick_lights",
-        ]),
-        "lua": ("specials.lua", [
-            "local function spawn_luz", "local function spawn_light_flash",
+            "local function tick_lights")],
+        "lua": [("specials.lua", "fn", h) for h in (
+            "local function spawn_task", "local function spawn_luz",
+            "local function spawn_light_flash",
             "local function spawn_strobe", "local function spawn_glow",
-            "local function spawn_fire",
-        ]),
-        "atm": ("setores.atm", [
+            "local function spawn_fire")],
+        "atm": [("setores.atm", "blk", h) for h in (
             "val func espera", "val task Pisca", "val task Strobe",
-            "val task Brilho", "val task Fogo",
-        ]),
-        "lista": r"self\.lights",
+            "val task Brilho", "val task Fogo")],
+        "lista": [("specials.lua", r"self\.lights")],
+    },
+    "3e botoes": {
+        "antes": [
+            ("specials.lua", "trecho", "  local keep = {}", "  return self.stamp ~= before"),
+            ("specials.lua", "trecho", "      if use_again then", "      side[attr] = new"),
+            ("saveg.lua", "trecho", "  local buttons = {}", "  return {"),
+            ("saveg.lua", "trecho", "    local buttons = data.buttons or {}", "  local recs = data.mobjs"),
+        ],
+        "lua": [
+            ("specials.lua", "fn", "function M.start_button"),
+            ("specials.lua", "trecho", "      if use_again then", "      side[attr] = new"),
+            ("saveg.lua", "trecho", "  -- Botoes (passo 3e)", "  return {"),
+            ("saveg.lua", "trecho", "    local buttons = data.buttons or {}", "  local recs = data.mobjs"),
+        ],
+        "atm": [("setores.atm", "blk", "val task Botao")],
+        "lista": [("specials.lua", r"self\.buttons"), ("saveg.lua", r"specials\.buttons")],
     },
 }
+
+
+def sem_comentarios(text):
+    """Tira comentarios Lua de linha ("-- ..."), para contar so codigo."""
+    return "\n".join(re.sub(r"--.*$", "", line) for line in text.splitlines())
 
 
 def campos_lua(ref_text):
@@ -118,9 +152,9 @@ def estado_atm(atm_text):
 def main():
     print(f"referencia: tag {REF}   atual: arvore de trabalho\n")
     for nome, s in SUBPASSOS.items():
-        ref = lua_part(REF, *s["ref"])
-        lua = lua_part(None, *s["lua"])
-        atm = atm_part(*s["atm"])
+        ref = juntar(REF, s["antes"])
+        lua = juntar(None, s["lua"])
+        atm = juntar(None, s["atm"])
         rl, ll, al = code_lines(ref, "--"), code_lines(lua, "--"), code_lines(atm, ";;")
         print(f"== {nome}")
         print(f"{'metrica':44} {'antes':>7} {'depois':>7}")
@@ -137,11 +171,13 @@ def main():
         print(f"{'contadores manuais (count)':44} "
               f"{len(re.findall(r'[.]count', ref)):>7} "
               f"{len(re.findall(r'[.]count', lua + atm)):>7}")
-        cur_specials = read(None, "specials.lua")
-        ref_specials = read(REF, "specials.lua")
-        print(f"{'referencias a lista (specials.lua inteiro)':44} "
-              f"{len(re.findall(s['lista'], ref_specials)):>7} "
-              f"{len(re.findall(s['lista'], cur_specials)):>7}")
+        dec = r"[.](\w+) = [\w.]+[.]\1 - 1"
+        print(f"{'decrementos de contador (x.c = x.c - 1)':44} "
+              f"{len(re.findall(dec, ref)):>7} {len(re.findall(dec, lua + atm)):>7}")
+        nr = sum(len(re.findall(rx, sem_comentarios(read(REF, f)))) for f, rx in s["lista"])
+        na = sum(len(re.findall(rx, sem_comentarios(read(None, f)))) for f, rx in s["lista"])
+        arqs = ", ".join(sorted({f for f, _ in s["lista"]}))
+        print(f"{'referencias a lista (' + arqs + ')':44} {nr:>7} {na:>7}")
         print()
 
 

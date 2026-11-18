@@ -42,6 +42,10 @@ local function replay_backend(path)
       elseif key == "die" then
         -- so para testes: o jogador morre (renasce ao apertar "use")
         ev = { key = "", replay_die = true }
+      elseif key == "use" then
+        -- so para testes: aciona a linha N (indice do WAD), como o "use" do
+        -- jogador encostado nela; usado para switches repetiveis (passo 3e)
+        ev = { key = "", replay_use = tonumber(dir) }
       else
         ev = { key = key, down = dir ~= "up" }
       end

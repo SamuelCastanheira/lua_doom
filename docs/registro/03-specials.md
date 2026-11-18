@@ -12,9 +12,9 @@ ordem em que foram feitos.
 | Subpasso | Commit | Situação |
 |---|---|---|
 | 0. Ponto do evento `:game.specials` | `fc557ad` | concluído |
-| 3a. Luzes | (este commit) | concluído |
-| 3e. Botões | – | próximo |
-| 3b. Portas | – | planejado |
+| 3a. Luzes | `9dd1641` | concluído |
+| 3e. Botões | (este commit) | concluído |
+| 3b. Portas | – | próximo |
 | 3c. Elevadores | – | planejado |
 | 3d. Pisos, tetos, esmagadores, escadas, donut | – | planejado |
 
@@ -313,13 +313,19 @@ luz em `specials.lua` e `setores.atm`):
 
 | Métrica | Antes | Depois |
 |---|---|---|
-| Linhas de código (Lua) | 109 | 30 |
+| Linhas de código (Lua) | 109 | 33 |
 | Linhas de código (Atmos) | – | 53 |
-| Linhas de código (total) | 109 | 83 |
+| Linhas de código (total) | 109 | 86 |
 | Estado por entidade (campos da tabela × parâmetros da task) | 10 | 5 |
 | Ramos de despacho por tipo (`kind ==`) | 4 | 0 |
 | Contadores manuais (`.count`) | 9 | 0 |
-| Referências à lista (`self.lights`, `specials.lua` inteiro) | 10 | 0 |
+| Decrementos de contador (`x.c = x.c - 1`) | 1 | 0 |
+| Referências à lista (`self.lights`, `specials.lua` inteiro, sem comentários) | 10 | 0 |
+
+No commit do 3a, a tabela dizia 30/83 linhas. No 3e, `spawn_luz` foi
+generalizado em `spawn_task` (usado também pelos botões), e o script passou
+a contar `spawn_task` no 3a: 33/86. As linhas de uso geral ficam no 3a, onde
+apareceram.
 
 Os campos antes: `sector`, `kind`, `maxlight`, `minlight`, `maxtime`,
 `mintime`, `count`, `darktime`, `brighttime`, `direction`. Depois:
@@ -377,3 +383,258 @@ python3 tools/custo_drivers.py 5 build/drivers/replay_1luzes.txt -warp 4 1
 | `tools/metricas_passo3.py` (novo) | métricas por subpasso |
 | `tools/custo_drivers.py` | driver `passo2-atm`; argumentos do jogo; caminho absoluto |
 | `Makefile` | roteiro `luzes` em `test-drivers` e `test-mutacoes` |
+
+---
+
+## Subpasso 3e: botões
+
+### Resumo
+
+Um switch repetível troca a textura do lado da linha e, depois de 35 tics
+(`BUTTONTIME`), a devolve. Antes, cada botão era um item de `self.buttons`
+decrementado e removido da lista dentro de `M.tick`. Agora é uma task
+`Botao` em `setores.atm`, na pool `botoes` do `Nivel`. É o primeiro tipo
+**criado pelo Lua no meio do tic** (`spawn_in` a partir de `change_switch`)
+e o primeiro **gravado no save**.
+
+### Situação antes (tag `passo2`)
+
+- `M.new` criava `buttons = {}` (`specials.lua:291`).
+- `change_switch` (`specials.lua:1215`) acrescentava
+  `{ line, attr, texture, timer = BUTTONTIME }` a `self.buttons` quando o
+  switch era repetível.
+- O fim de `M.tick` (`specials.lua:715-729`) decrementava `timer`, devolvia
+  a textura quando chegava a zero e reconstruía a lista (`keep`).
+- `saveg.lua` gravava `specials.buttons` campo a campo (`saveg.lua:467-482`)
+  e o load os recriava na lista (`saveg.lua:734-748`).
+
+### Solução
+
+**A task.**
+
+```
+val task Botao (linha, attr, textura, timer) {
+    set pub = [linha=linha, attr=attr, textura=textura, timer=timer]
+    loop {
+        await :game.specials
+        set pub.timer = pub.timer - 1
+        until (pub.timer <= 0)
+    }
+    val lado = linha.sides@1
+    if lado {
+        set lado@attr = textura
+    }
+}
+```
+
+**A ordem no tic.** Os botões eram a última fase de `M.tick`, então a pool
+`botoes` é declarada **depois** da task do resto em Lua (P7). Como o load
+recria botões dentro de `G.load_level`, as três declarações (luzes, resto,
+botões) passaram a vir **antes** de montar o nível:
+
+```
+pin luzes = tasks()                   ;; 3a
+spawn {                               ;; ainda em Lua: scroll e
+    loop on :game.specials {          ;; portas/elevadores/pisos
+        G.specials_resto()
+    }
+}
+pin botoes = tasks()                  ;; 3e
+G.set_pools([luzes=luzes, botoes=botoes])
+```
+
+**Criação a partir do Lua.** `change_switch` roda no "use" do jogador
+(etapa 3 do tic) e chama `M.start_button`, que faz
+`spawn_in(self.pools.botoes, Botao, ...)`. A task nasce durante o
+`:game.tic` e conta o primeiro tic no `:game.specials` do **mesmo** tic
+(P9), como o item novo em `self.buttons` era decrementado no mesmo
+`M.tick`.
+
+**Save e load pelo `pub`.** O save percorre a pool (`pairs` numa pool
+devolve as tasks em ordem de criação) e grava `t.pub`. O load chama
+`M.start_button(..., timer_gravado)`, e a task recomeça com o timer que
+restava. O botão tem uma fase só, então não há código de retomada: o
+"estado reintroduzido" é exatamente o `pub.timer`.
+
+### Comparação de código
+
+Antes (`specials.lua`, tag `passo2`, fim de `M.tick`):
+
+```lua
+local keep = {}
+for i = 1, #self.buttons do
+  local btn = self.buttons[i]
+  btn.timer = btn.timer - 1
+  if btn.timer <= 0 then
+    local side = btn.line.sides[1]
+    if side then
+      side[btn.attr] = btn.texture
+      mark(self)
+    end
+  else
+    keep[#keep + 1] = btn
+  end
+end
+self.buttons = keep
+```
+
+Depois: a task acima, e em `change_switch` só
+`M.start_button(self, line, attr, tex, BUTTONTIME)`.
+
+O que mudou na leitura:
+
+- A remoção da lista (`keep`, `self.buttons = keep`) desapareceu: a task
+  termina, e a pool a recolhe.
+- **O contador não desapareceu.** Sem o save, a task seria
+  `espera(timer)` seguida da troca de textura, como nas luzes. O save
+  precisa ler quanto falta, e a task não expõe a posição dentro de um
+  `espera`: por isso `pub.timer` é decrementado à mão. É a primeira
+  medida concreta do custo do save previsto em `NOTAS_MONOGRAFIA.md`
+  (seções 1 e 4): **num tipo de uma fase só, o save devolve exatamente o
+  contador que a task eliminaria**.
+
+### Validação
+
+**Comando de teste `use <linha>`.** Os roteiros de teclas dificilmente
+acertam um switch repetível. O replay ganhou o comando `use N`, que aciona a
+linha N do WAD como o "use" do jogador (`video.lua`, `game.lua`), como já
+faziam `exit` e `die`. A referência não o tinha: ele entrou no
+`tests/ref-passo1.patch` (que agora tem 58 linhas e foi conferido aplicando
+num checkout limpo da tag `passo1`).
+
+**Roteiro `botoes`** (`-warp 1 1`). Contagem por script dos switches
+repetíveis (tipos 42, 43, 45, 60-70, 114-116, 120, 123, 132) com textura de
+switch no lado da frente: E1M1 linha 136 (porta), E1M4 linhas 394 e 694
+(elevadores). O roteiro aperta a linha 136, aperta de novo com o botão
+ativo (dois botões na mesma linha), **salva com um botão no meio do timer**,
+carrega esse save e vai ao E1M4. `tests/test_drivers.sh` confere que o save
+das duas versões tem um botão ativo (os dois gravaram
+`{"line":136,"where":"bottomtexture","texture":107,"timer":29}`), que houve
+o load e que o E1M4 foi visitado.
+
+**Hash de estado ampliado.** O `G.state_string` não incluía os lados das
+linhas, e um botão só muda uma textura de lado. O hash ganhou textura de
+cima, do meio, de baixo e deslocamento de cada lado, também na referência
+(pelo patch). Isso foi **necessário**: nas cinco mutações de botão, a imagem
+não diverge em nenhum quadro (o switch não está na tela) e só o estado
+diverge:
+
+| Mutação | Arquivo | Erro simulado | 1º quadro | Quadros dif. (estado) | Imagem |
+|---|---|---|---|---|---|
+| `botao-sem-espera-inicial` | `setores.atm` | conta o primeiro tic no spawn | 109 | 10 | 0 |
+| `botao-um-tic-a-mais` | `setores.atm` | `timer < 0` em vez de `<= 0` | 110 | 6 | 0 |
+| `botao-nao-restaura` | `setores.atm` | não devolve a textura | 110 | 480 | 0 |
+| `save-esquece-botoes` | `saveg.lua` | save não grava os botões | 440 | 96 | 0 |
+| `load-reinicia-timer` | `saveg.lua` | load usa timer cheio (35) | 440 | 5 | 0 |
+| `botoes-antes-do-resto` | `main.atm` | pool de botões antes do resto em Lua | – | 0 (equivalente) | – |
+
+Sem os lados no hash, as cinco teriam sobrevivido. O hash dos lados custa
+caro (milhares de `string.format` por quadro), então só é calculado com
+`DOOM_REPLAY_SIDES=1`, que `tests/test_drivers.sh` e `tools/mutacoes.py`
+ligam e `tools/custo_drivers.py` não liga.
+
+**Mutante equivalente `botoes-antes-do-resto`.** Os botões só escrevem a
+textura do lado do switch. O resto em Lua escreve `textureoffset` (linhas
+com scroll) e alturas de setor, não lê texturas de lado e não consome
+`P_Random` no tick. Campos disjuntos, sem dependência de leitura.
+
+**Equivalência.** `make test-drivers`, idêntico à tag `passo1` nos 5
+roteiros (`fluxo`, semente 1, semente 2 `exits`, `luzes`, `botoes`: 851
+quadros, 587 estados distintos). `make test-mutacoes`: **20/21 mutações não
+equivalentes detectadas**, 4 equivalentes justificadas, 1 pendente
+(`specials-no-fim-do-tic`).
+
+### Problemas encontrados
+
+1. **O hash não via o que o botão muda.** Descoberto ao planejar as
+   mutações: sem os lados, os testes do 3e seriam verdes sem testar nada.
+   Lição para o método: a cada tipo migrado, perguntar **o que ele escreve**
+   e conferir que isso está no hash.
+2. **O hash novo falseou a medição de custo.** A primeira medição depois de
+   ampliar o hash deu o `passo1` e o atual 50% mais lentos que o `passo2`:
+   eram os `string.format` dos lados, que o `passo2` não calcula. Daí a
+   variável `DOOM_REPLAY_SIDES`.
+3. **Mais uma mutação de ordem mal construída.** A primeira versão de
+   `botoes-antes-do-resto` apagava a declaração da pool (o que deixaria
+   `botoes` indefinida) em vez de movê-la. Agora o trecho é extraído do
+   `main.atm`, como no 3a; a mutação do 3a foi regerada para o `Nivel`
+   novo.
+
+### Métricas
+
+`python3 tools/metricas_passo3.py` (o script passou a medir trechos de
+funções; nos botões, o código estava espalhado entre `M.tick`,
+`change_switch` e `saveg.lua`):
+
+| Métrica | Antes | Depois |
+|---|---|---|
+| Linhas de código (Lua) | 55 | 37 |
+| Linhas de código (Atmos) | – | 12 |
+| Linhas de código (total) | 55 | 49 |
+| Estado por entidade (campos × parâmetros) | 4 | 4 |
+| Decrementos de contador (`x.c = x.c - 1`) | 1 | 1 |
+| Referências à lista (`self.buttons`, `specials.buttons`; sem comentários) | 10 | 0 |
+
+O estado não diminuiu (`line`, `attr`, `texture`, `timer` × `linha`,
+`attr`, `textura`, `timer`) e o decremento continua: é o custo do save
+discutido acima. O ganho está na lista que sumiu (10 referências → 0) e na
+limpeza automática.
+
+### Custo
+
+`python3 tools/custo_drivers.py 5 [roteiro]` (sem `DOOM_REPLAY_SIDES`):
+
+| Driver | `fluxo` | `luzes` | `botoes` |
+|---|---|---|---|
+| `passo1` `main.lua` | 0,735 | 0,903 | 1,557 |
+| `passo1` `main.atm` | 0,790 | 0,961 | 1,651 |
+| `passo2` `main.atm` | 0,830 | 1,001 | (não comparável) |
+| atual (3e) | 0,863 | 1,096 | 1,721 |
+
+(ms por quadro). No `fluxo` e no `luzes`, o atual mediu o mesmo que no 3a
+(0,864 e 1,089), dentro do ruído: os botões vivem poucos tics e há no
+máximo dois de cada vez. No `botoes`, o `passo2` não conhece o comando
+`use`, então não aciona os switches; sem os `use`, o mesmo roteiro cai de
+1,54 s para 0,91 s no driver atual. O custo extra desse roteiro é das
+portas e elevadores que os switches disparam (ainda thinkers Lua:
+`move_plane` → `change_sector` percorre todos os mobjs a cada tic), não dos
+botões.
+
+### Diferenças conhecidas
+
+Nenhuma no comportamento. A peculiaridade de dois botões na mesma linha
+(apertar de novo antes de o primeiro voltar cria um segundo botão, que
+devolve a textura trocada depois) existe na referência e foi preservada; o
+Doom original evita isso em `P_StartButton`. Fora do jogo (testes unitários
+com `game` falso), os botões não são criados.
+
+### Como reproduzir
+
+```sh
+make test-drivers                  # P1-P9 + 5 roteiros contra a tag passo1
+make test-mutacoes                 # inclui as mutacoes do 3e (roteiro botoes)
+python3 tools/metricas_passo3.py
+sh tests/test_drivers.sh 0 1 botoes -warp 1 1 >/dev/null
+python3 tools/custo_drivers.py 5 build/drivers/replay_1botoes.txt -warp 1 1
+```
+
+Na primeira execução depois de atualizar o patch, apague o worktree antigo
+da referência (`git worktree remove --force build/ref-passo1`): o script só
+aplica o patch num worktree limpo.
+
+### Arquivos alterados
+
+| Arquivo | Mudança |
+|---|---|
+| `setores.atm` | task `Botao` |
+| `specials.lua` | `spawn_luz` generalizado em `spawn_task`; `M.start_button`; saíram `self.buttons` e a fase de botões de `M.tick` |
+| `saveg.lua` | save percorre a pool `botoes` e grava `t.pub`; load chama `M.start_button` |
+| `main.atm` | `Nivel` declara luzes, resto e botões antes de montar o nível |
+| `game.lua` | comando de teste `use`; lados no `G.state_string` (com `DOOM_REPLAY_SIDES`) |
+| `video.lua` | comando `use <linha>` no roteiro |
+| `tests/ref-passo1.patch` | `use` e lados no hash, também na referência |
+| `tools/make_replay.lua` | roteiro `botoes` |
+| `tests/test_drivers.sh` | `DOOM_REPLAY_SIDES=1`; cobertura do roteiro `botoes` |
+| `tools/mutacoes.py` | roteiro `botoes`; 6 mutações do 3e; mutação de ordem do 3a regerada |
+| `tools/metricas_passo3.py` | medição por trechos; `spawn_task` no 3a; sem comentários nas listas |
+| `Makefile` | roteiro `botoes` em `test-drivers` e `test-mutacoes` |

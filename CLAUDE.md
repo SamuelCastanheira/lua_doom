@@ -41,7 +41,7 @@ Atmos) e escreve em **português**. Responda em português.
 | Recursos visuais do Doom original (céu por episódio, texturas animadas, luz de sprites e arma, contraste falso, gama F11, R_CheckBBox) | concluído |
 | 1. Ambiente e driver Atmos | concluído (`passo1`) |
 | 2. Fluxo de telas em tasks | concluído (`passo2`) |
-| **3. Specials de setor (luzes, portas, elevadores, pisos, botões, save)** | **em andamento:** subpasso 0 e 3a (luzes) feitos; próximo: 3e (botões) |
+| **3. Specials de setor (luzes, portas, elevadores, pisos, botões, save)** | **em andamento:** subpasso 0, 3a (luzes) e 3e (botões) feitos; próximo: 3b (portas) |
 | 4. Arma (psprites) | planejado |
 | 5. Um monstro como task | planejado |
 
@@ -159,11 +159,18 @@ partir de 1):
 200 exit            # comando de teste: termina o nivel (switch de saida)
 300 exit secret     # saida secreta
 500 die             # comando de teste: o jogador morre
+600 use 136         # comando de teste: "use" na linha 136 do WAD (passo 3e)
 900 quit            # fecha a janela
 ```
 
 `DOOM_REPLAY_DUMP=1450,1460` grava esses quadros em
 `<DOOM_REPLAY_OUT>.<quadro>.raw` (64.000 índices de paleta).
+
+`DOOM_REPLAY_SIDES=1` acrescenta ao hash de estado as texturas e o
+deslocamento de todos os lados (passo 3e: um botão só muda uma textura de
+lado, e sem isso as mutações de botão sobreviviam). `tests/test_drivers.sh`
+e `tools/mutacoes.py` ligam; `tools/custo_drivers.py` não liga, porque o
+hash dos lados é caro e falsearia o custo.
 
 ---
 
@@ -378,8 +385,8 @@ Ordem atual de um tic de nível (`G.tic_view_antes`, 1 a 6;
    1. pool `luzes` (tasks de `setores.atm`, passo 3a), na ordem dos setores;
    2. a task que chama `G.specials_resto()` → `specials_mod.tick`, que ainda
       faz, nesta ordem: linhas com scroll (efeito 48); thinkers de setor
-      (`self.thinkers`: portas, elevadores, pisos, tetos); botões
-      (`self.buttons`).
+      (`self.thinkers`: portas, elevadores, pisos, tetos);
+   3. pool `botoes` (task `Botao`, passo 3e), na ordem de criação.
 8. `res:update_anims(leveltime)`
 9. saída? → `"saida"`
 10. `leveltime + 1`
@@ -468,11 +475,12 @@ automapa, `-`/`=` mudam o tamanho da tela.
 ### 5.2 Equivalência da lógica (driver Atmos × referência)
 
 ```sh
-make test-drivers          # semantica do Atmos (P1-P9) + 4 roteiros contra a tag passo1
+make test-drivers          # semantica do Atmos (P1-P9) + 5 roteiros contra a tag passo1
 sh tests/test_drivers.sh 0 1 fluxo         # roteiro com todas as transicoes
 sh tests/test_drivers.sh 4000 1            # pseudoaleatorio, 4000 quadros, semente 1
 sh tests/test_drivers.sh 6000 2 exits      # tambem termina niveis
 sh tests/test_drivers.sh 1200 1 luzes -warp 4 1   # passo 3a: E4M1 e E1M2 parados
+sh tests/test_drivers.sh 0 1 botoes -warp 1 1     # passo 3e: switches, save e load
 REF_TAG=passo2 sh tests/test_drivers.sh 0 1 fluxo   # outra referencia
 ```
 
@@ -633,6 +641,22 @@ roteiros antigos tinha). `tools/mutacoes.py` aceita mutações em qualquer
 arquivo e roteiro; `tools/metricas_passo3.py` mede cada subpasso;
 `tools/custo_drivers.py` compara também com a tag `passo2`. Detalhes,
 números e problemas em `docs/registro/03-specials.md`.
+
+**Subpasso 3e (feito):** botões como task `Botao` (`setores.atm`), pool
+`botoes` declarada **depois** da task do resto. As três declarações (luzes,
+resto, botões) vêm **antes** de montar o nível, porque o load recria
+botões. `change_switch` chama `M.start_button` (`spawn_in` no meio do
+tic). O save percorre a pool (`pairs`) e grava `t.pub`; o load chama
+`M.start_button` com o timer gravado. O botão guarda `pub.timer` à mão
+porque o save precisa dele (o custo do save, medido). Comando de teste
+`use <linha>` (também no `tests/ref-passo1.patch`) e roteiro `botoes`
+(E1M1 linha 136, E1M4 linhas 394 e 694, save com botão ativo, load).
+Lição: **a cada tipo migrado, confira que o que ele escreve está no hash**
+(daí os lados no hash, com `DOOM_REPLAY_SIDES`).
+
+Ao mudar o `tests/ref-passo1.patch`, apague o worktree antigo
+(`git worktree remove --force build/ref-passo1`) ou aplique a mudança nele
+à mão: o script só aplica o patch quando ele aplica limpo.
 
 **Registro:** `docs/registro/03-specials.md` é atualizado **em cada commit
 do passo 3** (tabela de subpassos no topo e uma seção por subpasso).

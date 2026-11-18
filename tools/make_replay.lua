@@ -20,6 +20,13 @@ local fluxo = arg[4] == "fluxo"
 -- monstros continuam consumindo P_Random entre as luzes, o que testa a ordem
 -- dentro do tic. "quadros" e o tempo em cada mapa.
 local luzes = arg[4] == "luzes"
+-- "botoes": roteiro do passo 3e, rodado com "-warp 1 1". Usa o comando de
+-- teste "use <linha>" (indice do WAD) em switches repetiveis: E1M1 linha 136
+-- (porta, tipo 63) e, depois de idclev14, E1M4 linhas 394 e 694
+-- (elevadores, tipo 62). Usa de novo com o botao ativo (dois botoes na mesma
+-- linha), salva com um botao no meio do timer e carrega esse save (o botao
+-- volta com o timer gravado). "quadros" e ignorado.
+local botoes = arg[4] == "botoes"
 
 local function rand(n)
   seed = (seed * 1103515245 + 12345) % 2147483648
@@ -80,6 +87,42 @@ local function exit_level(kind)
     wait(60)
   end
   wait(60)
+end
+
+if botoes then
+  local function use(n)
+    lines[#lines + 1] = string.format("%d use %d", f, n)
+    f = f + 1
+  end
+  wait(40)
+  type_text("iddqd")
+  wait(20)
+  use(136); wait(60)                                   -- botao: volta em 35 tics
+  use(136); wait(10); use(136); wait(80)               -- 2o uso com o botao ativo
+  -- Save com um botao ativo: main (item 0) -> 3 Save Game -> slot 5; o
+  -- "use" acontece com o menu ja no slot, logo antes de gravar.
+  keys({ "escape", "down", "down", "down", "return" })
+  wait(10)
+  keys({ "down", "down", "down", "down", "down" })
+  use(136); wait(5)
+  keys({ "return" })                                   -- grava (botao no meio)
+  wait(100)
+  -- Load: main (item 3) -> 2 Load Game -> slot 0 -> 5
+  keys({ "escape", "up", "return" })
+  wait(10)
+  keys({ "down", "down", "down", "down", "down", "return" }) -- jogo.carregar
+  wait(100)
+  type_text("idclev14")                                -- nivel.trocar -> E1M4
+  wait(40)
+  type_text("iddqd")
+  wait(20)
+  use(394); wait(15); use(694); wait(200)              -- elevadores
+  lines[#lines + 1] = string.format("%d quit", f + 20)
+  local fh = assert(io.open(out_path, "w"))
+  fh:write(table.concat(lines, "\n"), "\n")
+  fh:close()
+  print(string.format("%s: %d eventos, ate o quadro %d", out_path, #lines, f + 20))
+  return
 end
 
 if luzes then

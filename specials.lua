@@ -279,7 +279,7 @@ local function tag_line(tag)
 end
 
 -- pools: pools de tasks da task Nivel (main.atm), por exemplo
--- { luzes = <tasks> }. Sem main.atm (testes unitarios com game falso) e nil,
+-- { luzes = <tasks>, botoes = <tasks> }. Sem main.atm (testes unitarios com game falso) e nil,
 -- e as partes ja migradas para tasks ficam paradas.
 function M.new(world, res, sound, pools)
   local self = {
@@ -289,7 +289,6 @@ function M.new(world, res, sound, pools)
     pools = pools,
     thinkers = {},
     scroll_lines = {},
-    buttons = {},
     exit_requested = false,
     secret_exit = false,
     switch_map = {},
@@ -314,12 +313,19 @@ end
 -- no mesmo ponto em que este arquivo o consumia.
 local setores = nil
 
-local function spawn_luz(self, nome, ...)
-  if not (self.pools and self.pools.luzes) then
-    return -- sem main.atm (testes unitarios): luzes paradas
+-- Cria a task "nome" de setores.atm na pool "pool" do Nivel. Sem main.atm
+-- (testes unitarios com game falso) nao ha pools: a parte migrada fica
+-- parada.
+local function spawn_task(self, pool, nome, ...)
+  if not (self.pools and self.pools[pool]) then
+    return nil
   end
   setores = setores or require("setores")
-  spawn_in(self.pools.luzes, setores[nome], ...)
+  return spawn_in(self.pools[pool], setores[nome], ...)
+end
+
+local function spawn_luz(self, nome, ...)
+  return spawn_task(self, "luzes", nome, ...)
 end
 
 local function spawn_light_flash(self, sector)
@@ -612,8 +618,9 @@ local function tick_ceiling(self, ceil)
   end
 end
 
--- Partes dos specials que ainda sao thinkers Lua. As luzes (passo 3a) ja sao
--- tasks: acordam antes desta funcao, na pool "luzes" do Nivel (main.atm).
+-- Partes dos specials que ainda sao thinkers Lua. Ja sao tasks: as luzes
+-- (passo 3a), que acordam antes desta funcao, e os botoes (passo 3e), que
+-- acordam depois dela (pools "luzes" e "botoes" do Nivel, main.atm).
 function M.tick(self)
   local before = self.stamp
   for i = 1, #self.scroll_lines do
@@ -642,21 +649,6 @@ function M.tick(self)
     end
   end
   self.thinkers = alive
-  local keep = {}
-  for i = 1, #self.buttons do
-    local btn = self.buttons[i]
-    btn.timer = btn.timer - 1
-    if btn.timer <= 0 then
-      local side = btn.line.sides[1]
-      if side then
-        side[btn.attr] = btn.texture
-        mark(self)
-      end
-    else
-      keep[#keep + 1] = btn
-    end
-  end
-  self.buttons = keep
   return self.stamp ~= before
 end
 
@@ -1142,6 +1134,13 @@ function M.start_light_strobing(self, line)
   return ok
 end
 
+-- Botao (passo 3e): task Botao de setores.atm na pool "botoes", na ordem de
+-- criacao (a mesma da antiga lista self.buttons). Usado por change_switch e
+-- pelo load (saveg.apply), que passa o timer gravado.
+function M.start_button(self, line, attr, texture, timer)
+  return spawn_task(self, "botoes", "Botao", line, attr, texture, timer)
+end
+
 function M.change_switch(self, line, use_again)
   local side = line.sides[1]
   if not side then
@@ -1161,12 +1160,7 @@ function M.change_switch(self, line, use_again)
     local new = self.switch_map[tex]
     if new ~= nil then
       if use_again then
-        self.buttons[#self.buttons + 1] = {
-          line = line,
-          attr = attr,
-          texture = tex,
-          timer = BUTTONTIME,
-        }
+        M.start_button(self, line, attr, tex, BUTTONTIME)
       end
       side[attr] = new
       mark(self)

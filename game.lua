@@ -693,6 +693,14 @@ function M.new(argv)
       end
       return
     end
+    if ev.replay_use then
+      -- comando de teste do modo replay (video.lua): "use" na linha N
+      local line = game.world and game.world.lines[ev.replay_use + 1]
+      if video.replay and line and game.player and game.player.mo and game.gamestate == "view" then
+        game.use_special(line, game.player.mo, 0)
+      end
+      return
+    end
     if ev.mouse then
       if ev.dx then
         game.mousex = game.mousex + ev.dx
@@ -1010,6 +1018,15 @@ function M.new(argv)
       for i = 1, #world.sectors do
         local s = world.sectors[i]
         t[#t + 1] = string.format("%d,%d,%d", s.floorheight, s.ceilingheight, s.lightlevel)
+      end
+      -- lados: texturas e deslocamento (botoes do passo 3e, linhas com
+      -- scroll); acrescentado tambem a referencia (tests/ref-passo1.patch).
+      -- So com DOOM_REPLAY_SIDES=1 (tests/test_drivers.sh, tools/mutacoes.py):
+      -- custa caro e falsearia a medicao de custo (tools/custo_drivers.py).
+      for i = 1, (os.getenv("DOOM_REPLAY_SIDES") == "1") and #world.sides or 0 do
+        local sd = world.sides[i]
+        t[#t + 1] = string.format("s%s,%s,%s,%s", tostring(sd.toptexture),
+          tostring(sd.midtexture), tostring(sd.bottomtexture), tostring(sd.textureoffset))
       end
     end
     local p = game.player

@@ -173,3 +173,45 @@ sobrevivente em três grupos, e não em dois:
 Isso é um resultado do método: o teste mostra explicitamente o que o roteiro
 ainda não cobre, em vez de deixar uma lacuna invisível ou forçar uma
 justificativa falsa de equivalência.
+
+---
+
+## 4. Expressividade e seus contrapontos
+
+Registrado depois do subpasso 3a (commit `9dd1641`).
+
+**O lado a favor**, com um exemplo concreto: na luz pulsante (`Brilho`,
+`setores.atm`), a versão imperativa guardava um campo `direction` e testava
+esse campo a cada tic para decidir se a luz subia ou descia. Na task, são
+dois laços em sequência (escurecer até o mínimo, clarear até o máximo): a
+fase deixou de ser um dado e virou a **posição no código**. O mesmo vale
+para o `count` das outras luzes, que virou `espera(n)`. Números do 3a
+(`tools/metricas_passo3.py`): estado por luz de 10 campos para 5
+parâmetros; despachos por `kind` e contadores manuais foram a zero.
+
+**Os contrapontos**, que precisam ficar à vista porque são eles que dão
+credibilidade ao resultado:
+
+- **A expressividade vem de esconder o estado no fluxo de controle, e isso
+  cobra no save.** Nas luzes não apareceu, porque elas não são salvas. A
+  partir dos botões e das portas, a retomada por fase vai reintroduzir parte
+  do estado explícito. O tamanho desse código é a medida honesta de quanto
+  do ganho se perde (seção 1).
+- **A ordem continua sendo responsabilidade de quem programa.** O Atmos é
+  determinístico, mas foi preciso entender o runtime (propriedades P7 a P9,
+  `tests/atmos_semantica.atm`) para garantir que as tasks acordam no mesmo
+  ponto dos thinkers. Um `await` inicial esquecido muda o jogo, e só o
+  replay pega isso.
+- **Nem sempre o código fica menor.** No passo 2 o total de linhas
+  **cresceu** (125 → 104 + 124). O ganho ali foi concentrar decisões
+  espalhadas, não encurtar. No 3a encolheu (109 → 83), mas as luzes são o
+  caso mais favorável: sequências puras, sem interação.
+- **Há custo.** É pequeno (cerca de 0,3% de um tic de 28,6 ms), mas existe e
+  cresce com o número de tasks. Os passos com muitas portas ou monstros vão
+  dizer se continua desprezível.
+
+**O teste decisivo** são as portas (3b): ali há interrupção de verdade (uma
+porta fechando que reabre com outro "use" ou ao bater num monstro). É onde
+`watching`, `emit @t` e `defer` deveriam mostrar uma vantagem que um `if`
+sobre `direction` não tem. Se a expressividade se mantiver nesse caso, e não
+só em sequências simples, o argumento fica bem mais forte.

@@ -71,8 +71,17 @@ task Titulo () {
 ;; As partes ainda em Lua rodam em G.specials_resto; a cada subpasso, uma
 ;; parte sai dele e ganha a sua pool aqui, antes ou depois do resto.
 task Nivel (save) {
+    ;; Specials de setor, na ordem do antigo specials_mod.tick (P7). As pools
+    ;; existem antes de montar o nivel: build_level cria as luzes e o load
+    ;; (saveg.apply) recria os botoes.
     pin luzes = tasks()                   ;; 3a: luzes (setores.atm)
-    G.set_pools([luzes=luzes])            ;; specials.lua cria as tasks nelas
+    spawn {                               ;; ainda em Lua: scroll e
+        loop on :game.specials {          ;; portas/elevadores/pisos
+            G.specials_resto()
+        }
+    }
+    pin botoes = tasks()                  ;; 3e: botoes (setores.atm)
+    G.set_pools([luzes=luzes, botoes=botoes])   ;; specials.lua cria as tasks
     defer {
         G.set_pools(nil)
     }
@@ -82,11 +91,6 @@ task Nivel (save) {
         G.start_level()
     }
     G.enter(:view)
-    spawn {                               ;; specials ainda em Lua: scroll,
-        loop on :game.specials {          ;; portas/elevadores/pisos, botoes
-            G.specials_resto()
-        }
-    }
     par :any {
         loop on :game.tic {
             val antes = G.tic_view_antes()    ;; "segue" | "parado" | "morte"
