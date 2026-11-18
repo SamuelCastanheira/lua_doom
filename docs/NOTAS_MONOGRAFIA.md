@@ -293,3 +293,102 @@ como a mudança de `direction` era lida pelo `tick_door`.
   task virar a mesma máquina de estados do Lua, só que em Atmos. A ideia é
   manter as fases como funções em sequência, cada uma devolvendo `:ok`,
   `:inverter` ou `:esmagou`, com o laço da porta decidindo a próxima.
+
+---
+
+## 6. Monstros: comportamento orientado a dados
+
+Discussão do fim do passo 3b, sobre o escopo do passo 5 e de uma migração
+"de todos os monstros".
+
+### A tabela é um programa; o thinker é o interpretador
+
+No Doom, o comportamento dos monstros **já é dado, não código**. Cada linha
+de `info.STATES` é uma instrução (sprite, quadro, **duração em tics**,
+**ação**, **próximo estado**). O Imp, em `info.lua`:
+
+```lua
+[442] = {[0]=0, 0, 10, 29, 443},   -- S_TROO_STND:  10 tics, A_Look, vai para 443
+[443] = {[0]=0, 1, 10, 29, 442},   -- S_TROO_STND2: 10 tics, A_Look, volta para 442
+[444] = {[0]=0, 0,  3, 30, 445},   -- S_TROO_RUN1:  3 tics, A_Chase (444 a 451: andar)
+[452] = {[0]=0, 4,  8, 31, 453},   -- S_TROO_ATK1:  8 tics, A_FaceTarget
+[454] = {[0]=0, 6,  6, 53, 444},   -- S_TROO_ATK3:  6 tics, A_TroopAttack, volta a andar
+[456] = {[0]=0, 7,  2, 25, 444},   -- S_TROO_PAIN2: 2 tics, A_Pain, volta a andar
+```
+
+O "próximo estado" é um `goto`; as decisões ficam nas **ações**, que pulam
+para outro estado (`A_Look` → andar ao ver o jogador; `A_Chase` → atacar;
+o dano → dor, de qualquer lugar).
+
+Há **uma função só para todos os objetos** (monstros, projéteis, sangue,
+barris, lâmpadas):
+
+| Peça | Uma por… | No código |
+|---|---|---|
+| Interpretador | jogo inteiro | `thinker.mobj_thinker`, `thinker.set_mobj_state` |
+| Ações | compartilhadas; algumas por monstro | `enemy.call_action` (`Look`, `Chase`, `FaceTarget`; `TroopAttack` só o Imp) |
+| Programa | tipo de objeto | as linhas de `info.STATES` (Imp: 442–474) |
+| Pontos de entrada | tipo de objeto | `info.MOBJINFO`: `spawnstate`, `seestate`, `painstate`, `missilestate`, `deathstate` |
+| Posição atual | cada objeto no mapa | `mo.istate`, `mo.tics` |
+
+### Dois caminhos para migrar
+
+| Caminho | Como | Custo depois da base | Ganho para o TCC |
+|---|---|---|---|
+| Interpretador em Atmos | uma task `Mobj` que lê `STATES` | baixo, cobre todos | quase nenhum: é o mesmo interpretador em outra linguagem |
+| Um programa por tipo | "descompilar" as linhas de cada tipo numa task | ~meia sessão por tipo, com roteiro e mutações | alto: é onde a expressividade aparece |
+
+"Descompilar" é reescrever os `goto`s da tabela como código estruturado:
+**uma task por tipo, uma instância por objeto, e as linhas viram
+instruções**. Sequências viram linhas seguidas; o estado que volta vira
+`loop`; o pulo decidido por uma ação vira `until`; o pulo vindo de fora (dor,
+morte) vira `watching`:
+
+```
+task Imp (mo) {
+    watching :mobj.morreu {
+        await Procurar(mo)            ;; 442-443 (A_Look)
+        loop {
+            watching :mobj.dor {
+                loop {
+                    await Perseguir(mo)       ;; 444-451 (A_Chase)
+                    await AtaqueImp(mo)       ;; 452-454
+                }
+            }
+            await Dor(mo)                     ;; 455-456 (A_Pain)
+        }
+    }
+    await Morrer(mo)
+}
+```
+
+A exigência de equivalência torna isso trabalhoso: cada `espera(n)` e cada
+`P_Random` das ações tem de cair no mesmo tic que a tabela produziria.
+
+### Quantos tipos
+
+`info.lua` tem 18 tipos de monstro (a tabela veio completa do port em
+Python), mas só **10 existem no Doom 1** (contagem nos `THINGS` do
+`doom.wad`): Imp (31 mapas), Shotgun Guy (30), Demon (30), Spectre (27),
+Cacodemon (24), Zombieman (22), Baron of Hell (22), Cyberdemon (5), Spider
+Mastermind (2) e a Lost Soul (que não conta como "kill"). Na prática são
+**~6 programas**: o Spectre é o Demon (mesmas linhas); Zombieman e Shotgun
+Guy, Imp, Cacodemon e Baron compartilham o esqueleto; a Lost Soul e os chefes
+são diferentes. Além dos monstros, o mesmo interpretador roda projéteis,
+sangue, faíscas, barris, teleportes e objetos animados: é a "cauda" que
+torna a migração completa uma questão de semanas.
+
+### Para a monografia
+
+Um terceiro tipo de resultado, ao lado das luzes e das portas:
+
+| Comportamento | Exemplo | Resultado das tasks |
+|---|---|---|
+| sequência | luzes (3a) | ganho claro em estado e legibilidade |
+| máquina interrompível e serializável | portas (3b) | ganho estrutural (ciclo de vida, ordem, limpeza), não de tamanho |
+| orientado a dados | monstros (`STATES`) | só há ganho se a tabela for "descompilada"; aí aparece o **reuso por composição** (`Procurar`, `Perseguir`, `Dor` compartilhados) |
+
+Recorte sugerido: o passo 5 (um monstro) mostra a coexistência dos dois
+modelos; se sobrar tempo, migrar uma **família** que compartilha ações
+(Zombieman + Shotgun Guy, ou Imp + Cacodemon + Baron) mostra o reuso a custo
+marginal baixo, sem enfrentar a cauda inteira.
