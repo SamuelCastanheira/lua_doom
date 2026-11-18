@@ -46,7 +46,8 @@ Desvios em relação a este plano, decididos durante o passo 2:
   vários módulos, mas é escrito só por `G.enter`, chamado pelas tasks de
   tela.
 - **O wipe continua no redesenho (Lua).** Não decide nada do fluxo, e
-  movê-lo arriscaria a temporização. Fica como passo opcional.
+  movê-lo arriscaria a temporização. Fica como passo opcional
+  (seção 12.1, junto com o quadro por evento).
 - **O `carry` continua global**, para preservar um bug da referência
   (registro do passo 2, seção 8.1). A correção é um commit separado.
 - **Cada execução do teste roda numa pasta isolada.** O teste chegou a
@@ -630,7 +631,8 @@ cerca de 0,06 ms por quadro a mais que o laço Lua.
 6. **Discussão:** save game, ordem e RNG, coexistência dos dois modelos, o que
    não ficou melhor.
 7. **Conclusão e trabalhos futuros:** todos os monstros, netgame/demos,
-   Atmos no navegador (`atmos.env.js`).
+   Atmos no navegador (`atmos.env.js`), quadro por evento e wipe como task
+   (seção 12.1).
 
 ---
 
@@ -644,3 +646,62 @@ cerca de 0,06 ms por quadro a mais que o laço Lua.
 - [ ] Save e load testados, quando aplicável
 - [ ] Métricas registradas (seção 7)
 - [ ] Commit com mensagem descrevendo o estudo de caso
+
+---
+
+## 12. Trabalhos futuros
+
+Ideias fora do escopo dos passos 3 a 5, anotadas para a monografia
+(capítulo 7).
+
+### 12.1 Quadro por evento (`:game.frame`) e wipe como task
+
+**Situação no fim do passo 2.** O tic já é despachado pelas tasks: a tela
+viva recebe `:game.tic` e chama a sua função (`Nivel` → `G.tic_view`,
+`Intermissao` → `G.tic_intermission`, `Finale` → `G.tic_finale`). O
+desenho, não: `paint_state` (`game.lua`, dentro de `game.new`) ainda escolhe
+o que pintar com `if game.gamestate == ...`. Por isso `game.gamestate`
+continua existindo, como espelho somente leitura da tela atual (escrito só
+por `G.enter`).
+
+**Proposta.** A task do quadro divide o `redraw` em duas partes e emite um
+evento no meio, simétrico ao `:game.tic`:
+
+```
+loop on :frame {
+    G.frame_antes()          ;; captura a tela antiga do wipe, se a tela mudou
+    emit :game.frame         ;; so a tela viva desenha a si mesma
+    G.frame_depois()         ;; captura a tela nova, menu, FPS, paleta, present
+}
+```
+
+Cada task de tela ganharia um ramo `loop on :game.frame { ... }` que chama a
+sua função de desenho (`paint_view`, `wi_mod.draw`, `finale_mod.draw`). As
+funções de desenho e o renderer em C não mudam; muda só quem escolhe qual
+chamar.
+
+**Melhor se feita junto com o wipe como task** (Mudança 6 do passo 2,
+adiada). Hoje o wipe usa `gamestate` também como memória: compara
+`game.wipe_state` (tela do quadro anterior) com `game.gamestate` para
+descobrir que a tela mudou. Com o wipe como task explícita entre telas
+(`await Wipe(antes, depois)`), a troca deixa de ser detectada no redesenho e
+`game.gamestate` pode sumir de vez.
+
+**Justificativa.** Deixaria o quadro simétrico ao tic: as duas metades do
+laço do jogo seriam despachadas pela tela viva, e não por uma string
+consultada em vários módulos.
+
+**Por que não agora.**
+- É apresentação, não lógica de jogo; a pergunta de pesquisa é sobre estado
+  e ciclo de vida da lógica.
+- O Doom original faz o mesmo despacho por `gamestate` (`D_Display`, em
+  `d_main.c`); manter facilita a comparação.
+- Risco de mudar a temporização: a ordem fixa do `redraw` (captura do wipe,
+  pintura, menu por cima) depende da propriedade P6 e de dividir o
+  `redraw` no ponto certo.
+- Também seria preciso tirar as leituras de `gamestate` do menu, dos
+  cheats, do mouse e do automapa (encaminhar a entrada pela tela ativa).
+
+**Alternativa intermediária,** se quiser só remover o `if`: `G.enter`
+registra a função de pintura (`game.paint = paint_view`) e `paint_state`
+vira `game.paint()`. Elimina o despacho, mas a variável continua.
