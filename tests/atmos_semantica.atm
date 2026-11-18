@@ -68,4 +68,91 @@ emit :sair
 emit :frame
 assert(table.concat(log, " ") == "desenha termina", "P6: " ++ table.concat(log, " "))
 
-print("atmos: 6 propriedades ok")
+;; ---------------------------------------------------------------------------
+;; Propriedades de que os specials de setor (passo 3) vao depender.
+
+;; Funcao Lua pura (nao Atmos) que cria uma task numa pool, como farao
+;; specials.lua/collision.lua ao abrir uma porta.
+val cria = load("""
+    return function (ts, T, L, ...)
+        local t = spawn_in(ts, T, ...)
+        if L then L("lua:volta") end
+        return t
+    end
+""")()
+
+;; P7. Pools declaradas em sequencia acordam na ordem de declaracao (e nao na
+;;     de criacao das tasks); dentro de cada pool, na ordem de criacao. Uma
+;;     task transparente declarada entre duas pools acorda entre elas
+;;     (luzes -> scroll -> movers do M.tick).
+task Membro (nome) {
+    loop on :sp7 {
+        L(nome)
+    }
+}
+set log = []
+spawn {
+    pin luzes = tasks()
+    spawn {
+        loop on :sp7 {
+            L("scroll")
+        }
+    }
+    pin movers = tasks()
+    spawn @movers Membro("m1")
+    spawn @luzes  Membro("l1")
+    spawn @movers Membro("m2")
+    spawn @luzes  Membro("l2")
+    await(false)
+}
+emit :sp7
+assert(table.concat(log, " ") == "l1 l2 scroll m1 m2", "P7: " ++ table.concat(log, " "))
+
+;; P8. spawn_in chamado de uma funcao Lua roda a task ate o primeiro await
+;;     antes de voltar ao Lua (specialdata marcado na hora; use_special
+;;     devolve o resultado sincronamente).
+task Porta8 (nome) {
+    L(nome ++ ".inicio")
+    set pub = :ocupado
+    await :sp8
+}
+set log = []
+var porta8 = nil
+spawn {
+    pin movers = tasks()
+    set porta8 = cria(movers, Porta8, L, "p")
+    await(false)
+}
+assert(table.concat(log, " ") == "p.inicio lua:volta", "P8: " ++ table.concat(log, " "))
+assert(porta8.pub == :ocupado, "P8: pub = " ++ tostring(porta8.pub))
+
+;; P9. Uma task criada durante o evento A (o jogador, no :game.tic) acorda no
+;;     evento B seguinte (:game.specials do mesmo tic). Uma task criada
+;;     durante B, por outra task da mesma pool, so acorda no proximo B (como
+;;     o "for i = 1, #self.thinkers" do M.tick).
+task Porta9 (nome, filho, ts) {
+    await :sp9
+    L(nome ++ ".move")
+    if filho {
+        spawn @ts Porta9(filho, nil, ts)
+    }
+    await(false)
+}
+set log = []
+spawn {
+    pin movers = tasks()
+    spawn {
+        await :tic9
+        cria(movers, Porta9, nil, "a", "c", movers)
+        L("criou-a")
+    }
+    await(false)
+}
+emit :tic9
+L("|")
+emit :sp9
+L("|")
+emit :sp9
+assert(table.concat(log, " ") == "criou-a | a.move | c.move", "P9: " ++ table.concat(log, " "))
+
+print("atmos: 9 propriedades ok")

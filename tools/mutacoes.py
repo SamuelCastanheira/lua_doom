@@ -62,8 +62,8 @@ MUTACOES = [
      "        G.enter(:view)\n        G.start_level()\n    }\n    G.enter(:view)\n"),
     ("load-mantem-jogo",
      "Load Game nao descarta o jogo em andamento (pedido ignorado no Jogo)",
-     "        } with {\n            await :jogo.carregar\n        } with {\n            await :jogo.fim",
-     "        } with {\n            await :jogo.fim"),
+     "            await <:jogo.novo || :jogo.carregar>   ;; descarta o jogo atual\n",
+     "            await :jogo.novo\n"),
     ("sair-sem-ultimo-quadro",
      "Quit encerra antes de desenhar o quadro atual",
      "    await :jogo.sair\n    await :frame                          ;; o quadro atual ainda e desenhado\n",
@@ -78,8 +78,8 @@ MUTACOES = [
      "        if G.wiping() {\n            G.tic_wipe()\n        }\n        do {\n"),
     ("novo-nao-descarta",
      "New Game no meio do jogo e ignorado (o Jogo atual continua)",
-     "        } with {\n            await :jogo.novo\n        } with {\n            await :jogo.carregar",
-     "        } with {\n            await :jogo.carregar"),
+     "            await <:jogo.novo || :jogo.carregar>   ;; descarta o jogo atual\n",
+     "            await :jogo.carregar\n"),
 ]
 
 

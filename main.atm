@@ -58,11 +58,7 @@ func proximo_mapa (episode, mapn, secreta) {
 ;; Titulo: so o menu funciona. Termina com o pedido de novo jogo ou load.
 task Titulo () {
     G.enter(:title)
-    par :any {
-        await :jogo.novo
-    } with {
-        await :jogo.carregar
-    }
+    await <:jogo.novo || :jogo.carregar>
 }
 
 ;; Uma instancia de nivel: do carregamento ate morrer, sair ou trocar
@@ -180,9 +176,7 @@ task Fluxo () {
             await Jogo(pedido)
             false                         ;; jogo acabou: titulo
         } with {
-            await :jogo.novo
-        } with {
-            await :jogo.carregar
+            await <:jogo.novo || :jogo.carregar>   ;; descarta o jogo atual
         } with {
             await :jogo.fim
             G.end_game()

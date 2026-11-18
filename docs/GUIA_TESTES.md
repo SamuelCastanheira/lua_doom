@@ -56,7 +56,7 @@ make test-drivers
 
 ### O que ele faz
 
-1. Confere seis propriedades do Atmos de que o código depende
+1. Confere nove propriedades do Atmos de que o código depende
    (`tests/atmos_semantica.atm`).
 2. Roda o jogo **três vezes, sem janela**, com as mesmas teclas, lidas de um
    roteiro:
@@ -74,7 +74,7 @@ make test-drivers
 ### Saída quando está tudo certo
 
 ```
-atmos: 6 propriedades ok
+atmos: 9 propriedades ok
 identico a passo1: 4478 quadros, 1680 estados distintos (semente 1 fluxo )
   telas (referencia, em ordem):
     vista E1M1 > intermissao E1M2 > vista E1M2 > ... > vista E1M4

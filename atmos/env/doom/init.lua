@@ -11,8 +11,6 @@
 --   {tag="input.key.up",   key=..., ...}   tecla solta
 --   {tag="input.mouse",    dx=, dy=, button=, down=}
 --   {tag="input.quit"}                     janela fechada
---   <numero>                               microssegundos de relogio real
---                                          (habilita "await 1s" etc.)
 --   {tag="tic", n=...}                     tic de jogo a 35 Hz; ate 4 por
 --                                          step para recuperar atraso
 --   "frame"                                hora de desenhar/apresentar
@@ -20,8 +18,11 @@
 -- Como o casamento de tags e hierarquico, "await :input" acorda com qualquer
 -- entrada e "await :input.key.down" so com teclas pressionadas.
 --
--- O jogo nao deve contar tempo em segundos: tudo no Doom e medido em tics
--- (35 por segundo). Use "await :tic" (ou um helper wait_tics(n)).
+-- O jogo nao conta tempo em segundos: tudo no Doom e medido em tics (35 por
+-- segundo). A logica de jogo espera :game.tic (emitido pelo main.atm a cada
+-- :tic, fora do wipe). De proposito, este ambiente NAO emite o relogio real
+-- (numeros em microssegundos): assim "await 1s" ou "loop on 1s" nunca
+-- acordam, em vez de quebrar o determinismo do replay sem aviso.
 --
 -- A temporizacao e a mesma do laco original (main.lua): acumulador em ms e no
 -- maximo 4 tics por step. cancel_catchup() interrompe a recuperacao de tics do
@@ -72,9 +73,6 @@ function M.step()
   accum = accum + dt
   last = now
   M.now = now
-  if dt > 0 then
-    emit(math.floor(dt * 1000))
-  end
 
   local guard = 0
   cancel = false
