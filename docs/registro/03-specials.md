@@ -4,9 +4,9 @@
 - Referência de equivalência: tag `passo1` (a mesma do passo 2; nenhum
   subpasso muda o comportamento)
 - Linhas citadas como "antes": tag `passo2`
-- Resultado: tag `passo3` (ao fim de todos os subpassos)
+- Resultado: tag `passo3`
 
-Este registro cresce a cada commit do passo 3: uma seção por subpasso, na
+Este registro cresceu a cada commit do passo 3: uma seção por subpasso, na
 ordem em que foram feitos.
 
 | Subpasso | Commit | Situação |
@@ -16,7 +16,7 @@ ordem em que foram feitos.
 | 3e. Botões | `e7c956a` | concluído |
 | 3b. Portas | `6c6f439` | concluído |
 | 3c. Elevadores | `07109a8` | concluído |
-| 3d. Pisos, tetos, esmagadores, escadas, donut | (este commit) | concluído |
+| 3d. Pisos, tetos, esmagadores, escadas, donut | `844e4f8` | concluído |
 
 Ordem e justificativa: luzes primeiro porque só nascem ao montar o nível e o
 save não as grava; botões em seguida porque são o caso mais simples criado

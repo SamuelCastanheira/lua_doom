@@ -174,6 +174,13 @@ Isso é um resultado do método: o teste mostra explicitamente o que o roteiro
 ainda não cobre, em vez de deixar uma lacuna invisível ou forçar uma
 justificativa falsa de equivalência.
 
+**Desfecho (passo 3d, commit `844e4f8`).** O roteiro `pisos` detecta a
+mutação, mas só depois de dois ajustes que o próprio teste apontou. A barra
+de status deste port só reage ao esmagamento quando a vida chega a 0 (o
+esmagamento não mexe em `damagecount`), e a morte precisa cair num tic que
+vire quadro (seção 7). A mutação saiu de `PENDENTES`, e o ciclo previsto
+aqui se fechou: pendente → roteiro novo → detectada.
+
 ---
 
 ## 4. Expressividade e seus contrapontos
@@ -392,3 +399,64 @@ Recorte sugerido: o passo 5 (um monstro) mostra a coexistência dos dois
 modelos; se sobrar tempo, migrar uma **família** que compartilha ações
 (Zombieman + Shotgun Guy, ou Imp + Cacodemon + Baron) mostra o reuso a custo
 marginal baixo, sem enfrentar a cauda inteira.
+
+---
+
+## 7. Passo 3d: a fase no código, e o que o replay não mostra
+
+Surgiu no subpasso 3d (pisos e tetos, commit `844e4f8`). Três pontos.
+
+### O critério de onde fica a fase
+
+O `Teto` é o primeiro movimentador cuja fase (descendo, subindo) vive só
+no código: direção e velocidade são variáveis da task, e o esmagador que vai
+e volta é um laço. Porta, elevador e piso guardam a fase no registro. A
+diferença não é de gosto. Ela segue dois critérios, que valem para qualquer
+entidade migrada:
+
+| Alguém escreve na entidade de fora, no meio do tic? | O save grava a entidade? | Onde fica a fase | Exemplos |
+|---|---|---|---|
+| não | não | só no código | luzes (3a), teto (3d) |
+| não | sim | no registro (o save lê) | botão (3e, só o timer), piso (3d) |
+| sim (o recado) | sim | no registro | porta (3b), elevador (3c) |
+
+Para a monografia, isso dá uma regra prática e um resultado: a concorrência
+estruturada rende o máximo (a fase **é** a posição no código) quando a
+entidade não é interrompida nem serializada. Cada uma dessas exigências
+devolve parte da fase para os dados. No Doom original os tetos **são**
+gravados e **podem** ser parados (linhas 57 e 74); se este port os
+corrigisse, o `Teto` teria de voltar a guardar a fase no registro.
+
+### O oráculo também tem pontos cegos
+
+A mutação `specials-no-fim-do-tic` atrasa em um tic a reação da barra de
+status. No E3M5, a cara de morto aparecia um tic depois no mutante
+(conferido com prints no `ticker`), e mesmo assim **nenhum quadro diferia**:
+
+- o relógio do replay soma `1000/35` por quadro, e o arredondamento faz os
+  quadros alternarem 0 e 2 tics a partir de certo ponto;
+- toda entrada do roteiro cai no início de um par, então a morte caía
+  sempre no primeiro tic do par, e esse tic nunca vira quadro;
+- deslocar a entrada em quadros não muda a paridade.
+
+A detecção veio mudando o cenário (o esmagador do E2M2, mais cedo, quando os
+tics ainda vêm um por quadro). Lição de método: o teste de equivalência
+compara o que é **observado** (framebuffer e hash de estado por quadro). Um
+efeito que dura um tic e não entra no hash pode passar entre dois quadros.
+Pôr o rosto da barra no hash de estado teria pego a mutação em qualquer
+cenário. Fica registrado como limite do oráculo, junto com a lição do 3e
+(conferir que tudo o que o tipo migrado escreve está no hash).
+
+### A migração por equivalência expõe o legado
+
+O roteiro previa que o jogador esmagado renascesse com "use", e a lista de
+telas mostrou que o nível não recomeçou. Este port subtrai a vida direto no
+esmagamento, sem `P_DamageMobj`: com vida 0, o jogador continua de pé e não
+renasce. A leitura de `p_ceilng.c` e `p_floor.c`, feita para documentar o
+3d, achou mais cinco diferenças (desaceleração ao esmagar, linha 40, sons,
+`special` do piso, escada). Todas ficaram como estavam e foram para
+`docs/DIFERENCAS_DOOM.md`: a migração prova a equivalência com o port, não
+com o Doom. Para a monografia, isso mostra um efeito colateral útil do
+método: escrever roteiros que exercitam cada caminho, e conferir a cobertura
+com prints, revela comportamentos que ninguém tinha notado no código
+imperativo.

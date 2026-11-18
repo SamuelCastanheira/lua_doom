@@ -30,6 +30,7 @@ Atmos) e escreve em **português**. Responda em português.
 | branch `atmos` | trabalho atual |
 | tag `passo1` (`75c5e67`) | `game.lua` em fases, ambiente `atmos.env.doom`, `main.atm` só observando as telas; `main.lua` ainda é o laço imperativo. **É a referência de equivalência atual.** |
 | tag `passo2` | fluxo de telas inteiro em tasks Atmos; `main.lua` virou lançador |
+| tag `passo3` | specials de setor (luzes, botões, portas, elevadores, pisos, tetos) em tasks (`setores.atm`); comportamento ainda igual ao `passo1` |
 | tag `luaV.1` | marco antigo do usuário (sem relação com a migração) |
 | commit `522b06f` | renderer 100% Lua (referência pixel a pixel do renderer em C, usada por `make compare`) |
 
@@ -41,8 +42,8 @@ Atmos) e escreve em **português**. Responda em português.
 | Recursos visuais do Doom original (céu por episódio, texturas animadas, luz de sprites e arma, contraste falso, gama F11, R_CheckBBox) | concluído |
 | 1. Ambiente e driver Atmos | concluído (`passo1`) |
 | 2. Fluxo de telas em tasks | concluído (`passo2`) |
-| **3. Specials de setor (luzes, portas, elevadores, pisos, botões, save)** | **em andamento:** subpasso 0, 3a (luzes), 3e (botões), 3b (portas), 3c (elevadores) e 3d (pisos, tetos, esmagadores) feitos; todos os specials de setor são tasks; falta a tag `passo3` |
-| 4. Arma (psprites) | planejado |
+| 3. Specials de setor (luzes, portas, elevadores, pisos, botões, save) | concluído (`passo3`): subpassos 0, 3a, 3e, 3b, 3c e 3d |
+| **4. Arma (psprites)** | **próximo** (4a, por equivalência) |
 | 5. Um monstro como task | planejado |
 
 ---
@@ -523,7 +524,7 @@ Se a tag nova não tiver algum comando de teste do replay, crie
 ### 5.3 Sensibilidade, métricas e custo
 
 ```sh
-make test-mutacoes         # tools/mutacoes.py: 10/10 detectadas, 2 equivalentes
+make test-mutacoes         # tools/mutacoes.py: 44/46 detectadas, 4 equivalentes, 2 pendentes
 make metricas              # tools/metricas_passo2.py + tools/custo_drivers.py
 python3 tools/custo_drivers.py 5           # ms/quadro dos 3 drivers
 N=500 atmos tools/bench_tasks.atm          # custo por task acordada
@@ -618,10 +619,19 @@ a seção "Corrigido" desse arquivo.
 
 ---
 
-## 9. Próximo passo: specials de setor (passo 3)
+## 9. Passo 3 concluído (specials de setor); próximo: passo 4 (arma)
 
-Plano completo em `docs/PLANO_ATMOS.md`, seção 6, passo 3. Pontos de partida
-no código (`specials.lua`, 1.538 linhas, ainda imperativo):
+**Próximo passo:** passo 4a do `docs/PLANO_ATMOS.md` (seção 6): a arma
+(psprites) como task, **por equivalência** com a lógica atual de
+`player.lua` (`WEAPON_PATCH`, `WEAPON_READY`, `WEAPON_ATK`), sem trocar
+pela máquina de estados do `p_pspr.c` (isso é o 4b, que muda o jogo de
+propósito). A referência continua sendo a tag `passo1`; o registro novo é
+`docs/registro/04-arma.md`. A receita do fim desta seção vale também para o
+passo 4.
+
+O passo 3, plano em `docs/PLANO_ATMOS.md`, seção 6, e registro em
+`docs/registro/03-specials.md`. Como ficou o código (`specials.lua` guarda
+a criação, a geometria e o scroll; as fases são tasks):
 
 | Função | Papel hoje |
 |---|---|
@@ -633,8 +643,8 @@ no código (`specials.lua`, 1.538 linhas, ainda imperativo):
 | `M.move_plane` | geometria pura (mantenha em Lua) |
 | `saveg.lua`, função de gravar e `M.apply` | percorrem as pools `movers` e `botoes` (`t.pub`) no mesmo formato de antes |
 
-Ordem sugerida: luzes → botões → portas → elevadores → pisos e tetos →
-save. As luzes vêm primeiro porque só são criadas ao montar o nível
+Ordem seguida: luzes → botões → portas → elevadores → pisos e tetos, com
+o save de cada tipo no próprio subpasso. As luzes vêm primeiro porque só são criadas ao montar o nível
 (`spawn_specials`), nunca por linhas: dá para validar pools, `await` e
 `P_Random` antes de criar tasks a partir do Lua (`spawn_in`), o que começa
 nos botões e nas portas. Os disparos vêm de `collision.lua:534`
@@ -646,10 +656,8 @@ porta, usa o retorno).
 `tic_view_depois`, com `emit :game.specials` no meio, em `Nivel`. Uma task
 transparente em `Nivel` chama `G.specials_resto()` (todo o
 `specials_mod.tick`, por enquanto). Replay idêntico ao `passo1`. A mutação
-`specials-no-fim-do-tic` sobrevive e está em `PENDENTES` no
-`tools/mutacoes.py`: só diverge quando um special fere o jogador
-(esmagador), e nenhum roteiro passa por isso ainda (o roteiro do 3d deve
-detectá-la).
+`specials-no-fim-do-tic` ficou em `PENDENTES` até o 3d, cujo roteiro a
+detecta (o esmagador zera a vida do jogador).
 
 **Subpasso 3a (feito):** luzes em `setores.atm` (`Pisca`, `Strobe`,
 `Brilho`, `Fogo`). A pool `luzes` é declarada em `Nivel` **antes** de montar
@@ -723,10 +731,12 @@ Ao mudar o `tests/ref-passo1.patch`, apague o worktree antigo
 (`git worktree remove --force build/ref-passo1`) ou aplique a mudança nele
 à mão: o script só aplica o patch quando ele aplica limpo.
 
-**Registro:** `docs/registro/03-specials.md` é atualizado **em cada commit
-do passo 3** (tabela de subpassos no topo e uma seção por subpasso).
+**Registro:** `docs/registro/03-specials.md` foi atualizado **em cada commit
+do passo 3** (tabela de subpassos no topo e uma seção por subpasso). Faça o
+mesmo com o registro do passo 4.
 
-Em cada subpasso seguinte:
+Receita usada em cada subpasso (vale para os passos 4 e 5, trocando o que
+é de specials pelo equivalente):
 1. tire a parte migrada de `specials_mod.tick` (ou seja, de
    `G.specials_resto`) e declare a pool dela em `Nivel`, **antes** da task
    do resto (luzes, scroll) ou **depois** dela (botões), conforme a ordem
@@ -737,7 +747,7 @@ Em cada subpasso seguinte:
 5. rode `make test-drivers`, acrescente mutações e rode
    `make test-mutacoes`;
 6. registre em `docs/registro/03-...md`, no formato dos anteriores;
-7. faça um commit e crie a tag.
+7. faça um commit por subpasso; a tag (`passoN`) só no fim do passo.
 
 ---
 
