@@ -15,13 +15,14 @@
 # (mobjs, setores, jogador, RNG, tela atual). A primeira linha divergente
 # aponta o quadro em que a ordem ou o tempo mudou.
 #
-#   sh tests/test_drivers.sh [quadros] [semente] [exits|fluxo|luzes|botoes|portas|elevadores] [args do jogo...]
+#   sh tests/test_drivers.sh [quadros] [semente] [exits|fluxo|luzes|botoes|portas|elevadores|pisos] [args do jogo...]
 #   exits: o roteiro tambem termina niveis -> intermissao e finale
 #   fluxo: roteiro fixo que passa por todas as transicoes (quadros ignorado)
 #   luzes: jogador parado no E4M1 e no E1M2 (rode com -warp 4 1; passo 3a)
 #   botoes: switches repetiveis, save e load (rode com -warp 1 1; passo 3e)
 #   portas: portas em cada fase, save e load (rode com -warp 1 1; passo 3b)
 #   elevadores: elevadores em cada fase, parados, save e load (rode com -warp 1 3; passo 3c)
+#   pisos: pisos, escadas, donut e esmagadores, save e load (rode com -warp 2 2; passo 3d)
 #
 # REF_TAG=<tag> muda a referencia (padrao: passo1).
 set -e
@@ -202,5 +203,21 @@ if [ "$EXITS" = "elevadores" ] && [ $status -eq 0 ]; then
   [ "$n" -ge 4 ] || { echo "COBERTURA INCOMPLETA: $n loads (esperado 4)"; status=1; }
   grep -q "^vista E2M3" "$OUT/ref.out" || { echo "COBERTURA INCOMPLETA: nao chegou ao E2M3"; status=1; }
   [ $status -eq 0 ] && echo "  cobertura dos elevadores: save e load descendo, esperando, subindo e parado; E1M3; E2M3"
+fi
+# No roteiro "pisos" (passo 3d): um save com pisos andando para cima e para
+# baixo (slot 5), um load, e os mapas dos esmagadores (E2M2, E2M4, E3M5) e
+# do "baixar e trocar" (E2M1). O esmagamento do jogador foi conferido com
+# prints (registro do passo 3, secao 3d).
+if [ "$EXITS" = "pisos" ] && [ $status -eq 0 ]; then
+  for d in 1 -1; do
+    got=$(grep -ao '"kind":"floor"[^}]*' "$OUT/run_atm/doomsav5.dsg" 2>/dev/null | grep -c "\"direction\":$d,")
+    [ "$got" -ge 1 ] || { echo "COBERTURA INCOMPLETA: o slot 5 nao tem piso com direction $d"; status=1; }
+  done
+  n=$(grep -c "^pedido jogo.carregar" "$OUT/atm.out" || true)
+  [ "$n" -ge 1 ] || { echo "COBERTURA INCOMPLETA: $n loads (esperado 1)"; status=1; }
+  for m in E2M4 E2M1 E3M5; do
+    grep -q "^vista $m" "$OUT/ref.out" || { echo "COBERTURA INCOMPLETA: nao chegou ao $m"; status=1; }
+  done
+  [ $status -eq 0 ] && echo "  cobertura dos pisos: save e load com pisos subindo e descendo; E2M2, E2M4, E2M1, E3M5"
 fi
 exit $status

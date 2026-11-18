@@ -43,6 +43,19 @@ local portas = arg[4] == "portas"
 -- save e load do elevador parado (slot 2) e a linha 114 de novo (nao
 -- reativa). "quadros" e ignorado.
 local elevadores = arg[4] == "elevadores"
+-- "pisos": roteiro do passo 3d, rodado com "-warp 2 2". Usa tambem o comando
+-- de teste "goto x y" (poe o jogador num ponto do mapa), para ficar embaixo
+-- de um esmagador e ser ferido (a barra de status le a vida no mesmo tic).
+--   E2M2: linhas 698 (piso desce, tipo 23), 1038 (19), 713 (sobe 24, 59),
+--   638 (escada, 8) e 220 (donut, 9); save e load com eles andando (slot 5);
+--   1495 (sobe ate a textura, 30); 728 (esmagador que vai e volta, 73), com
+--   o jogador embaixo ate a vida chegar a 0 (desce devagar depois de esmagar);
+--   E2M4: 1113 (esmagador rapido, 77) e 65 (escada, 7);
+--   E2M1: 243 (baixa e troca a textura do chao, 37);
+--   E3M5: 1048 (sobe o teto e baixa o piso, 40) e 1276 (desce o teto e
+--   esmaga, 44), com o jogador embaixo por alguns tics.
+-- "quadros" e ignorado.
+local pisos = arg[4] == "pisos"
 
 local function rand(n)
   seed = (seed * 1103515245 + 12345) % 2147483648
@@ -154,6 +167,65 @@ if elevadores then
   keys({ "escape" }); up(1); keys({ "return" }); wait(10); up(1); keys({ "return" })
   wait(100)
   cross(114); wait(200)                                -- nao reativa
+  lines[#lines + 1] = string.format("%d quit", f + 20)
+  local fh = assert(io.open(out_path, "w"))
+  fh:write(table.concat(lines, "\n"), "\n")
+  fh:close()
+  print(string.format("%s: %d eventos, ate o quadro %d", out_path, #lines, f + 20))
+  return
+end
+
+if pisos then
+  local function use(n)
+    lines[#lines + 1] = string.format("%d use %d", f, n)
+    f = f + 1
+  end
+  local function cross(n)
+    lines[#lines + 1] = string.format("%d cross %d", f, n)
+    f = f + 1
+  end
+  local function goto_xy(x, y)
+    lines[#lines + 1] = string.format("%d goto %d %d", f, x, y)
+    f = f + 1
+  end
+  local function down(n) for _ = 1, n do tap("down") end end
+  local function up(n) for _ = 1, n do tap("up") end end
+  wait(40)
+  type_text("iddqd")
+  wait(20)
+  -- E2M2: pisos, escada e donut andando juntos
+  use(698); cross(1038); cross(713); cross(638); use(220)
+  wait(30)
+  -- Save A (pisos andando), slot 5: main 0 -> 3 Save -> slot 0 -> 5
+  keys({ "escape" }); down(3); keys({ "return" }); wait(10); down(5); keys({ "return" })
+  wait(10)
+  -- Load A: main 3 -> 2 Load -> slot 0 -> 5
+  keys({ "escape" }); up(1); keys({ "return" }); wait(10); down(5); keys({ "return" })
+  wait(300)
+  cross(1495); wait(200)                               -- sobe ate a textura
+  -- esmagador (73): o teto desce 1 unidade por tic e encosta no jogador
+  -- (56 de altura) depois de 40 tics; o jogador fica embaixo ate a vida
+  -- chegar a 0 (neste port ele nao morre: continua de pe com 0 de vida, ver
+  -- docs/DIFERENCAS_DOOM.md; o iddqd do E2M4 devolve os 100). A barra de
+  -- status so reage ao esmagamento com a vida em 0 (este port tira a vida
+  -- direto, sem damagecount), e e isso que detecta a mutacao
+  -- specials-no-fim-do-tic. Tem de ser aqui: mais adiante no roteiro os tics
+  -- vem aos pares por quadro (arredondamento de 1000/35 no relogio do
+  -- replay), toda entrada cai no inicio de um par, e a vida 0 no E3M5 caia
+  -- sempre no primeiro tic do par, que nao e desenhado
+  cross(728); goto_xy(672, -352)
+  wait(700)                                            -- devagar, sobe, desce
+  -- E2M4: esmagador rapido e escada
+  type_text("idclev24"); wait(40); type_text("iddqd"); wait(20)
+  cross(1113); use(65); wait(300)
+  -- E2M1: baixa e troca a textura do chao
+  type_text("idclev21"); wait(40); type_text("iddqd"); wait(20)
+  cross(243); wait(200)
+  -- E3M5: teto sobe e piso desce (40); teto desce e esmaga (44), com o
+  -- jogador embaixo por alguns tics (esmagador que nao volta: nao desacelera)
+  type_text("idclev35"); wait(40); type_text("iddqd"); wait(20)
+  cross(1048); cross(1276); goto_xy(1504, 288); wait(65); goto_xy(-224, -1872)
+  wait(300)
   lines[#lines + 1] = string.format("%d quit", f + 20)
   local fh = assert(io.open(out_path, "w"))
   fh:write(table.concat(lines, "\n"), "\n")

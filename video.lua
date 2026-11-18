@@ -30,6 +30,7 @@ local function replay_backend(path)
   local script = {}
   for line in io.lines(path) do
     local n, key, dir = line:match("^%s*(%d+)%s+(%S+)%s*(%S*)")
+    local gx, gy = line:match("^%s*%d+%s+goto%s+(%-?%d+)%s+(%-?%d+)")
     if n then
       n = tonumber(n)
       script[n] = script[n] or {}
@@ -50,6 +51,10 @@ local function replay_backend(path)
         -- so para testes: cruza a linha N (indice do WAD) pela frente, como o
         -- jogador andando por cima dela; portas de 30 s etc. (passo 3b)
         ev = { key = "", replay_cross = tonumber(dir) }
+      elseif key == "goto" then
+        -- so para testes: poe o jogador no ponto (x, y) do mapa, em unidades
+        -- do mapa; usado para ficar embaixo de um esmagador (passo 3d)
+        ev = { key = "", replay_goto = { tonumber(gx), tonumber(gy) } }
       else
         ev = { key = key, down = dir ~= "up" }
       end

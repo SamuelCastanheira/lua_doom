@@ -30,6 +30,7 @@ ROTEIROS = {
     "botoes": ("replay_1botoes.txt", "ref_1botoes.log", ["-warp", "1", "1"]),
     "portas": ("replay_1portas.txt", "ref_1portas.log", ["-warp", "1", "1"]),
     "elevadores": ("replay_1elevadores.txt", "ref_1elevadores.log", ["-warp", "1", "3"]),
+    "pisos": ("replay_1pisos.txt", "ref_1pisos.log", ["-warp", "2", "2"]),
 }
 
 # Mutantes equivalentes: mudam o codigo mas nao o comportamento. Sobreviver
@@ -60,11 +61,6 @@ EQUIVALENTES = {
 # com o roteiro que deve passar a detecta-lo. Quando esse roteiro existir,
 # tire a mutacao daqui: ela tem de passar a "detectada".
 PENDENTES = {
-    "specials-no-fim-do-tic":
-        "so diverge se um special ferir o jogador (esmagador, piso com crush: "
-        "move_plane -> change_sector -> dano) e a barra de status ler a vida "
-        "um tic antes; nenhum roteiro atual passa por isso. Deve ser detectada "
-        "pelo roteiro de esmagadores do passo 3d",
     "portas-fora-de-movers":
         "so diverge com uma porta e um elevador (ou piso) vizinhos andando no "
         "mesmo tic e um mobj na fronteira: o centro num setor, o corpo no "
@@ -101,7 +97,7 @@ BOTOES_E_RESTO = _BOT + _RESTO + _MEIO
 # Mutacao de ordem do 3b: portas numa pool propria, depois dos outros
 # movimentadores (main.atm, specials.lua e saveg.lua).
 PORTAS_SEPARADAS = [
-    ("main.atm", '    pin movers = tasks()                  ;; 3b: portas (Porta) e, ainda Lua,\n                                          ;; elevadores/pisos (ThinkerLua)\n', '    pin movers = tasks()                  ;; 3b: portas (Porta) e, ainda Lua,\n                                          ;; elevadores/pisos (ThinkerLua)\n    pin portas = tasks()\n'),
+    ("main.atm", '    pin movers = tasks()                  ;; 3b-3d: portas, elevadores, pisos\n                                          ;; e tetos (setores.atm)\n', '    pin movers = tasks()                  ;; 3b-3d: portas, elevadores, pisos\n                                          ;; e tetos (setores.atm)\n    pin portas = tasks()\n'),
     ("main.atm", '    G.set_pools([luzes=luzes, movers=movers, botoes=botoes])', '    G.set_pools([luzes=luzes, movers=movers, portas=portas, botoes=botoes])'),
     ("specials.lua", "  return spawn_task(self, \"movers\", \"Porta\", self, porta)\n",
                      "  return spawn_task(self, \"portas\", \"Porta\", self, porta)\n"),
@@ -163,7 +159,8 @@ MUTACOES = [
     ("specials-no-fim-do-tic",
      "Specials de setor rodam depois de texturas, saida e leveltime (fora do ponto do tic)",
      "                    emit :game.specials\n                    G.tic_view_depois()   ;; nil | \"saida\"\n",
-     "                    val d = G.tic_view_depois()\n                    emit :game.specials\n                    d\n"),
+     "                    val d = G.tic_view_depois()\n                    emit :game.specials\n                    d\n",
+     "main.atm", "pisos"),     # so diverge quando um esmagador fere o jogador (3d)
     # --- passo 3a: luzes como tasks (roteiro "luzes": E4M1 e E1M2)
     ("pisca-sem-espera-inicial",
      "Luz que pisca age no proprio tic em que nasce (sem a espera inicial)",
@@ -309,6 +306,54 @@ MUTACOES = [
      "          status = rec.status or 0,\n",
      "          status = 0,\n",
      "saveg.lua", "elevadores"),
+    # --- passo 3d: pisos e tetos como tasks (roteiro "pisos": E2M2, E2M4,
+    # E2M1, E3M5; o jogador fica embaixo de dois esmagadores)
+    ("piso-sem-espera-inicial",
+     "Piso anda no proprio spawn, antes da sua fase (await no fim do laco)",
+     "    loop {\n        await :game.specials\n        val r = S.move_plane(sp.world, piso.sector, piso.speed, piso.dest, 0, piso.direction, piso.crush)\n        until (r == S.RESULT_PASTDEST)\n    }\n",
+     "    loop {\n        val r = S.move_plane(sp.world, piso.sector, piso.speed, piso.dest, 0, piso.direction, piso.crush)\n        until (r == S.RESULT_PASTDEST)\n        await :game.specials\n    }\n",
+     "setores.atm", "pisos"),
+    ("piso-nao-troca-textura",
+     "Piso que chega ao destino nao troca a textura do chao (donut, baixar e trocar)",
+     "    if piso.floorpic {\n        set piso.sector.floorpic = piso.floorpic\n    }\n",
+     "",
+     "setores.atm", "pisos"),
+    ("piso-troca-textura-no-inicio",
+     "Piso troca a textura do chao ao nascer, nao ao chegar",
+     "val task Piso (sp, piso) {\n    set pub = piso\n",
+     "val task Piso (sp, piso) {\n    set pub = piso\n    if piso.floorpic {\n        set piso.sector.floorpic = piso.floorpic\n    }\n",
+     "setores.atm", "pisos"),
+    ("esmagador-nao-desacelera",
+     "Esmagador que vai e volta nao desce devagar depois de esmagar",
+     "                set vel = devagar\n",
+     "",
+     "setores.atm", "pisos"),
+    ("esmagador-sobe-devagar",
+     "Esmagador nao volta a velocidade normal ao chegar embaixo",
+     "        if dir == -1 {                    ;; chegou embaixo: sobe na normal\n            set vel = normal\n        }\n",
+     "",
+     "setores.atm", "pisos"),
+    ("esmagador-para-no-fundo",
+     "Esmagador que vai e volta termina ao chegar ao destino",
+     "        until (!vai_e_volta)\n",
+     "        until (true)\n",
+     "setores.atm", "pisos"),
+    ("esmagador-rapido-volta-normal",
+     "Esmagador rapido (77) volta a velocidade normal, nao a dobrada",
+     "    val normal = if t == C.FASTCRUSH => (S.CEILSPEED * 2) => S.CEILSPEED\n",
+     "    val normal = S.CEILSPEED\n",
+     "setores.atm", "pisos"),
+    ("teto-vai-ate-o-mais-alto",
+     "Teto que sobe (linha 40) vai ate o teto vizinho mais alto (como o Doom), "
+     "nao para na altura atual (o tick antigo usava topheight)",
+     "            (t == C.LOWERTOFLOOR) => teto.dest\n",
+     "            (t == C.LOWERTOFLOOR) || (t == C.RAISETOHIGHEST) => teto.dest\n",
+     "setores.atm", "pisos"),
+    ("load-perde-piso",
+     "Load nao recria os pisos em movimento",
+     "          sp.start_floor(game.specials, th)      -- idem (passo 3d)\n",
+     "",
+     "saveg.lua", "pisos"),
     ("novo-nao-descarta",
      "New Game no meio do jogo e ignorado (o Jogo atual continua)",
      "            await <:jogo.novo || :jogo.carregar>   ;; descarta o jogo atual\n",

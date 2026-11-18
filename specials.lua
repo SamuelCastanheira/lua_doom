@@ -93,6 +93,7 @@ end
 
 -- Usados pelas tasks de setores.atm.
 M.RESULT_PASTDEST = RESULT_PASTDEST
+M.RESULT_CRUSHED = RESULT_CRUSHED
 M.TICRATE = TICRATE
 M.VLD = {
   NORMAL = VLD_NORMAL, CLOSE30 = VLD_CLOSE30, CLOSE = VLD_CLOSE, OPEN = VLD_OPEN,
@@ -103,6 +104,12 @@ M.PLAT = {
   DOWN = PLAT_DOWN, UP = PLAT_UP, WAITING = PLAT_WAITING,
   DWUS = PLAT_DWUS, PERPETUAL = PLAT_PERPETUAL, BLAZEDWUS = PLAT_BLAZEDWUS,
 }
+M.CEIL = {
+  LOWERTOFLOOR = CEIL_LOWERTOFLOOR, RAISETOHIGHEST = CEIL_RAISETOHIGHEST,
+  LOWERANDCRUSH = CEIL_LOWERANDCRUSH, CRUSHANDRAISE = CEIL_CRUSHANDRAISE,
+  FASTCRUSH = CEIL_FASTCRUSH, SILENTCRUSH = CEIL_SILENTCRUSH,
+}
+M.CEILSPEED = CEILSPEED
 function M.play(self, name)
   play(self, name)
 end
@@ -346,14 +353,25 @@ end
 -- Movimentadores (passo 3b): portas, elevadores, pisos e tetos ficam numa
 -- pool so, "movers", na ordem de criacao (a da antiga lista self.thinkers):
 -- a ordem entre eles importa (um mobj na fronteira de dois setores tem o
--- chao e o teto calculados pelos dois). As portas sao tasks Porta; os
--- elevadores, tasks Elevador (3c); pisos e tetos ainda sao thinkers Lua,
--- embrulhados na task ThinkerLua, que so chama M.tick_thinker a cada fase
--- (ate o passo 3d).
-local function add_thinker(self, th)
-  return spawn_task(self, "movers", "ThinkerLua", self, th)
+-- chao e o teto calculados pelos dois). Portas (3b), elevadores (3c), pisos
+-- e tetos (3d) sao tasks de setores.atm; cada uma marca sector.specialdata
+-- no proprio spawn (sincrono, P8).
+
+-- Piso (passo 3d): task Piso. "piso" e o registro (kind, sector, direction,
+-- dest, speed, crush, floorpic): fica em sector.specialdata e e o pub da
+-- task (o save grava direction, dest e speed).
+function M.start_floor(self, piso)
+  if not (self.pools and self.pools.movers) then
+    piso.sector.specialdata = piso     -- sem main.atm: so ocupa o setor
+  end                                  -- (a escada para de procurar)
+  return spawn_task(self, "movers", "Piso", self, piso)
 end
-M.add_thinker = add_thinker
+
+-- Teto e esmagador (passo 3d): task Teto. Direcao e velocidade ficam na
+-- task (os tetos nao sao gravados no save).
+local function start_ceiling(self, teto)
+  return spawn_task(self, "movers", "Teto", self, teto)
+end
 
 -- Porta (passo 3b): task Porta de setores.atm. "porta" e o registro da
 -- porta (kind, sector, type, direction, topheight, speed, topwait,
@@ -521,60 +539,6 @@ function M.spawn_specials(self)
   end
 end
 
-local function tick_floor(self, floor)
-  local res = M.move_plane(self.world, floor.sector, floor.speed, floor.dest, 0, floor.direction, floor.crush)
-  mark(self)
-  if res == RESULT_PASTDEST then
-    if floor.floorpic ~= nil then
-      floor.sector.floorpic = floor.floorpic
-    end
-    floor.sector.specialdata = nil
-    floor.dead = true
-  end
-end
-
-local function tick_ceiling(self, ceil)
-  local dest = ceil.dest
-  if ceil.ctype ~= 0 then
-    if ceil.direction == 1 then
-      dest = ceil.topheight
-    else
-      dest = ceil.bottomheight
-    end
-  end
-  local res = M.move_plane(self.world, ceil.sector, ceil.speed, dest, 1, ceil.direction, ceil.crush)
-  mark(self)
-  local bounce = ceil.ctype == CEIL_CRUSHANDRAISE or ceil.ctype == CEIL_FASTCRUSH or ceil.ctype == CEIL_SILENTCRUSH
-  if res == RESULT_PASTDEST then
-    if bounce then
-      if ceil.direction == -1 then
-        ceil.direction = 1
-        ceil.speed = CEILSPEED
-        if ceil.ctype == CEIL_FASTCRUSH then
-          ceil.speed = CEILSPEED * 2
-        end
-        if ceil.ctype == CEIL_SILENTCRUSH then
-          play(self, "pstop")
-        end
-      else
-        ceil.direction = -1
-        if ceil.ctype == CEIL_SILENTCRUSH then
-          play(self, "pstop")
-        end
-      end
-    else
-      ceil.sector.specialdata = nil
-      ceil.dead = true
-    end
-  elseif res == RESULT_CRUSHED and bounce then
-    local slow = math.floor(CEILSPEED / 8)
-    if slow < 1 then
-      slow = 1
-    end
-    ceil.speed = slow
-  end
-end
-
 -- O que ainda e Lua na fase de specials: as linhas com scroll (efeito 48).
 -- Ja sao tasks, nas pools do Nivel (main.atm): luzes (3a), que acordam antes
 -- desta funcao, e movers (3b) e botoes (3e), que acordam depois.
@@ -588,16 +552,6 @@ function M.tick(self)
     end
   end
   return self.stamp ~= before
-end
-
--- Um tic de um thinker Lua de setor que ainda nao virou task (chamado pela
--- task ThinkerLua). Sai no passo 3d (pisos e tetos).
-function M.tick_thinker(self, th)
-  if th.kind == "floor" then
-    tick_floor(self, th)
-  elseif th.kind == "ceiling" then
-    tick_ceiling(self, th)
-  end
 end
 
 function M.do_door(self, line, dtype, reverse)
@@ -733,8 +687,7 @@ function M.do_floor(self, line, dest_fn, direction, speed, crush)
         floorpic = nil,
         dead = false,
       }
-      sec.specialdata = floor
-      add_thinker(self, floor)
+      M.start_floor(self, floor)          -- a task marca sec.specialdata
       ok = true
     end
   end
@@ -748,7 +701,7 @@ function M.do_stairs(self, line, step, speed)
     local sec = secs[i]
     if sec.specialdata == nil then
       local height = sec.floorheight + step
-      sec.specialdata = {
+      M.start_floor(self, {               -- a task marca sec.specialdata
         kind = "floor",
         sector = sec,
         direction = 1,
@@ -757,8 +710,7 @@ function M.do_stairs(self, line, step, speed)
         crush = false,
         floorpic = nil,
         dead = false,
-      }
-      add_thinker(self, sec.specialdata)
+      })
       ok = true
       local texture = sec.floorpic
       local cur = sec
@@ -781,7 +733,7 @@ function M.do_stairs(self, line, step, speed)
           break
         end
         height = height + step
-        nxt.specialdata = {
+        M.start_floor(self, {             -- marca nxt.specialdata ja (P8)
           kind = "floor",
           sector = nxt,
           direction = 1,
@@ -790,8 +742,7 @@ function M.do_stairs(self, line, step, speed)
           crush = false,
           floorpic = nil,
           dead = false,
-        }
-        add_thinker(self, nxt.specialdata)
+        })
         cur = nxt
       end
     end
@@ -813,8 +764,7 @@ local function start_floor(self, sec, dest, direction, speed, crush, floorpic)
     floorpic = floorpic,
     dead = false,
   }
-  sec.specialdata = floor
-  add_thinker(self, floor)
+  M.start_floor(self, floor)            -- a task marca sec.specialdata
   return true
 end
 
@@ -853,8 +803,7 @@ function M.do_crusher(self, line, ctype)
         bottomheight = bottom,
         dead = false,
       }
-      sec.specialdata = ceil
-      add_thinker(self, ceil)
+      start_ceiling(self, ceil)           -- a task marca sec.specialdata
       ok = true
     end
   end

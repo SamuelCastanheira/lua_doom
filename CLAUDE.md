@@ -41,7 +41,7 @@ Atmos) e escreve em **português**. Responda em português.
 | Recursos visuais do Doom original (céu por episódio, texturas animadas, luz de sprites e arma, contraste falso, gama F11, R_CheckBBox) | concluído |
 | 1. Ambiente e driver Atmos | concluído (`passo1`) |
 | 2. Fluxo de telas em tasks | concluído (`passo2`) |
-| **3. Specials de setor (luzes, portas, elevadores, pisos, botões, save)** | **em andamento:** subpasso 0, 3a (luzes), 3e (botões), 3b (portas) e 3c (elevadores) feitos; próximo: 3d (pisos, tetos, esmagadores) |
+| **3. Specials de setor (luzes, portas, elevadores, pisos, botões, save)** | **em andamento:** subpasso 0, 3a (luzes), 3e (botões), 3b (portas), 3c (elevadores) e 3d (pisos, tetos, esmagadores) feitos; todos os specials de setor são tasks; falta a tag `passo3` |
 | 4. Arma (psprites) | planejado |
 | 5. Um monstro como task | planejado |
 
@@ -161,6 +161,7 @@ partir de 1):
 500 die             # comando de teste: o jogador morre
 600 use 136         # comando de teste: "use" na linha 136 do WAD (passo 3e)
 700 cross 602       # comando de teste: cruza a linha 602 pela frente (passo 3b)
+800 goto 672 -352   # comando de teste: poe o jogador no ponto (x, y) do mapa (passo 3d)
 900 quit            # fecha a janela
 ```
 
@@ -171,7 +172,16 @@ partir de 1):
 deslocamento de todos os lados (passo 3e: um botão só muda uma textura de
 lado, e sem isso as mutações de botão sobreviviam). `tests/test_drivers.sh`
 e `tools/mutacoes.py` ligam; `tools/custo_drivers.py` não liga, porque o
-hash dos lados é caro e falsearia o custo.
+hash dos lados é caro e falsearia o custo. Desde o passo 3d, o mesmo
+`DOOM_REPLAY_SIDES=1` acrescenta as texturas de chão e teto de cada setor
+(o donut e o "baixar e trocar" mudam o `floorpic`).
+
+**Tics aos pares no replay.** O relógio do replay soma `1000/35` por
+`poll`; pelo arredondamento, a partir de certo ponto os quadros alternam 0 e
+2 tics. Toda entrada do roteiro cai no início de um par, e o primeiro tic do
+par nunca é desenhado. Um efeito de um tic só aparece no quadro se cair no
+segundo; deslocar a entrada em quadros não muda isso (passo 3d, mutação
+`specials-no-fim-do-tic`).
 
 ---
 
@@ -387,8 +397,8 @@ Ordem atual de um tic de nível (`G.tic_view_antes`, 1 a 6;
    2. a task que chama `G.specials_resto()` → `specials_mod.tick`, que só
       faz as linhas com scroll (efeito 48);
    3. pool `movers` (passo 3b), na ordem de criação: portas (task `Porta`),
-      elevadores (task `Elevador`, 3c) e, ainda Lua, pisos e tetos (task
-      `ThinkerLua`, que chama `M.tick_thinker`);
+      elevadores (task `Elevador`, 3c), pisos (task `Piso`, 3d) e tetos
+      (task `Teto`, 3d);
    4. pool `botoes` (task `Botao`, passo 3e), na ordem de criação.
 8. `res:update_anims(leveltime)`
 9. saída? → `"saida"`
@@ -478,7 +488,7 @@ automapa, `-`/`=` mudam o tamanho da tela.
 ### 5.2 Equivalência da lógica (driver Atmos × referência)
 
 ```sh
-make test-drivers          # semantica do Atmos (P1-P9) + 7 roteiros contra a tag passo1; saves comparados byte a byte
+make test-drivers          # semantica do Atmos (P1-P9) + 8 roteiros contra a tag passo1; saves comparados byte a byte
 sh tests/test_drivers.sh 0 1 fluxo         # roteiro com todas as transicoes
 sh tests/test_drivers.sh 4000 1            # pseudoaleatorio, 4000 quadros, semente 1
 sh tests/test_drivers.sh 6000 2 exits      # tambem termina niveis
@@ -486,6 +496,7 @@ sh tests/test_drivers.sh 1200 1 luzes -warp 4 1   # passo 3a: E4M1 e E1M2 parado
 sh tests/test_drivers.sh 0 1 botoes -warp 1 1     # passo 3e: switches, save e load
 sh tests/test_drivers.sh 0 1 portas -warp 1 1     # passo 3b: portas em cada fase, save e load
 sh tests/test_drivers.sh 0 1 elevadores -warp 1 3 # passo 3c: elevadores em cada fase, parados, save e load
+sh tests/test_drivers.sh 0 1 pisos -warp 2 2      # passo 3d: pisos, escadas, donut, esmagadores (jogador embaixo), save e load
 REF_TAG=passo2 sh tests/test_drivers.sh 0 1 fluxo   # outra referencia
 ```
 
@@ -617,7 +628,7 @@ no código (`specials.lua`, 1.538 linhas, ainda imperativo):
 | `M.new` → `M.spawn_specials` | cria as luzes (tasks, desde o 3a) e as portas de setor a partir de `sector.special`, na ordem dos setores |
 | `M.tick` | só as linhas com scroll (luzes, movimentadores e botões são tasks) |
 | `setores.atm` | tasks de setor (3a: `Pisca`, `Strobe`, `Brilho`, `Fogo`); flash, strobe e fire usam `rng.p_random()` |
-| `tick_floor`, `tick_ceiling` | máquinas de estado com `direction`, `dead`, chamadas por `M.tick_thinker` (porta e elevador viraram tasks no 3b e no 3c) |
+| `setores.atm`, movimentadores | `Porta` (3b), `Elevador` (3c), `Piso` e `Teto` (3d), todas na pool `movers`; `tick_floor`, `tick_ceiling`, `M.tick_thinker` e a `ThinkerLua` sumiram no 3d |
 | `spawn_door`, `vertical_door`, `do_plat_*`, `do_floor`, `do_stairs`, `do_crusher`… | criam thinkers e marcam `sector.specialdata` |
 | `M.move_plane` | geometria pura (mantenha em Lua) |
 | `saveg.lua`, função de gravar e `M.apply` | percorrem as pools `movers` e `botoes` (`t.pub`) no mesmo formato de antes |
@@ -686,6 +697,21 @@ esperando, o recado não troca de fase e as mutações sobreviviam).
 `tools/mutacoes.py` compara também os saves de cada roteiro
 (`build/drivers/saves_<roteiro>/`). Resultado misto, como as portas
 (código 157 → 180, estado 10 → 9).
+
+**Subpasso 3d (feito):** pisos e tetos como tasks `Piso` e `Teto` na pool
+`movers`; a `ThinkerLua` sumiu. O `Piso` guarda a fase no registro (o save
+grava o piso). O `Teto` é o primeiro movimentador sem recado e sem save
+(as linhas 57 e 74 param elevadores; tetos não são gravados): direção e
+velocidade são variáveis da task, e o esmagador que vai e volta é um laço.
+A escada depende do spawn síncrono (P8): o degrau fica ocupado na hora, e a
+busca do próximo degrau o pula. Comando de teste `goto x y` (também no
+`tests/ref-passo1.patch`) e roteiro `pisos` (E2M2, E2M4, E2M1, E3M5), com o
+jogador embaixo de dois esmagadores. Achado: o jogador esmagado **não
+morre** (vida 0, mas `playerstate` continua vivo; `docs/DIFERENCAS_DOOM.md`).
+A mutação `specials-no-fim-do-tic` saiu de `PENDENTES`: só a vida 0 aparece
+na barra (o esmagamento não mexe em `damagecount`), e a morte tem de cair
+num tic desenhado (ver "Tics aos pares", seção 2.5). Código 196 → 202,
+estado 11 → 12 (`dir` e `vel` do `Teto`).
 
 Ferramentas: `tools/mutacoes.py` aceita mutações em vários arquivos e extrai
 os trechos do `Nivel` na hora; confira que a execução mutada **terminou**

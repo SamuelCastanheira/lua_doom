@@ -20,6 +20,13 @@ com uma nova referência e a divergência esperada documentada (como o bug do
 |---|---|---|---|
 | Porta não reabre ao esmagar | `setores.atm` (task `Porta`; antes `tick_door`) | `T_VerticalDoor`: porta fechando que bate em algo volta a abrir (exceto as rápidas que só fecham) | fica tentando fechar a cada tic |
 | Esmagamento sem sangue nem restos | `collision.change_sector` | `P_ChangeSector` / `PIT_ChangeSector`: cadáveres viram restos (`S_GIBS`), itens largados são removidos, sangue com `P_Random` a cada 4 tics | só tira 10 de vida; não consome `P_Random` |
+| Jogador esmagado não morre | `collision.change_sector` | o dano passa por `P_DamageMobj`: cara de dor na barra (`damagecount`) e morte com vida 0 | a vida é subtraída direto: sem cara de dor; com vida 0 o jogador continua de pé (`playerstate` não vira `PST_DEAD`) e não tem como renascer. Visto no roteiro `pisos` (passo 3d) |
+| Desaceleração ao esmagar | task `Teto` (antes `tick_ceiling`) | `T_MoveCeiling`: ao esmagar, desacelera (`CEILSPEED/8`) o esmagador comum (73, 25, 49), o silencioso (141) e o que só desce (44, 72); o rápido (77, 6) não desacelera | desacelera o comum, o rápido e o silencioso; o que só desce (44, 72) não desacelera |
+| Esmagador que só desce | `do_crusher` | `EV_DoCeiling` cria o `lowerAndCrush` (44, 72) com `crush = false` | `crush = true` (também no 41/43, que o original não esmaga) |
+| Teto que sobe não sobe | task `Teto` (antes `tick_ceiling`) | `raiseToHighest` (linha 40) sobe até o teto vizinho mais alto (`topheight = P_FindHighestCeilingSurrounding`) | `do_crusher` calcula esse destino em `dest`, mas o tick usa `topheight`, que é a altura atual: o teto não se move e a task termina no primeiro tic (mutação `teto-vai-ate-o-mais-alto` no passo 3d) |
+| Sons de piso e teto | tasks `Piso` e `Teto` | `sfx_stnmov` a cada 8 tics em movimento (exceto o esmagador silencioso) e `sfx_pstop` quando um piso chega | silenciosos (só o esmagador silencioso toca "pstop" ao virar) |
+| Piso não troca o special | task `Piso` | donut e "baixar e trocar" trocam a textura **e** o `special` do setor (`newspecial`) | só a textura |
+| Escada | `do_stairs` | `EV_BuildStairs` só segue linhas em que o degrau atual está na frente, e soma a altura antes de testar se o setor está ocupado | segue linhas pelos dois lados; soma a altura só no degrau escolhido |
 | Esmagador não para | `specials.lua`, tabela de linhas (tipos 57 e 74) | `EV_CeilingCrushStop` | as linhas 57 e 74 chamam `stop_plat` (param elevadores) |
 | Elevador que sobe não volta ao bater | task `Elevador` (antes `tick_plat`) | `T_PlatRaise`: subindo, se bate em algo (sem esmagar), volta a descer | fica tentando subir |
 | Elevador parado não volta | `do_plat_perpetual` | `P_ActivateInStasis`: a linha 87 reativa um elevador perpétuo parado | um elevador parado (linhas 54 e 89) fica parado; `do_plat_perpetual` só cria em setor livre |
@@ -29,8 +36,9 @@ com uma nova referência e a divergência esperada documentada (como o bug do
 | Sem limites | `specials.lua` | `MAXPLATS` (30), `MAXCEILINGS` (30), `MAXBUTTONS` (16); estourar dá erro | sem limite |
 
 Caminhos sem cobertura possível no `doom.wad` (migrados, mas nenhum mapa os
-usa): linha 17 (strobe criado por linha) e setores 10 e 14 (portas que
-fecham em 30 s ou abrem em 5 min, nascidas do setor).
+usa): linha 17 (strobe criado por linha), setores 10 e 14 (portas que
+fecham em 30 s ou abrem em 5 min, nascidas do setor), linhas 41 e 43 (teto
+desce até o piso) e 141 (esmagador silencioso).
 
 ## 2. Save game
 
@@ -66,12 +74,13 @@ fecham em 30 s ou abrem em 5 min, nascidas do setor).
   (só o save mostra; mutação `parar-com-toggle`). Por isso o parar ficou como
   recado no registro. A reativação (`P_ActivateInStasis`) seria uma correção
   posterior, com nova referência; aí o `toggle t(true)` passaria a servir.
-- **3d (pisos, tetos, esmagadores):** as linhas 57 e 74 trocadas e a falta de
-  sangue no esmagamento mudam o que o roteiro de esmagadores consegue
-  detectar, inclusive a mutação pendente `specials-no-fim-do-tic`
-  (`tools/mutacoes.py`).
-- **Save:** os tetos não gravados limitam o roteiro de save do 3d (um
-  esmagador em movimento não sobrevive ao load nem na referência).
+- **3d (pisos, tetos, esmagadores, feito):** como ninguém escreve no
+  registro do teto (as linhas 57 e 74 param elevadores) e ele não é gravado,
+  a fase do `Teto` ficou só no código. A mutação `specials-no-fim-do-tic`
+  só é detectada quando o esmagador zera a vida do jogador: sem
+  `damagecount`, a barra de status não reage antes disso. Corrigir o
+  esmagamento (dano por `P_DamageMobj`) ou gravar os tetos mudaria o
+  `Teto` (o save precisaria de direção e velocidade no registro).
 
 ---
 

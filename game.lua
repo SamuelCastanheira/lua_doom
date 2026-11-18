@@ -709,6 +709,23 @@ function M.new(argv)
       end
       return
     end
+    if ev.replay_goto then
+      -- comando de teste do modo replay (video.lua): poe o jogador em (x, y)
+      local mo = game.player and game.player.mo
+      if video.replay and mo and game.gamestate == "view" then
+        collision.unset_thing_position(game.world, mo)
+        mo.x = ev.replay_goto[1] * 65536
+        mo.y = ev.replay_goto[2] * 65536
+        mo.momx, mo.momy, mo.momz = 0, 0, 0
+        local ss = collision.point_in_subsector(game.world, mo.x, mo.y)
+        mo.floorz = ss.sector.floorheight
+        mo.ceilingz = ss.sector.ceilingheight
+        mo.z = mo.floorz
+        collision.set_thing_position(game.world, mo)
+        game.player.viewz = mo.z + game.player.viewheight
+      end
+      return
+    end
     if ev.mouse then
       if ev.dx then
         game.mousex = game.mousex + ev.dx
@@ -1035,6 +1052,12 @@ function M.new(argv)
         local sd = world.sides[i]
         t[#t + 1] = string.format("s%s,%s,%s,%s", tostring(sd.toptexture),
           tostring(sd.midtexture), tostring(sd.bottomtexture), tostring(sd.textureoffset))
+      end
+      -- texturas de chao e teto (passo 3d: o donut e "baixar e trocar" trocam
+      -- o floorpic); tambem so com DOOM_REPLAY_SIDES=1
+      for i = 1, (os.getenv("DOOM_REPLAY_SIDES") == "1") and #world.sectors or 0 do
+        local s = world.sectors[i]
+        t[#t + 1] = string.format("f%s,%s", tostring(s.floorpic), tostring(s.ceilingpic))
       end
     end
     local p = game.player

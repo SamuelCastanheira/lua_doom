@@ -15,8 +15,8 @@ ordem em que foram feitos.
 | 3a. Luzes | `9dd1641` | concluído |
 | 3e. Botões | `e7c956a` | concluído |
 | 3b. Portas | `6c6f439` | concluído |
-| 3c. Elevadores | (este commit) | concluído |
-| 3d. Pisos, tetos, esmagadores, escadas, donut | – | próximo |
+| 3c. Elevadores | `07109a8` | concluído |
+| 3d. Pisos, tetos, esmagadores, escadas, donut | (este commit) | concluído |
 
 Ordem e justificativa: luzes primeiro porque só nascem ao montar o nível e o
 save não as grava; botões em seguida porque são o caso mais simples criado
@@ -1459,3 +1459,344 @@ python3 tools/diagramas.py
 | `tools/mutacoes.py` | compara saves; 7 mutações do 3c; trechos de porta únicos |
 | `tools/metricas_passo3.py` | 3c; `plat.x`; parâmetros de função fora dos campos |
 | `Makefile` | roteiro `elevadores` |
+
+---
+
+## Subpasso 3d: pisos, tetos, esmagadores, escadas e donut
+
+### Resumo
+
+Pisos e tetos viraram as tasks `Piso` e `Teto` (`setores.atm`), na pool
+`movers`. Com isso, todo movimentador é uma task, e a task `ThinkerLua`, que
+embrulhava os thinkers Lua restantes, sumiu junto com `M.tick_thinker`. O
+`Piso` guarda a fase no registro porque o save grava o piso. O `Teto` é o
+primeiro movimentador **sem recado e sem save**: ninguém escreve no registro
+de fora, e este port não grava tetos. Por isso direção e velocidade viraram
+variáveis locais da task, e o esmagador que vai e volta ficou um laço linear.
+O roteiro novo (`pisos`) fere o jogador com um esmagador e, com isso,
+detecta a mutação `specials-no-fim-do-tic`, pendente desde o subpasso 0.
+
+### Situação antes (tag `passo2`)
+
+- `tick_floor` (`specials.lua:632`): `move_plane` até o destino; ao chegar,
+  troca a textura do chão se houver uma (`floorpic`), solta o setor e marca
+  `dead`.
+- `tick_ceiling` (`specials.lua:644`): o destino depende do tipo (`dest` no
+  tipo 0; nos outros, `topheight` ou `bottomheight` conforme `direction`).
+  Os esmagadores que vão e voltam (`CRUSHANDRAISE`, `FASTCRUSH`,
+  `SILENTCRUSH`) invertem `direction` no destino e voltam à velocidade
+  normal embaixo; ao esmagar, passam a `CEILSPEED/8`.
+- `do_floor` (`specials.lua:848`), `do_stairs` (`specials.lua:876`),
+  `start_floor` (`specials.lua:934`, usado por donut, "subir até a textura" e
+  "baixar e trocar") e `do_crusher` (`specials.lua:953`) montam a tabela,
+  marcam `specialdata` e acrescentam a `self.thinkers`. Um despacho por
+  `kind` (`specials.lua:704`) chamava o tick de cada um.
+- Save: `dump_thinker` grava do piso só `direction`, `dest` e `speed`; os
+  tetos não são gravados (`docs/DIFERENCAS_DOOM.md`).
+
+### Solução
+
+```
+val task Piso (sp, piso) {
+    set pub = piso                        ;; o save grava direction, dest, speed
+    set piso.sector.specialdata = piso
+    defer {
+        set piso.sector.specialdata = nil
+        set piso.dead = true
+    }
+    loop {
+        await :game.specials
+        val r = S.move_plane(sp.world, piso.sector, piso.speed, piso.dest, 0, piso.direction, piso.crush)
+        until (r == S.RESULT_PASTDEST)
+    }
+    if piso.floorpic {                    ;; donut, baixar e trocar
+        set piso.sector.floorpic = piso.floorpic
+    }
+}
+
+val task Teto (sp, teto) {
+    ...                                   ;; pub, specialdata e defer, como no Piso
+    val t = teto.ctype
+    val vai_e_volta = (t == C.CRUSHANDRAISE) || (t == C.FASTCRUSH) || (t == C.SILENTCRUSH)
+    val normal = if t == C.FASTCRUSH => (S.CEILSPEED * 2) => S.CEILSPEED
+    val devagar = math.max(math.floor(S.CEILSPEED / 8), 1)
+    var dir = teto.direction
+    var vel = teto.speed
+    loop {
+        val destino = ifs {               ;; o destino do tick antigo
+            (t == C.LOWERTOFLOOR) => teto.dest
+            (dir == 1) => teto.topheight
+            else => teto.bottomheight
+        }
+        loop {                            ;; anda ate o destino
+            await :game.specials
+            val r = S.move_plane(sp.world, teto.sector, vel, destino, 1, dir, teto.crush)
+            until (r == S.RESULT_PASTDEST)
+            if vai_e_volta && (r == S.RESULT_CRUSHED) {
+                set vel = devagar
+            }
+        }
+        until (!vai_e_volta)              ;; teto simples: acabou
+        if t == C.SILENTCRUSH {
+            S.play(sp, "pstop")
+        }
+        if dir == -1 {                    ;; chegou embaixo: sobe na normal
+            set vel = normal
+        }
+        set dir = if dir == 1 => -1 => 1
+    }
+}
+```
+
+No Lua, `M.start_floor` e `start_ceiling` criam as tasks com `spawn_in` no
+ponto em que antes a tabela ia para a lista. A escada depende de o setor
+ficar ocupado **na hora**: ela procura o próximo degrau entre os vizinhos
+livres (`specialdata == nil`), e o degrau anterior tem de estar marcado. O
+spawn síncrono (P8) garante isso, porque a task marca `specialdata` antes do
+primeiro `await`. Sem `main.atm` (testes unitários), `M.start_floor` só
+marca o setor, para a escada não andar em círculo entre dois degraus.
+
+**Por que o `Teto` não usa o registro.** Porta, elevador e piso guardam a
+fase no registro por dois motivos: o Lua escreve nele no meio do tic (o
+recado) e o save o grava. Nenhum dos dois vale para o teto. As linhas 57 e
+74, que no Doom param esmagadores, aqui param elevadores, e os tetos não
+entram no save. A direção e a velocidade ficaram então só na task, e o
+registro serve para marcar o setor e guardar os parâmetros de criação. É o
+desenho que o passo 3 previa para todos os movimentadores; o teto mostra o
+que ele custa (nada de save, nada de interrupção) e o que ele rende (a
+alternância desce-sobe é a forma do laço).
+
+### Diagramas
+
+**Fluxo em Lua, antes (tag `passo2`):**
+
+```mermaid
+flowchart TD
+    USE["use_special / cross_special /<br/>shoot_special / enemy (do_floor_tag)"] --> DF["do_floor / do_stairs / do_donut /<br/>raise_to_texture / lower_and_change"]
+    USE --> DC["do_crusher"]
+    DF --> NF["tabela floor; specialdata = floor"] --> LST[("self.thinkers")]
+    DC --> NC["tabela ceiling; specialdata = ceil"] --> LST
+    TV["G.tic_view"] --> TK["specials_mod.tick"] --> LOOP["para cada thinker:<br/>if kind == floor / ceiling"]
+    LST --> LOOP
+    LOOP --> TF["tick_floor: move_plane;<br/>no destino floorpic, dead"]
+    LOOP --> TC["tick_ceiling: destino por tipo;<br/>inverte direction, CEILSPEED/8 ao esmagar"]
+    SV["saveg: dump_thinker (só floor)"] --> LST
+    AP["saveg.apply (floor)"] -->|"recria na lista"| LST
+```
+
+**Fluxo em Lua, depois:**
+
+```mermaid
+flowchart TD
+    USE["use_special / cross_special /<br/>shoot_special / enemy (do_floor_tag)"] --> DF["do_floor / do_stairs / do_donut /<br/>raise_to_texture / lower_and_change"]
+    USE --> DC["do_crusher"]
+    DF --> SF["M.start_floor(piso)"] --> TP["spawn_in(pools.movers, Piso)"]
+    DC --> SC["start_ceiling(teto)"] --> TT["spawn_in(pools.movers, Teto)"]
+    TP --> POOL[("pool movers<br/>portas, elevadores, pisos, tetos")]
+    TT --> POOL
+    EM["Nivel: emit :game.specials"] --> POOL
+    SV["saveg: pairs(movers), dump_thinker(t.pub)<br/>(o Teto devolve nil)"] --> POOL
+    AP["saveg.apply (floor)"] --> SF
+```
+
+**Máquina de estados da task `Piso`:**
+
+```mermaid
+stateDiagram-v2
+    [*] --> Andando: do_floor, escada, donut, load
+    Andando --> Andando: move_plane (inclusive esmagando)
+    Andando --> TrocaTextura: chegou, com floorpic
+    Andando --> Fim: chegou, sem floorpic
+    TrocaTextura --> Fim
+    Fim --> [*]: defer libera o setor
+```
+
+**Máquina de estados da task `Teto`** (a fase é a posição no código e a
+variável `dir`):
+
+```mermaid
+stateDiagram-v2
+    [*] --> Descendo: esmagador, desce até o piso
+    [*] --> Subindo: sobe ao mais alto (linha 40)
+    Descendo --> Devagar: esmagou (só vai e volta)
+    Devagar --> Subindo: chegou embaixo (vai e volta), vel normal
+    Descendo --> Subindo: chegou embaixo (vai e volta), vel normal
+    Descendo --> Fim: chegou embaixo (desce até o piso, desce e esmaga)
+    Subindo --> Descendo: chegou em cima (vai e volta)
+    Subindo --> Fim: chegou em cima (sobe ao mais alto)
+    Fim --> [*]: defer libera o setor
+```
+
+### Validação
+
+**Comando de teste novo: `goto x y`.** Põe o jogador no ponto (x, y) do mapa
+(unidades do mapa), para ficar embaixo de um esmagador. Foi acrescentado
+também à referência (`tests/ref-passo1.patch`), com os outros comandos de
+teste. O hash de estado (com `DOOM_REPLAY_SIDES=1`) passou a incluir as
+texturas de chão e teto de cada setor, porque o donut e o "baixar e trocar"
+mudam o `floorpic`, que antes não entrava no hash (a lição do 3e: conferir
+que tudo o que o tipo migrado escreve está no hash). A mutação
+`piso-nao-troca-textura` só é detectada pela textura.
+
+**Roteiro `pisos`** (`-warp 2 2`). As linhas foram escolhidas por um script
+que lê o `doom.wad` e lista as linhas por tipo em cada mapa. Os setores dos
+esmagadores e um ponto dentro de cada um vieram do mesmo script.
+
+1. E2M2: linhas 698 (piso desce, tipo 23), 1038 (19), 713 (sobe 24, 59),
+   638 (escada de 6 degraus) e 220 (donut). Save e load com tudo andando
+   (slot 5: pisos subindo e descendo); depois do load, o donut não troca a
+   textura, nem na referência (o save não grava `floorpic`).
+2. E2M2: linha 1495 (sobe até a textura), linha 728 (esmagador que vai e
+   volta, 5 setores) e `goto` para dentro de um deles. O teto encosta no
+   jogador, que perde 10 de vida por tic até 0, e o esmagador passa a descer
+   devagar; um monstro também é esmagado no setor vizinho. Os 5 esmagadores
+   fazem ciclos completos (desce, sobe, desce) no tempo do roteiro.
+3. E2M4: linha 1113 (esmagador rápido) e 65 (escada).
+4. E2M1: linha 243 (baixa e troca a textura do chão).
+5. E3M5: linhas 1048 (sobe o teto; 8 setores) e 1276 (desce e esmaga), com
+   o jogador embaixo por alguns tics.
+
+A cobertura de cada linha foi conferida com prints numa cópia temporária de
+`setores.atm` (setor e tipo de cada task criada, cada esmagamento com a vida
+do jogador, cada inversão do esmagador). O `test_drivers.sh` confere o que
+dá para conferir sem prints: o slot 5 tem pisos com `direction` 1 e −1, há
+um load, e os quatro mapas foram visitados.
+
+**Achado: o jogador esmagado não morre.** `collision.change_sector`
+subtrai a vida direto, sem `P_DamageMobj`. Com vida 0, o jogador continua de
+pé, porque `playerstate` não vira `PST_DEAD`, e "use" não o faz renascer. O
+roteiro segue com ele assim até o `iddqd` do E2M4. Registrado em
+`docs/DIFERENCAS_DOOM.md`, com as outras diferenças de esmagadores e pisos
+que a leitura de `p_ceilng.c` e `p_floor.c` mostrou.
+
+**A mutação pendente do subpasso 0.** `specials-no-fim-do-tic` move a fase
+de specials para depois da barra de status. Ela só diverge se a barra ler
+uma vida que o special mudou, e a barra só reage ao esmagamento quando a
+vida chega a 0 (cara de morto), porque o esmagamento não mexe em
+`damagecount`. Duas tentativas não a detectaram:
+
+- **morte no E3M5:** a vida chegava a 0, a cara de morto aparecia um tic
+  depois no mutante (impresso no `ticker`), e mesmo assim nenhum quadro
+  diferia;
+- **o motivo:** mais adiante no roteiro, os tics vêm aos **pares** por
+  quadro (os quadros alternam 0 e 2 tics, por arredondamento de `1000/35`
+  no relógio do replay). Toda entrada do roteiro cai no início de um par, a
+  vida 0 caía sempre no primeiro tic do par, e a barra só é desenhada depois
+  do segundo. Deslocar a entrada em um ou dois quadros não muda a paridade.
+
+No E2M2, mais cedo no roteiro, os tics ainda vêm um por quadro. Com o
+jogador ficando embaixo do esmagador até a vida 0, a mutação é detectada
+(quadro 751). Ela saiu de `PENDENTES`.
+
+**Equivalência.** `make test-drivers`, idêntico à tag `passo1` nos 8
+roteiros (incluindo `pisos`: 2.593 quadros, 1.954 estados distintos); saves
+iguais byte a byte.
+
+**Mutações do 3d** (roteiro `pisos`):
+
+| Mutação | Erro simulado | 1º quadro | Quadros dif. | Save |
+|---|---|---|---|---|
+| `specials-no-fim-do-tic` | specials depois da barra de status (subpasso 0) | 751 | 2 | – |
+| `piso-sem-espera-inicial` | piso anda no próprio spawn | 76 | 525 | difere |
+| `piso-nao-troca-textura` | não troca a textura do chão no fim | 192 | 205 | – |
+| `piso-troca-textura-no-inicio` | troca a textura ao nascer | 80 | 1.362 | difere |
+| `esmagador-nao-desacelera` | não desce devagar depois de esmagar | 743 | 679 | – |
+| `esmagador-sobe-devagar` | não volta à velocidade normal embaixo | 1.121 | 304 | – |
+| `esmagador-para-no-fundo` | o que vai e volta termina embaixo | 768 | 915 | – |
+| `esmagador-rapido-volta-normal` | o rápido volta na velocidade normal | 1.564 | 261 | – |
+| `teto-vai-ate-o-mais-alto` | linha 40 sobe ao teto mais alto (como o Doom) | 2.204 | 390 | – |
+| `load-perde-piso` | load não recria os pisos | 198 | 1.227 | – |
+
+`make test-mutacoes` (todas as mutações do projeto): **44/46 não equivalentes detectadas**, 4 equivalentes justificadas, 2 pendentes.
+
+### Problemas encontrados
+
+1. **`RESULT_CRUSHED` não exportado**: o `Teto` comparava com `nil` e nunca
+   desacelerava. O roteiro divergiu no quadro em que o teto encosta no
+   jogador (743), o que apontou a causa direto.
+2. **Mutação pendente sobrevivendo com o jogador ferido**: só a morte
+   aparece na barra, e a morte caía num tic não desenhado (tics aos pares).
+3. **Jogador esmagado que não morre**: o roteiro previa renascer com "use",
+   e a lista de telas mostrou que o nível não recomeçou.
+
+### Métricas
+
+`python3 tools/metricas_passo3.py` (o script passou a contar `piso.x` e
+`teto.x` como campos de registro, as variáveis `var` das tasks como estado,
+e a ignorar comentários `;;` nas referências):
+
+| Métrica | Antes | Depois |
+|---|---|---|
+| Linhas de código (Lua) | 196 | 148 |
+| Linhas de código (Atmos) | – | 54 |
+| Linhas de código (total) | 196 | 202 |
+| Estado de piso e teto (campos) | 11 | 12 |
+| Despacho Lua (`tick_floor`, `tick_ceiling`, `tick_thinker`, `add_thinker`, `ThinkerLua`) | 4 | 0 |
+
+Os campos antes: `bottomheight`, `crush`, `ctype`, `dead`, `dest`,
+`direction`, `floorpic`, `kind`, `sector`, `speed`, `topheight`. Depois, os
+mesmos sem `kind`, mais `dir` e `vel` do `Teto`. A contagem sobe porque
+`direction` e `speed` continuam no registro (o piso os grava, e o teto os
+lê uma vez, na criação); no `Teto`, a direção e a velocidade **vivas** são
+`dir` e `vel`. Resultado misto de novo no número, mas com uma diferença de
+natureza: no `Teto`, a alternância desce-sobe deixou de ser um campo testado
+a cada tic e virou a estrutura do laço.
+
+Com a saída da `ThinkerLua`, de `add_thinker` e de `tick_thinker`, a linha
+"3b portas" do script passa a medir 215 linhas depois (eram 234 no commit
+do 3b).
+
+### Custo
+
+`python3 tools/custo_drivers.py 5 [roteiro]` (ms por quadro):
+
+| Driver | `fluxo` | `pisos` |
+|---|---|---|
+| `passo1` `main.lua` | 0,753 | 7,648 |
+| `passo1` `main.atm` | 0,843 | 7,966 |
+| `passo2` `main.atm` | 0,860 | (não comparável) |
+| atual (3d) | 0,935 | 8,122 |
+
+A máquina oscilou nesta medição: em três séries do `fluxo`, o
+`passo1` `main.lua` foi de 0,753 a 0,858 ms por quadro. A razão entre o atual
+e o `passo2` ficou entre +5% e +9% nas três (no 3c, +3,9%). No `pisos`, o
+`passo2` não conhece `use`, `cross` nem `goto` (sai do roteiro cedo e mede
+outra coisa); contra o `passo1` `main.atm`, o atual custa +2,0%. O custo
+alto desse roteiro em todos os drivers vem dos esmagadores e escadas: cada
+movimentador chama `move_plane` → `change_sector`, que percorre todos os
+mobjs a cada tic.
+
+### Diferenças conhecidas
+
+Nenhuma no comportamento. Do Doom original, preservadas e registradas em
+`docs/DIFERENCAS_DOOM.md`: o jogador esmagado não morre; a desaceleração ao
+esmagar vale para tipos diferentes dos do original; o teto da linha 40 não
+sobe; pisos e tetos não tocam sons; o piso não troca o `special` do setor; a
+escada segue linhas pelos dois lados; os tetos não são gravados no save.
+
+### Como reproduzir
+
+```sh
+make test-drivers                  # P1-P9 + 8 roteiros; saves comparados byte a byte
+make test-mutacoes
+python3 tools/metricas_passo3.py
+sh tests/test_drivers.sh 0 1 pisos -warp 2 2 >/dev/null
+python3 tools/custo_drivers.py 5 build/drivers/replay_1pisos.txt -warp 2 2
+python3 tools/diagramas.py
+```
+
+### Arquivos alterados
+
+| Arquivo | Mudança |
+|---|---|
+| `setores.atm` | tasks `Piso` e `Teto`; saiu a `ThinkerLua` |
+| `specials.lua` | `M.start_floor`, `start_ceiling`, `M.CEIL`, `M.CEILSPEED`, `M.RESULT_CRUSHED`; saíram `tick_floor`, `tick_ceiling`, `M.tick_thinker` e `add_thinker` |
+| `saveg.lua` | load chama `start_floor` |
+| `main.atm` | comentário da pool `movers` |
+| `game.lua`, `video.lua`, `tests/ref-passo1.patch` | comando de teste `goto x y`; texturas de chão e teto no hash |
+| `tools/make_replay.lua` | roteiro `pisos` |
+| `tests/test_drivers.sh` | cobertura do roteiro `pisos` |
+| `tools/mutacoes.py` | roteiro `pisos`; 9 mutações do 3d; `specials-no-fim-do-tic` sai de `PENDENTES` |
+| `tools/metricas_passo3.py` | 3d; `piso.x`, `teto.x`, variáveis `var` |
+| `Makefile` | roteiro `pisos` |
+| `docs/DIFERENCAS_DOOM.md` | diferenças de esmagadores, pisos e escadas |

@@ -115,19 +115,11 @@ val task Botao (linha, attr, textura, timer) {
 
 ;; ---------------------------------------------------------- movimentadores
 ;; Passo 3b. Portas, elevadores, pisos e tetos ficam todos na pool "movers",
-;; na ordem de criacao (a da antiga lista self.thinkers). Os que ainda nao
-;; viraram task entram embrulhados em ThinkerLua.
-
-;; Thinker Lua de setor ainda nao migrado (elevador, piso, teto): a cada fase
-;; chama o tick antigo, na posicao dele na pool, ate o thinker acabar.
-val task ThinkerLua (sp, th) {
-    set pub = th                          ;; o save e stop_plat leem por aqui
-    loop {
-        await :game.specials
-        S.tick_thinker(sp, th)
-        until (th.dead)
-    }
-}
+;; na ordem de criacao (a da antiga lista self.thinkers): a ordem entre eles
+;; importa (um mobj na fronteira de dois setores tem o chao e o teto
+;; calculados pelos dois). Desde o passo 3d todos sao tasks (Porta,
+;; Elevador, Piso, Teto); a task ThinkerLua, que embrulhava os thinkers Lua
+;; ainda nao migrados, sumiu.
 
 ;; Porta (EV_DoDoor, EV_VerticalDoor, T_VerticalDoor). "porta" e o registro
 ;; da porta, compartilhado com o Lua: fica em sector.specialdata e e o pub.
@@ -284,5 +276,78 @@ val task Elevador (sp, plat) {
     }
 }
 
+;; Piso (EV_DoFloor, EV_BuildStairs, EV_DoDonut, T_MoveFloor). Passo 3d.
+;; "piso" e o registro do piso (sector, direction, dest, speed, crush,
+;; floorpic): fica em sector.specialdata e e o pub, porque o save grava
+;; direction, dest e speed. Ninguem escreve nele de fora (nao ha recado):
+;; o piso anda ate o destino e acaba, trocando a textura do chao se tiver
+;; uma (donut, baixar e trocar).
+val task Piso (sp, piso) {
+    set pub = piso
+    set piso.sector.specialdata = piso    ;; setor ocupado
+    defer {                               ;; ao terminar ou ser abortado
+        set piso.sector.specialdata = nil
+        set piso.dead = true
+    }
+    loop {
+        await :game.specials
+        val r = S.move_plane(sp.world, piso.sector, piso.speed, piso.dest, 0, piso.direction, piso.crush)
+        until (r == S.RESULT_PASTDEST)
+    }
+    if piso.floorpic {
+        set piso.sector.floorpic = piso.floorpic
+    }
+}
+
+;; Teto e esmagador (EV_DoCeiling, T_MoveCeiling). Passo 3d. Os tetos nao
+;; sao gravados no save e ninguem escreve no registro de fora (as linhas 57
+;; e 74 deste port param elevadores, nao esmagadores; ver
+;; docs/DIFERENCAS_DOOM.md). Por isso a fase fica so no codigo: direcao e
+;; velocidade sao variaveis locais, e o registro so marca o setor.
+;;
+;; Teto simples: anda ate o destino e acaba. Esmagador que vai e volta
+;; (CRUSHANDRAISE, FASTCRUSH, SILENTCRUSH): desce, sobe, desce... para
+;; sempre; ao esmagar algo, desce devagar ate o fim da descida.
+val task Teto (sp, teto) {
+    val C = S.CEIL
+    set pub = teto
+    set teto.sector.specialdata = teto    ;; setor ocupado
+    defer {
+        set teto.sector.specialdata = nil
+        set teto.dead = true
+    }
+    val t = teto.ctype
+    val vai_e_volta = (t == C.CRUSHANDRAISE) || (t == C.FASTCRUSH) || (t == C.SILENTCRUSH)
+    val normal = if t == C.FASTCRUSH => (S.CEILSPEED * 2) => S.CEILSPEED
+    val devagar = math.max(math.floor(S.CEILSPEED / 8), 1)
+    var dir = teto.direction
+    var vel = teto.speed
+    loop {
+        ;; o destino de cada tipo e o do tick antigo (tick_ceiling): so o
+        ;; LOWERTOFLOOR usa teto.dest; os outros, topheight ou bottomheight
+        val destino = ifs {
+            (t == C.LOWERTOFLOOR) => teto.dest
+            (dir == 1) => teto.topheight
+            else => teto.bottomheight
+        }
+        loop {                            ;; anda ate o destino
+            await :game.specials
+            val r = S.move_plane(sp.world, teto.sector, vel, destino, 1, dir, teto.crush)
+            until (r == S.RESULT_PASTDEST)
+            if vai_e_volta && (r == S.RESULT_CRUSHED) {
+                set vel = devagar
+            }
+        }
+        until (!vai_e_volta)
+        if t == C.SILENTCRUSH {
+            S.play(sp, "pstop")
+        }
+        if dir == -1 {                    ;; chegou embaixo: sobe na normal
+            set vel = normal
+        }
+        set dir = if dir == 1 => -1 => 1
+    }
+}
+
 [Pisca=Pisca, Strobe=Strobe, Brilho=Brilho, Fogo=Fogo, Botao=Botao,
- ThinkerLua=ThinkerLua, Porta=Porta, Elevador=Elevador]
+ Porta=Porta, Elevador=Elevador, Piso=Piso, Teto=Teto]

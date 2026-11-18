@@ -80,8 +80,8 @@ task Nivel (save) {
             G.specials_resto()
         }
     }
-    pin movers = tasks()                  ;; 3b: portas (Porta) e, ainda Lua,
-                                          ;; elevadores/pisos (ThinkerLua)
+    pin movers = tasks()                  ;; 3b-3d: portas, elevadores, pisos
+                                          ;; e tetos (setores.atm)
     pin botoes = tasks()                  ;; 3e: botoes (setores.atm)
     G.set_pools([luzes=luzes, movers=movers, botoes=botoes])
     defer {

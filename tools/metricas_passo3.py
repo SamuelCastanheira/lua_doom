@@ -166,12 +166,26 @@ SUBPASSOS = {
             "function M.do_plat_perpetual", "function M.do_plat_raise")],
         "lista": [("specials.lua", r"tick_plat")],
     },
+    "3d pisos e tetos": {
+        "antes": [("specials.lua", "fn", h) for h in (
+            "local function tick_floor", "local function tick_ceiling",
+            "function M.do_floor", "function M.do_stairs",
+            "local function start_floor", "function M.do_crusher")],
+        "lua": [("specials.lua", "fn", h) for h in (
+            "function M.start_floor", "local function start_ceiling",
+            "function M.do_floor", "function M.do_stairs",
+            "local function start_floor", "function M.do_crusher")],
+        "atm": [("setores.atm", "blk", h) for h in ("val task Piso", "val task Teto")],
+        "lista": [("specials.lua", r"tick_floor|tick_ceiling|tick_thinker|add_thinker"),
+                  ("setores.atm", r"ThinkerLua"), ("saveg.lua", r"add_thinker")],
+    },
 }
 
 
 def sem_comentarios(text):
-    """Tira comentarios Lua de linha ("-- ..."), para contar so codigo."""
-    return "\n".join(re.sub(r"--.*$", "", line) for line in text.splitlines())
+    """Tira comentarios de linha (Lua "-- ...", Atmos ";; ..."), para contar
+    so codigo."""
+    return "\n".join(re.sub(r"(--|;;).*$", "", line) for line in text.splitlines())
 
 
 def campos_lua(ref_text):
@@ -193,7 +207,7 @@ def campos_lua(ref_text):
 
 # Parametros que sao so contexto ou um registro compartilhado (os campos do
 # registro e que contam, logo abaixo).
-CONTEXTO = {"sp", "porta", "plat", "th", "st", "direto"}
+CONTEXTO = {"sp", "porta", "plat", "piso", "teto", "th", "st", "direto"}
 
 
 def estado_atm(atm_text):
@@ -204,8 +218,14 @@ def estado_atm(atm_text):
     nomes = set()
     for m in re.finditer(r"task \w+ \(([^)]*)\)", atm_text):
         nomes.update(x.strip() for x in m.group(1).split(",") if x.strip())
-    for m in re.finditer(r"\b(?:porta|plat|pub)\.(\w+)", atm_text):
+    for m in re.finditer(r"\b(?:porta|plat|piso|teto|pub)\.(\w+)", atm_text):
         nomes.add(m.group(1))
+    # variaveis (var) das tasks: vivem entre awaits (direcao e velocidade do
+    # Teto, passo 3d)
+    for bloco in re.split(r"\n(?=val )", atm_text):
+        if bloco.startswith("val task"):
+            for m in re.finditer(r"^    var (\w+)", bloco, re.M):
+                nomes.add(m.group(1))
     return nomes - CONTEXTO
 
 

@@ -454,8 +454,9 @@ local function dump_state(game)
   end
   -- Movimentadores (passo 3b): tasks na pool "movers" do Nivel, na ordem de
   -- criacao (a da antiga lista specials.thinkers). O pub de cada uma e o
-  -- registro do thinker (porta: direction, topcountdown...; elevador, piso:
-  -- a tabela Lua embrulhada em ThinkerLua). O formato gravado nao mudou.
+  -- registro do movimentador (porta: direction, topcountdown...; elevador:
+  -- status, count...; piso: direction, dest, speed). Os tetos (task Teto)
+  -- nao sao gravados, como antes. O formato gravado nao mudou.
   local thinkers = {}
   local movers = game.pools and game.pools.movers
   if movers then
@@ -743,8 +744,7 @@ function M.apply(game, data)
         elseif th.kind == "plat" then
           sp.start_plat(game.specials, th)       -- idem (passo 3c)
         elseif th.kind == "floor" then
-          sector.specialdata = th
-          sp.add_thinker(game.specials, th)
+          sp.start_floor(game.specials, th)      -- idem (passo 3d)
         end
       end
     end
