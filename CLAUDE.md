@@ -90,7 +90,10 @@ Um quadro tem três fases, sempre nesta ordem:
 1. G.handle_input(ev)        para cada evento
 2. ate 4 tics:   se G.wiping(): G.tic_wipe()
                  senao: G.tic_menu(), depois a tela atual:
-                        G.tic_view()         -> nil | "morte" | "saida"
+                        G.tic_view_antes()   -> "segue" | "parado" | "morte"
+                          emit :game.specials  (Nivel; G.specials_resto
+                                                roda o que ainda e Lua)
+                        G.tic_view_depois()  -> nil | "saida"
                         G.tic_intermission() -> true quando acaba
                         G.tic_finale()       -> nil | "title" | "worlddone"
 3. G.frame()                 redesenho, som, present
@@ -196,9 +199,20 @@ func proximo_mapa (episode, mapn, secreta) {
 task Nivel (save) {                        ;; task: a ultima expressao e o retorno
     if save { G.load_level(save) } else { G.start_level() }
     G.enter(:view)                         ;; :view e a string "view"
+    spawn {                                ;; task transparente no escopo do Nivel
+        loop on :game.specials { G.specials_resto() }
+    }
     par :any {                             ;; termina quando o 1o ramo termina
         loop on :game.tic {                ;; acorda a cada evento :game.tic
-            val fim = G.tic_view()
+            val antes = G.tic_view_antes()
+            val fim = ifs {
+                (antes == :segue) => {
+                    emit :game.specials    ;; alcanca so a subarvore do Nivel
+                    G.tic_view_depois()
+                }
+                (antes == :morte) => :morte
+                else => nil
+            }
             if fim == :saida {
                 env.cancel_catchup()
             }
@@ -351,14 +365,18 @@ esperar, `loop in n { await :game.tic }`. **Nunca** use `await 2s` nem
 consumida na ordem em que as entidades pensam. Se a ordem mudar, a sequência
 aleatória muda e o jogo diverge.
 
-Ordem atual de um tic de nível (`G.tic_view`):
+Ordem atual de um tic de nível (`G.tic_view_antes`, 1 a 6;
+`emit :game.specials`, 7; `G.tic_view_depois`, 8 a 11):
 1. automapa
 2. comando do jogador (`build_ticcmd`)
 3. `player_mod.think`
 4. `player_mod.tick_fx`
 5. renascer? → `"morte"`
 6. `thinker.tick`: mobjs na ordem de `world.mobjs`
-7. `specials_mod.tick`, nesta ordem interna:
+7. `emit :game.specials` em `Nivel` (subpasso 0 do passo 3). Acorda, na
+   ordem de declaração em `Nivel` (P7), as pools já migradas e a task que
+   chama `G.specials_resto()` → `specials_mod.tick`, que ainda faz, nesta
+   ordem:
    1. luzes (`self.lights`)
    2. linhas com scroll (efeito 48)
    3. thinkers de setor (`self.thinkers`: portas, elevadores, pisos, tetos)
@@ -594,9 +612,22 @@ save. As luzes vêm primeiro porque só são criadas ao montar o nível
 nos botões e nas portas. Os disparos vêm de `collision.lua:534`
 (`cross_special`), `collision.lua:921` (`use_special`),
 `collision.lua:1108` (`shoot_special`) e `enemy.lua:345` (monstro abre
-porta, usa o retorno). Em cada subpasso:
-1. troque o despacho no `M.tick` por um evento (por exemplo,
-   `:game.specials`) no **mesmo ponto** do `G.tic_view`;
+porta, usa o retorno).
+
+**Subpasso 0 (feito):** `G.tic_view` foi dividido em `tic_view_antes` e
+`tic_view_depois`, com `emit :game.specials` no meio, em `Nivel`. Uma task
+transparente em `Nivel` chama `G.specials_resto()` (todo o
+`specials_mod.tick`, por enquanto). Replay idêntico ao `passo1`. A mutação
+`specials-no-fim-do-tic` sobrevive e está em `PENDENTES` no
+`tools/mutacoes.py`: só diverge quando um special fere o jogador
+(esmagador), e nenhum roteiro passa por isso ainda (o roteiro do 3d deve
+detectá-la).
+
+Em cada subpasso seguinte:
+1. tire a parte migrada de `specials_mod.tick` (ou seja, de
+   `G.specials_resto`) e declare a pool dela em `Nivel`, **antes** da task
+   do resto (luzes, scroll) ou **depois** dela (botões), conforme a ordem
+   do `M.tick`; o que ficar no meio continua no resto;
 2. crie as pools dentro de `Nivel`, na ordem das listas;
 3. acrescente o estado novo ao `G.state_string`;
 4. crie um roteiro específico;

@@ -19,7 +19,9 @@
 --   1. handle_input(ev)   para cada evento do video.poll()
 --   2. ate 4 tics:        se wiping: tic_wipe()
 --                         senao:     tic_menu(), depois a tela atual:
---                                    tic_view()         -> nil | "morte" | "saida"
+--                                    tic_view_antes()   -> "segue" | "parado" | "morte"
+--                                    (emit :game.specials -> specials_resto())
+--                                    tic_view_depois()  -> nil | "saida"
 --                                    tic_intermission() -> true quando acaba
 --                                    tic_finale()       -> nil | acao final
 --   3. frame()            redesenha, toca som, apresenta
@@ -772,13 +774,25 @@ function M.new(argv)
     end
   end
 
-  -- Fase 2c: tic do nivel. Devolve o motivo do fim do nivel, ou nil:
-  --   "morte"  o jogador vai renascer (antes: start_level aqui dentro)
-  --   "saida"  switch de saida (antes: begin_exit aqui dentro)
+  -- Fase 2c: tic do nivel, em tres partes (passo 3). A task Nivel
+  -- (main.atm) chama, em ordem:
+  --   G.tic_view_antes()    automapa, comando, jogador, mobjs
+  --   emit :game.specials   specials de setor: tasks nas pools do Nivel e,
+  --                         entre elas, G.specials_resto() (o que ainda e
+  --                         Lua), na ordem do antigo specials_mod.tick
+  --   G.tic_view_depois()   texturas animadas, saida, leveltime, status
+  -- Era uma funcao so (G.tic_view, tag passo2); o emit fica no meio para que
+  -- as tasks de setor acordem no mesmo ponto do tic em que os thinkers
+  -- rodavam (regra da ordem do tic, CLAUDE.md 4.2).
+  --
+  -- tic_view_antes devolve:
+  --   "segue"   o tic continua (specials e tic_view_depois)
+  --   "parado"  fora da vista (sem jogador ou mundo): nada mais roda
+  --   "morte"   o jogador vai renascer (antes: start_level aqui dentro)
   -- Quem decide o que fazer com isso e a task Jogo, no main.atm.
-  function G.tic_view()
+  function G.tic_view_antes()
     if not (game.gamestate == "view" and game.player and game.world) then
-      return nil
+      return "parado"
     end
     if game.automap then
       am_map.ticker(game.automap, game)
@@ -802,19 +816,29 @@ function M.new(argv)
     if game.player and game.player.playerstate == player_mod.PST_REBORN then
       dirty = true
       return "morte"
-    else
-      thinker.tick(game.world, game)
-      if game.specials then
-        specials_mod.tick(game.specials)
-      end
-      res:update_anims(game.leveltime or 0)
-      if game.specials and game.specials.exit_requested then
-        return "saida"
-      end
-      game.leveltime = (game.leveltime or 0) + 1
-      if game.status then
-        status_mod.ticker(game.status, game.player)
-      end
+    end
+    thinker.tick(game.world, game)
+    return "segue"
+  end
+
+  -- Specials de setor que ainda sao thinkers Lua. Roda dentro do emit
+  -- :game.specials, numa task do Nivel declarada entre as pools das partes
+  -- ja migradas. A cada subpasso do passo 3, uma parte sai daqui.
+  function G.specials_resto()
+    if game.specials then
+      specials_mod.tick(game.specials)
+    end
+  end
+
+  -- Devolve "saida" (switch de saida; antes: begin_exit aqui dentro) ou nil.
+  function G.tic_view_depois()
+    res:update_anims(game.leveltime or 0)
+    if game.specials and game.specials.exit_requested then
+      return "saida"
+    end
+    game.leveltime = (game.leveltime or 0) + 1
+    if game.status then
+      status_mod.ticker(game.status, game.player)
     end
     dirty = true
     return nil

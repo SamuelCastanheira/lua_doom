@@ -63,6 +63,13 @@ task Titulo () {
 
 ;; Uma instancia de nivel: do carregamento ate morrer, sair ou trocar
 ;; (idclev). Morrer e renascer cria outra instancia (G_DoReborn).
+;;
+;; Specials de setor (passo 3): a cada tic, entre tic_view_antes e
+;; tic_view_depois, o Nivel emite :game.specials. Quem acorda, na ordem em
+;; que esta declarado abaixo (propriedade P7), reproduz a ordem do antigo
+;; specials_mod.tick: luzes -> scroll -> portas/elevadores/pisos -> botoes.
+;; As partes ainda em Lua rodam em G.specials_resto; a cada subpasso, uma
+;; parte sai dele e ganha a sua pool aqui, antes ou depois do resto.
 task Nivel (save) {
     if save {
         G.load_level(save)
@@ -70,9 +77,22 @@ task Nivel (save) {
         G.start_level()
     }
     G.enter(:view)
+    spawn {                               ;; specials ainda em Lua (todos)
+        loop on :game.specials {
+            G.specials_resto()
+        }
+    }
     par :any {
         loop on :game.tic {
-            val fim = G.tic_view()
+            val antes = G.tic_view_antes()    ;; "segue" | "parado" | "morte"
+            val fim = ifs {
+                (antes == :segue) => {
+                    emit :game.specials
+                    G.tic_view_depois()   ;; nil | "saida"
+                }
+                (antes == :morte) => :morte
+                else => nil
+            }
             if fim == :saida {
                 env.cancel_catchup()      ;; nao recupera mais tics neste quadro
             }

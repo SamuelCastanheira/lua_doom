@@ -30,6 +30,18 @@ EQUIVALENTES = {
         "e am_map.responder, na fase de entrada)",
 }
 
+# Mutantes NAO equivalentes que o roteiro ainda nao cobre. Sobreviver e
+# esperado por enquanto (nao falha o teste), mas fica impresso com o motivo e
+# com o roteiro que deve passar a detecta-lo. Quando esse roteiro existir,
+# tire a mutacao daqui: ela tem de passar a "detectada".
+PENDENTES = {
+    "specials-no-fim-do-tic":
+        "so diverge se um special ferir o jogador (esmagador, piso com crush: "
+        "move_plane -> change_sector -> dano) e a barra de status ler a vida "
+        "um tic antes; nenhum roteiro atual passa por isso. Deve ser detectada "
+        "pelo roteiro de esmagadores do passo 3d",
+}
+
 # (nome, descricao, trecho original, trecho mutado)
 MUTACOES = [
     ("sem-cancel-catchup",
@@ -76,6 +88,10 @@ MUTACOES = [
      "Durante a transicao de tela, menu e tela continuam andando",
      "        if G.wiping() {\n            G.tic_wipe()\n        } else {\n",
      "        if G.wiping() {\n            G.tic_wipe()\n        }\n        do {\n"),
+    ("specials-no-fim-do-tic",
+     "Specials de setor rodam depois de texturas, saida e leveltime (fora do ponto do tic)",
+     "                    emit :game.specials\n                    G.tic_view_depois()   ;; nil | \"saida\"\n",
+     "                    val d = G.tic_view_depois()\n                    emit :game.specials\n                    d\n"),
     ("novo-nao-descarta",
      "New Game no meio do jogo e ignorado (o Jogo atual continua)",
      "            await <:jogo.novo || :jogo.carregar>   ;; descarta o jogo atual\n",
@@ -116,6 +132,7 @@ def main():
     print(f"{'mutacao':24} {'resultado':12} {'1o quadro':>9} {'quadros dif.':>12}  descricao")
     survived = 0
     equivalent = 0
+    pending = 0
     for name, desc, old, new in MUTACOES:
         if src.count(old) != 1:
             print(f"{name:24} {'NAO APLICADA':12} {'':>9} {'':>12}  trecho nao encontrado")
@@ -133,6 +150,9 @@ def main():
         if first is None and name in EQUIVALENTES:
             result = "equivalente"
             equivalent += 1
+        elif first is None and name in PENDENTES:
+            result = "pendente"
+            pending += 1
         elif first is None:
             result = "SOBREVIVEU"
             survived += 1
@@ -142,9 +162,13 @@ def main():
         print(f"{name:24} {result:12} {first or '-':>9} {diff:>12}  {desc}{extra}")
         if result == "equivalente":
             print(f"{'':24} {'':12} {'':>9} {'':>12}    -> {EQUIVALENTES[name]}")
+        elif result == "pendente":
+            print(f"{'':24} {'':12} {'':>9} {'':>12}    -> {PENDENTES[name]}")
+        elif name in PENDENTES:
+            print(f"{'':24} {'':12} {'':>9} {'':>12}    -> agora detectada: tire de PENDENTES")
     total = len(MUTACOES) - equivalent
-    print(f"\n{total - survived}/{total} mutacoes nao equivalentes detectadas"
-          f" ({equivalent} equivalentes, justificadas acima)")
+    print(f"\n{total - survived - pending}/{total} mutacoes nao equivalentes detectadas"
+          f" ({equivalent} equivalentes, {pending} pendentes de cobertura, justificadas acima)")
     sys.exit(1 if survived else 0)
 
 
