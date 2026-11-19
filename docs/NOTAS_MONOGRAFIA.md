@@ -138,6 +138,20 @@ consultada em vários módulos.
 registra a função de pintura (`game.paint = paint_view`) e `paint_state`
 vira `game.paint()`. Elimina o despacho, mas a variável continua.
 
+### 2.4 Desfecho (passo 6)
+
+Feito no passo 6, com o replay idêntico nos 10 roteiros. O quadro emite
+`:game.frame` e cada tela desenha a si mesma, como proposto em 2.2; o
+`paint_state` sumiu. Um caminho de reserva (o despacho antigo, para um
+quadro sem tela viva) foi medido antes de ser removido: zero usos no
+roteiro `fluxo`, que passa por todas as transições. O wipe virou uma
+**fase do relógio** (o tic normal e a transição em sequência, trocados por
+`:tela.transicao`), mas não o `await Wipe(antes, depois)` entre telas: a
+troca de tela continua detectada no quadro, porque o wipe só começa se a
+tela mudou entre dois quadros, e chamar o wipe na troca mudaria esse ponto.
+Por isso `game.gamestate` continua existindo. Detalhes em
+`docs/registro/06-wipe-e-quadro.md`.
+
 ---
 
 ## 3. Mutações pendentes de cobertura: o teste mostra o que não cobre

@@ -12,6 +12,7 @@ do que mudou, do porquê e do que deu errado no caminho.
 | 3 | `passo3` | [03-specials.md](03-specials.md) | specials de setor em tasks (subpasso 0, 3a: luzes, 3e: botões, 3b: portas, 3c: elevadores, 3d: pisos e tetos) |
 | 4 | `passo4` | [04-arma.md](04-arma.md) | a arma (4a) e o jogador (4c) em tasks |
 | 5 | `passo5` | [05-monstro.md](05-monstro.md) | o Zombieman em task; laço dos mobjs no `Nivel`, com emit direcionado |
+| 6 | `passo6` | [06-wipe-e-quadro.md](06-wipe-e-quadro.md) | o wipe como fase do relógio; cada tela desenha a si mesma |
 
 ## Cadeia de equivalência
 

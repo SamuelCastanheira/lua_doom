@@ -45,7 +45,7 @@ Atmos) e escreve em **português**. Responda em português.
 | 3. Specials de setor (luzes, portas, elevadores, pisos, botões, save) | concluído (`passo3`): subpassos 0, 3a, 3e, 3b, 3c e 3d |
 | 4. Arma e jogador | concluído (`passo4`): 4a (arma) e 4c (jogador como task); 4b fica para a fase de correções |
 | 5. Um monstro | concluído (`passo5`): o Zombieman como task `Zumbi` |
-| **6. Wipe e quadro (opcional)** | **próximo** |
+| 6. Wipe e quadro (opcional) | concluído (`passo6`): o wipe como fase do relógio; cada tela desenha a si mesma |
 | 5. Um monstro como task | planejado |
 
 ---
@@ -91,7 +91,7 @@ Um quadro tem três fases, sempre nesta ordem:
 
 ```
 1. G.handle_input(ev)        para cada evento
-2. ate 4 tics:   se G.wiping(): G.tic_wipe()
+2. ate 4 tics:   na transicao de tela: G.tic_wipe() (fase do relogio, passo 6)
                  senao: G.tic_menu(), depois a tela atual:
                         G.tic_view_antes()   -> "segue" | "parado"
                           emit :game.jogador   (Nivel; task Jogador, com a Arma)
@@ -101,7 +101,9 @@ Um quadro tem três fases, sempre nesta ordem:
                         G.tic_view_depois()  -> nil | "saida"
                         G.tic_intermission() -> true quando acaba
                         G.tic_finale()       -> nil | "title" | "worlddone"
-3. G.frame()                 redesenho, som, present
+3. G.quadro_antes()          (emit :game.frame: a tela viva desenha a si mesma)
+   G.quadro_depois()         wipe, menu, paleta (emit :tela.transicao se o wipe comecou)
+   G.quadro_fim()            som, present
 ```
 
 API do fluxo, chamada só pelo `main.atm`:
@@ -419,7 +421,9 @@ Ordem atual de um tic de nível (`G.tic_view_antes`, 1 e 2;
 10. `leveltime + 1`
 11. `status_mod.ticker`
 
-Fora do nível, o relógio do `main.atm` faz: wipe ativo → só `tic_wipe`;
+Fora do nível, o relógio do `main.atm` tem duas fases (passo 6): na
+transição de tela (depois de `:tela.transicao`, emitido pelo quadro) só
+`tic_wipe`, até ela terminar; fora dela,
 senão `tic_menu`, `pedidos()`, `emit :game.tic`, `pedidos()`.
 
 Ao transformar thinkers em tasks:
@@ -628,7 +632,9 @@ revisões do próprio port na seção 5). No fim, as correções são feitas nas
   quando o `Jogo` é abortado por `:jogo.novo`.
 - `game.gamestate` continua existindo (tela exibida, lida por redesenho,
   paleta, mouse, cheats, menu e automapa), mas só `G.enter` o escreve.
-- O wipe continua em Lua (`redraw`, fase de quadro).
+- O wipe (a imagem) continua em Lua (`wipe.lua`); desde o passo 6 a
+  transição é uma fase do relógio, e a troca de tela ainda é detectada no
+  quadro, comparando `wipe_state` com `gamestate` (equivalência).
 - Ramos `-- caminho antigo (sem main.atm)` em `menu.lua`, `cheats.lua` e
   `saveg.lua` existem para os testes unitários com um `game` falso. Não
   remova.
@@ -640,7 +646,7 @@ revisões do próprio port na seção 5). No fim, as correções são feitas nas
 
 ---
 
-## 9. Passos 3, 4 e 5 concluídos; próximo: passo 6 (opcional)
+## 9. Passos 3 a 6 concluídos; próximo: métricas e escrita
 
 **Passo 4a (feito):** a arma como task `Arma` (`arma.atm`), por
 equivalência com a lógica de `player.lua` (as tabelas `WEAPON_*` e as
@@ -682,8 +688,17 @@ tabela (`thinker.seguir_tabela`). Cuidado no Atmos: `until (c, v)` devolve
 -respawn`). Resultado em tamanho negativo (87 → 221 linhas), ganho de nome
 e forma: `docs/registro/05-monstro.md`.
 
-**Próximo passo (opcional):** passo 6 do `docs/PLANO_ATMOS.md`: o wipe como
-task e, depois, o quadro por evento (`docs/NOTAS_MONOGRAFIA.md`, seção 2).
+**Passo 6 (feito):** o relógio tem duas fases em sequência (tic normal;
+depois do `:tela.transicao`, só o wipe), em vez de `if G.wiping()` a cada
+tic. O quadro emite `:game.frame` entre `G.quadro_antes` e
+`G.quadro_depois`, e cada tela (`Titulo`, `Nivel`, `Intermissao`, `Finale`)
+desenha a si mesma; `paint_state` (o despacho por `gamestate`) e `redraw`
+sumiram. Registro: `docs/registro/06-wipe-e-quadro.md`.
+
+**Próximo:** pela decisão registrada em `docs/DIFERENCAS_DOOM.md`, as
+diferenças e revisões só são corrigidas depois de todos os passos, nas
+branches `atmos` e `lua`. Seguem as métricas finais (seção 7 do
+`PLANO_ATMOS.md`) e a escrita.
 
 O passo 3, plano em `docs/PLANO_ATMOS.md`, seção 6, e registro em
 `docs/registro/03-specials.md`. Como ficou o código (`specials.lua` guarda

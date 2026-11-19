@@ -37,7 +37,7 @@ os bugs de ciclo de vida na lógica de jogos, com custo aceitável?
 | 3. Specials de setor | concluído (tag `passo3`) | [registro/03-specials.md](registro/03-specials.md) |
 | 4. Arma (4a) e jogador (4c) | concluído (tag `passo4`); 4b adiado para a fase de correções | [registro/04-arma.md](registro/04-arma.md) |
 | 5. Um monstro | concluído (tag `passo5`) | [registro/05-monstro.md](registro/05-monstro.md) |
-| 6. Wipe e quadro por evento (opcional) | próximo | – |
+| 6. Wipe e quadro por evento (opcional) | concluído (tag `passo6`) | [registro/06-wipe-e-quadro.md](registro/06-wipe-e-quadro.md) |
 
 Desvios em relação a este plano, decididos durante o passo 2:
 

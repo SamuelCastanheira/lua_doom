@@ -610,19 +610,6 @@ function M.new(argv)
     video.set_palette(pal:sub(off + 1, off + 768))
   end
 
-  local function paint_state()
-    if game.gamestate == "view" and game.world then
-      paint_view()
-    elseif game.gamestate == "intermission" and game.wi then
-      v.fill(fb, 0)
-      wi_mod.draw(game.wi, fb)
-    elseif game.gamestate == "finale" and game.finale then
-      finale_mod.draw(game.finale, fb)
-    else
-      v.fill(fb, 0)
-      v.draw_patch(fb, 0, 0, title)
-    end
-  end
 
   local function draw_fps()
     if not game.show_fps or not game.status then
@@ -637,14 +624,24 @@ function M.new(argv)
     status_mod.draw_text(game.status, fb, x, 4, text)
   end
 
-  local function redraw()
+  -- O quadro (passo 6): o redesenho em tres partes, chamadas pela task do
+  -- quadro no main.atm. Entre G.quadro_antes e G.quadro_depois, o main.atm
+  -- emite :game.frame e a tela viva desenha a si mesma (G.pintar_vista,
+  -- G.pintar_intermissao, G.pintar_finale, G.pintar_titulo). Antes era uma
+  -- funcao so (redraw), que escolhia a tela com "if game.gamestate == ..."
+  -- (paint_state); esse despacho sumiu. Sempre ha uma tela viva no quadro
+  -- (conferido nos roteiros: nenhum quadro ficou sem pintor).
+  local quadro_wipe = false            -- a tela mudou: este quadro comeca um wipe
+
+  -- Devolve "pintar" (redesenhar: a tela desenha a si mesma), "sobrepor" (a
+  -- transicao esta em andamento: so o menu e o FPS por cima) ou nil (nada
+  -- mudou desde o ultimo quadro). Se a tela mudou, captura a tela antiga.
+  local function quadro_antes_q()
+    if not (dirty or raw == nil) then
+      return nil
+    end
     if game.wiping then
-      menu_mod.draw(menu, fb)
-      draw_fps()
-      raw = v.to_raw(fb)
-      dirty = false
-      apply_palette()
-      return
+      return "sobrepor"
     end
     local prev = game.wipe_state
     local need = prev ~= nil and (prev ~= game.gamestate or game.force_wipe)
@@ -655,18 +652,48 @@ function M.new(argv)
     if need then
       wipe_mod.capture_start(game.wipe, fb)
     end
-    paint_state()
-    if need then
-      wipe_mod.capture_end(game.wipe, fb)
-      wipe_mod.begin(game.wipe, fb)
-      game.wiping = true
+    quadro_wipe = need
+    return "pintar"
+  end
+
+  local function pintar_vista_q()
+    paint_view()
+  end
+
+  local function pintar_intermissao_q()
+    v.fill(fb, 0)
+    wi_mod.draw(game.wi, fb)
+  end
+
+  local function pintar_finale_q()
+    finale_mod.draw(game.finale, fb)
+  end
+
+  local function pintar_titulo_q()
+    v.fill(fb, 0)
+    v.draw_patch(fb, 0, 0, title)
+  end
+
+  -- Fecha o redesenho: com a tela nova, comeca o wipe se a tela mudou; menu,
+  -- FPS e paleta por cima. Devolve true se um wipe comecou neste quadro (o
+  -- main.atm emite :tela.transicao). "pintado": vem de quadro_antes.
+  local function quadro_depois_q(pintado)
+    local comecou = false
+    if pintado then
+      if quadro_wipe then
+        wipe_mod.capture_end(game.wipe, fb)
+        wipe_mod.begin(game.wipe, fb)
+        game.wiping = true
+        comecou = true
+      end
+      game.wipe_state = game.gamestate
     end
-    game.wipe_state = game.gamestate
     menu_mod.draw(menu, fb)
     draw_fps()
     raw = v.to_raw(fb)
     dirty = false
     apply_palette()
+    return comecou
   end
 
   local held = {}
@@ -795,11 +822,16 @@ function M.new(argv)
   end
 
   -- Fase 2a: tic da transicao de tela (enquanto ela dura, nada mais anda).
+  -- Devolve true quando a transicao termina (passo 6: o relogio do main.atm
+  -- volta ao tic normal).
   function G.tic_wipe()
+    local fim = false
     if wipe_mod.tick(game.wipe, 1, fb) then
       game.wiping = false
+      fim = true
     end
     dirty = true
+    return fim
   end
 
   -- Fase 2b: tic do menu (anima o cursor; roda em todas as telas).
@@ -950,10 +982,8 @@ function M.new(argv)
   end
 
   -- Fase 3: redesenho, som e apresentacao do quadro.
-  function G.frame()
-    if dirty or raw == nil then
-      redraw()
-    end
+  -- Fim do quadro: som, mouse, apresentar, contador de FPS.
+  function G.quadro_fim()
     sound_mod.update(sound)
     video.mouse_relative(game.use_mouse and game.gamestate == "view" and not menu.active)
     video.present(raw)
@@ -970,13 +1000,18 @@ function M.new(argv)
     end
   end
 
-  function G.wiping()
-    return game.wiping
-  end
 
   -- ---------------------------------------------- API do fluxo (main.atm)
 
   G.game = game
+
+  -- O quadro (passo 6): ver quadro_antes acima.
+  G.quadro_antes = quadro_antes_q
+  G.pintar_vista = pintar_vista_q
+  G.pintar_intermissao = pintar_intermissao_q
+  G.pintar_finale = pintar_finale_q
+  G.pintar_titulo = pintar_titulo_q
+  G.quadro_depois = quadro_depois_q
 
   -- Pedidos registrados desde a ultima chamada (ver game.request).
   function G.take_requests()

@@ -74,6 +74,9 @@ func proximo_mapa (episode, mapn, secreta) {
 
 ;; Titulo: so o menu funciona. Termina com o pedido de novo jogo ou load.
 task Titulo () {
+    spawn {                               ;; passo 6: a tela desenha a si mesma
+        loop on :game.frame { G.pintar_titulo() }
+    }
     G.enter(:title)
     await <:jogo.novo || :jogo.carregar>
 }
@@ -116,6 +119,9 @@ task Nivel (save) {
     ;; Nasce depois de montar o nivel (o jogador e o do nivel; o load ja
     ;; restaurou o estado dele e a fase da arma).
     spawn jogador.Jogador(G.game.player, G.game)
+    spawn {                               ;; passo 6: a vista desenha a si mesma
+        loop on :game.frame { G.pintar_vista() }
+    }
     par :any {
         loop on :game.tic {
             val antes = G.tic_view_antes()    ;; "segue" | "parado"
@@ -147,6 +153,9 @@ task Nivel (save) {
 
 task Intermissao (nxt) {
     G.make_intermission(nxt)
+    spawn {
+        loop on :game.frame { G.pintar_intermissao() }
+    }
     G.enter(:intermission)
     loop on :game.tic {
         until (G.tic_intermission())
@@ -156,6 +165,9 @@ task Intermissao (nxt) {
 ;; Texto/arte final. Devolve a acao: "title" ou "worlddone" (Doom 2).
 task Finale (anuncia) {
     G.make_finale(anuncia)
+    spawn {
+        loop on :game.frame { G.pintar_finale() }
+    }
     G.enter(:finale)
     loop on :game.tic {
         val acao = G.tic_finale()
@@ -256,19 +268,25 @@ spawn {
 }
 
 ;; -------------------------------------------------------------- relogio
-;; Ordem dentro de um tic, igual a versao imperativa:
-;;   transicao de tela em andamento? so ela anda
-;;   senao: menu, depois a tela atual (:game.tic)
+;; Ordem dentro de um tic, igual a versao imperativa: menu, depois a tela
+;; atual (:game.tic). Durante uma transicao de tela (o wipe), so ela anda.
+;;
+;; Passo 6: antes, cada tic perguntava "if G.wiping()". Agora sao duas fases
+;; em sequencia: o tic normal, ate o quadro avisar que uma transicao comecou
+;; (:tela.transicao); depois so a transicao, ate ela terminar.
 
 spawn {
-    loop on :tic {
-        if G.wiping() {
-            G.tic_wipe()
-        } else {
-            G.tic_menu()
-            pedidos()
-            emit :game.tic
-            pedidos()
+    loop {
+        watching :tela.transicao {
+            loop on :tic {
+                G.tic_menu()
+                pedidos()
+                emit :game.tic
+                pedidos()
+            }
+        }
+        loop on :tic {                    ;; so a transicao anda
+            until (G.tic_wipe())          ;; true quando termina
         }
     }
 }
@@ -278,8 +296,20 @@ spawn {
 par :any {
     await Fluxo()
 } with {
+    ;; O quadro (passo 6): a tela viva desenha a si mesma em :game.frame,
+    ;; entre quadro_antes (captura a tela antiga, se a tela mudou) e
+    ;; quadro_depois (tela nova, wipe, menu, paleta).
     loop on :frame {
-        G.frame()
+        val modo = G.quadro_antes()       ;; "pintar" | "sobrepor" | nil
+        if modo {
+            if modo == :pintar {
+                emit :game.frame
+            }
+            if G.quadro_depois(modo == :pintar) {
+                emit :tela.transicao      ;; comecou um wipe: o relogio troca de fase
+            }
+        }
+        G.quadro_fim()
     }
 } with {
     await :jogo.sair
