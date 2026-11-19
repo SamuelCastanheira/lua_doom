@@ -1,0 +1,138 @@
+;; Arma do jogador (psprites) como task Atmos (passo 4a do docs/PLANO_ATMOS.md).
+;;
+;; Antes: weapon_think (player.lua, tag passo3), chamada no meio de
+;; player.think, despachava a cada tic por player.psprite_state ("up",
+;; "ready", "atk", "down"). Agora a task Arma acorda com :game.arma, que o
+;; Nivel emite entre player.think_antes e player.think_depois, no mesmo ponto
+;; do tic.
+;;
+;; A fase continua em psprite_state, no registro do jogador, pelos mesmos
+;; motivos da porta (passo 3b): o renderer, o save e o hash de estado a leem,
+;; e o Lua escreve pendingweapon (troca de arma, item apanhado) no meio do tic
+;; (o recado). Cada fase e uma funcao que roda um tic por vez ate a fase
+;; mudar; as partes de um tic (baixar, subir, um passo do tiro...) continuam
+;; em player.lua, com as tabelas da arma.
+
+val A = require "player"
+
+;; Um tic da arma comeca sempre igual: o jogador morto so baixa a arma
+;; (devolve nil); vivo, devolve [firing, ammo_type, can_fire] (sem municao,
+;; ja pediu a troca em pendingweapon).
+val func tic (p, game) {
+    await :game.arma
+    A.arma_comeco(p, game)
+}
+
+;; Fase "up": sobe ate o topo (ou baixa, se pediram outra arma).
+val func subir (p, game) {
+    loop {
+        val c = tic(p, game)
+        if c {
+            if p.pendingweapon != A.WP_NOCHANGE {
+                A.arma_baixar(p, game)
+            } else {
+                A.arma_subir(p, game)
+            }
+        }
+        until (p.psprite_state != :up)
+    }
+}
+
+;; Fase "down": desce ate embaixo e troca de arma (morto, fica embaixo).
+val func baixar (p, game) {
+    loop {
+        val c = tic(p, game)
+        if c {
+            A.arma_baixar(p, game)
+        }
+        until (p.psprite_state != :down)
+    }
+}
+
+;; Fase "atk": a sequencia de tiro (WEAPON_ATK), um passo a cada psprite_tics.
+val func atirar (p, game) {
+    loop {
+        val c = tic(p, game)
+        if c {
+            if p.psprite_state == :fire {     ;; nenhum codigo escreve "fire" hoje
+                set p.psprite_state = :atk
+            }
+            if c.firing {
+                set p.attackdown = true
+            }
+            if p.psprite_tics > 0 {
+                set p.psprite_tics = p.psprite_tics - 1
+            }
+            if p.psprite_tics <= 0 {
+                set p.psprite_step = p.psprite_step + 1
+                A.arma_passo(p, game, c.ammo_type, c.firing, c.can_fire)
+            }
+        }
+        until (p.psprite_state != :atk)
+    }
+}
+
+;; Fase "ready" (e qualquer outra): balanca a arma ate trocar ou atirar.
+val func pronta (p, game) {
+    loop {
+        val c = tic(p, game)
+        if c {
+            ifs {
+                (p.pendingweapon != A.WP_NOCHANGE) => A.arma_baixar(p, game)
+                c.firing && c.can_fire && A.arma_pode_atirar(p) => {
+                    set p.psprite_state = :atk
+                    set p.psprite_step = 0
+                    set p.psprite_sy = A.WEAPONTOP
+                    set p.attackdown = true
+                    A.arma_passo(p, game, c.ammo_type, c.firing, c.can_fire)
+                }
+                (p.psprite_state != :ready) => A.arma_pronta(p, game)
+                else => {
+                    A.arma_balanco(p, game)
+                    if !c.firing {
+                        set p.attackdown = false
+                        set p.refire = 0
+                    }
+                }
+            }
+        }
+        val st = p.psprite_state
+        until ((st == :up) || (st == :down) || (st == :atk))
+    }
+}
+
+;; O clarao do tiro (psprite_flash): um contador, flash_tics, que o Lua liga
+;; ao atirar (passo do tiro, plasma). Roda num ramo proprio, antes da fase
+;; (P6): o tiro deste tic liga um clarao novo depois da contagem.
+val func clarao (p) {
+    loop {
+        await :game.arma
+        val vivo = (p.playerstate != A.PST_DEAD) && (p.health > 0)
+        if vivo && (p.flash_tics > 0) {
+            set p.flash_tics = p.flash_tics - 1
+            if p.flash_tics <= 0 {
+                set p.psprite_flash = ""
+                set p.extralight = 0
+            }
+        }
+    }
+}
+
+val task Arma (p, game) {
+    set pub = p
+    par {
+        clarao(p)
+    } with {
+        loop {
+            val st = p.psprite_state
+            ifs {
+                (st == :up) => subir(p, game)
+                (st == :down) => baixar(p, game)
+                (st == :atk) || (st == :fire) => atirar(p, game)
+                else => pronta(p, game)
+            }
+        }
+    }
+}
+
+[Arma=Arma]

@@ -31,11 +31,18 @@ ROTEIROS = {
     "portas": ("replay_1portas.txt", "ref_1portas.log", ["-warp", "1", "1"]),
     "elevadores": ("replay_1elevadores.txt", "ref_1elevadores.log", ["-warp", "1", "3"]),
     "pisos": ("replay_1pisos.txt", "ref_1pisos.log", ["-warp", "2", "2"]),
+    "arma": ("replay_1arma.txt", "ref_1arma.log", ["-warp", "1", "1"]),
 }
 
 # Mutantes equivalentes: mudam o codigo mas nao o comportamento. Sobreviver
 # e o esperado; a justificativa fica registrada.
 EQUIVALENTES = {
+    "tiro-sem-gatilho-preso":
+        "durante o tiro, attackdown ja e verdadeiro: e ligado ao comecar o tiro "
+        "(fase pronta) e por do_shot, e so e desligado na saida para a fase "
+        "pronta (enter_atk_step, sem o gatilho); o save grava attackdown "
+        "verdadeiro no meio do tiro. A linha da task e redundante, como era "
+        "no weapon_think (passo 4a)",
     "menu-depois-da-tela":
         "menu.ticker so muda skull_tics/which_skull (cursor do menu); nenhuma "
         "fase de tela le esses campos",
@@ -158,8 +165,8 @@ MUTACOES = [
      "        if G.wiping() {\n            G.tic_wipe()\n        }\n        do {\n"),
     ("specials-no-fim-do-tic",
      "Specials de setor rodam depois de texturas, saida e leveltime (fora do ponto do tic)",
-     "                    emit :game.specials\n                    G.tic_view_depois()   ;; nil | \"saida\"\n",
-     "                    val d = G.tic_view_depois()\n                    emit :game.specials\n                    d\n",
+     "                            emit :game.specials\n                            G.tic_view_depois()   ;; nil | \"saida\"\n",
+     "                            val d = G.tic_view_depois()\n                            emit :game.specials\n                            d\n",
      "main.atm", "pisos"),     # so diverge quando um esmagador fere o jogador (3d)
     # --- passo 3a: luzes como tasks (roteiro "luzes": E4M1 e E1M2)
     ("pisca-sem-espera-inicial",
@@ -354,6 +361,47 @@ MUTACOES = [
      "          sp.start_floor(game.specials, th)      -- idem (passo 3d)\n",
      "",
      "saveg.lua", "pisos"),
+    # --- passo 4a: arma como task (roteiro "arma": E1M1)
+    ("arma-depois-do-jogador",
+     "Arma acorda depois do resto do jogador e dos mobjs (fora do ponto do tic)",
+     "                    emit :game.arma           ;; passo 4a: task Arma\n                    val meio = G.tic_view_meio()  ;; \"segue\" | \"morte\"\n",
+     "                    val meio = G.tic_view_meio()  ;; \"segue\" | \"morte\"\n                    emit :game.arma\n",
+     "main.atm", "arma"),
+    ("clarao-depois-da-fase",
+     "O clarao conta depois da fase: o clarao ligado no tic perde um tic",
+     "    par {\n        clarao(p)\n    } with {\n        loop {\n            val st = p.psprite_state\n            ifs {\n                (st == :up) => subir(p, game)\n                (st == :down) => baixar(p, game)\n                (st == :atk) || (st == :fire) => atirar(p, game)\n                else => pronta(p, game)\n            }\n        }\n    }\n",
+     "    par {\n        loop {\n            val st = p.psprite_state\n            ifs {\n                (st == :up) => subir(p, game)\n                (st == :down) => baixar(p, game)\n                (st == :atk) || (st == :fire) => atirar(p, game)\n                else => pronta(p, game)\n            }\n        }\n    } with {\n        clarao(p)\n    }\n",
+     "arma.atm", "arma"),
+    ("clarao-conta-morto",
+     "O clarao continua contando com o jogador morto",
+     "        if vivo && (p.flash_tics > 0) {\n",
+     "        if p.flash_tics > 0 {\n",
+     "arma.atm", "arma"),
+    ("troca-ignorada-na-subida",
+     "Pedir outra arma durante a subida nao baixa a arma (sobe ate o fim)",
+     "            if p.pendingweapon != A.WP_NOCHANGE {\n                A.arma_baixar(p, game)\n            } else {\n                A.arma_subir(p, game)\n            }\n",
+     "            A.arma_subir(p, game)\n",
+     "arma.atm", "arma"),
+    ("tiro-sem-gatilho-preso",
+     "Durante o tiro, segurar o gatilho nao marca attackdown",
+     "            if c.firing {\n                set p.attackdown = true\n            }\n",
+     "",
+     "arma.atm", "arma"),
+    ("pronta-nao-zera-refire",
+     "Soltar o gatilho com a arma pronta nao zera refire (a pistola erra mais)",
+     "                        set p.refire = 0\n",
+     "",
+     "arma.atm", "arma"),
+    ("foguete-sem-soltar",
+     "Lanca-foguetes e BFG atiram de novo com o gatilho preso",
+     "                c.firing && c.can_fire && A.arma_pode_atirar(p) => {\n",
+     "                c.firing && c.can_fire => {\n",
+     "arma.atm", "arma"),
+    ("load-perde-fase-da-arma",
+     "Load nao restaura a fase da arma (volta subindo)",
+     '  player.psprite_state = take("psprite_state", player.psprite_state)\n',
+     '  player.psprite_state = "up"\n',
+     "saveg.lua", "arma"),
     ("novo-nao-descarta",
      "New Game no meio do jogo e ignorado (o Jogo atual continua)",
      "            await <:jogo.novo || :jogo.carregar>   ;; descarta o jogo atual\n",

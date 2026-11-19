@@ -56,6 +56,15 @@ local elevadores = arg[4] == "elevadores"
 --   esmaga, 44), com o jogador embaixo por alguns tics.
 -- "quadros" e ignorado.
 local pisos = arg[4] == "pisos"
+-- "arma": roteiro do passo 4a, rodado com "-warp 1 1". Pistola atirando ate
+-- acabar a municao (troca sozinha para o punho); depois iddqd e idkfa e cada
+-- arma atirando com o gatilho preso (refire); troca de arma no meio do tiro
+-- e no meio da subida; a trava do lanca-foguetes (trocar para ele com o
+-- gatilho preso nao atira ate soltar); save no meio do tiro do BFG (slot 5)
+-- e load; motosserra
+-- (balanco com som) e punho; o jogador morre atirando e renasce.
+-- "quadros" e ignorado.
+local arma = arg[4] == "arma"
 
 local function rand(n)
   seed = (seed * 1103515245 + 12345) % 2147483648
@@ -167,6 +176,58 @@ if elevadores then
   keys({ "escape" }); up(1); keys({ "return" }); wait(10); up(1); keys({ "return" })
   wait(100)
   cross(114); wait(200)                                -- nao reativa
+  lines[#lines + 1] = string.format("%d quit", f + 20)
+  local fh = assert(io.open(out_path, "w"))
+  fh:write(table.concat(lines, "\n"), "\n")
+  fh:close()
+  print(string.format("%s: %d eventos, ate o quadro %d", out_path, #lines, f + 20))
+  return
+end
+
+if arma then
+  local function hold(key, n)
+    at(f, key, "down")
+    at(f + n, key, "up")
+    f = f + n + 1
+  end
+  local function down(n) for _ = 1, n do tap("down") end end
+  local function up(n) for _ = 1, n do tap("up") end end
+  -- tecla de arma presa por 3 quadros: com os tics aos pares (relogio do
+  -- replay), um toque de um quadro pode ser solto antes de algum tic o ver
+  local function arma_n(k) hold(k, 3) end
+  wait(40)
+  hold("ctrl", 1000)                                   -- pistola ate acabar
+  wait(40)
+  type_text("iddqd"); wait(10); type_text("idkfa"); wait(20)
+  for _, k in ipairs({ "2", "3", "4" }) do             -- pistola, escopeta, metralhadora
+    arma_n(k); wait(40); hold("ctrl", 70); wait(30)
+  end
+  -- troca no meio do tiro: a escopeta termina a sequencia e so entao baixa
+  arma_n("3"); wait(40); at(f, "ctrl", "down"); wait(10); arma_n("4"); wait(60)
+  at(f, "ctrl", "up"); wait(40)
+  -- trava do lanca-foguetes: troca para ele atirando com a metralhadora; com
+  -- o gatilho ainda preso desde a arma anterior, ele nao atira ate soltar
+  at(f, "ctrl", "down"); wait(10); arma_n("5"); wait(70)
+  at(f, "ctrl", "up"); wait(10); hold("ctrl", 10); wait(40)
+  -- troca no meio da subida (a pistola baixa em 16 tics e comeca a subir)
+  arma_n("2"); wait(22); arma_n("5"); wait(60)
+  -- lanca-foguetes com o gatilho preso: atira em sequencia (refire)
+  hold("ctrl", 80); wait(40)
+  arma_n("6"); wait(40); hold("ctrl", 60); wait(40)       -- plasma
+  arma_n("7"); wait(40)                                   -- BFG
+  -- Save no meio do tiro do BFG (60 tics), slot 5: main 0 -> 3 Save -> slot 0 -> 5
+  hold("ctrl", 3)
+  keys({ "escape" }); down(3); keys({ "return" }); wait(10); down(5); keys({ "return" })
+  wait(10)
+  -- Load: main 3 -> 2 Load -> slot 0 -> 5
+  keys({ "escape" }); up(1); keys({ "return" }); wait(10); down(5); keys({ "return" })
+  wait(80)
+  arma_n("1"); wait(60); hold("ctrl", 40); wait(20)       -- motosserra
+  arma_n("1"); wait(40); hold("ctrl", 40); wait(20)       -- punho
+  -- morre atirando: a arma baixa e fica embaixo; renasce com "use"
+  arma_n("2"); wait(40); at(f, "ctrl", "down"); wait(10); cmd("die"); wait(60)
+  at(f, "ctrl", "up"); wait(10); tap("space"); wait(80)
+  hold("ctrl", 40); wait(40)
   lines[#lines + 1] = string.format("%d quit", f + 20)
   local fh = assert(io.open(out_path, "w"))
   fh:write(table.concat(lines, "\n"), "\n")

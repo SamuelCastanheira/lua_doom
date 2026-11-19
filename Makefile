@@ -177,6 +177,7 @@ test-drivers: all
 	@sh tests/test_drivers.sh 0 1 portas -warp 1 1
 	@sh tests/test_drivers.sh 0 1 elevadores -warp 1 3
 	@sh tests/test_drivers.sh 0 1 pisos -warp 2 2
+	@sh tests/test_drivers.sh 0 1 arma -warp 1 1
 
 # Sensibilidade: erros plausiveis (main.atm, setores.atm, specials.lua, saveg.lua)
 # precisam ser detectados. Cada mutacao usa o seu roteiro.
@@ -187,6 +188,7 @@ test-mutacoes: all
 	@sh tests/test_drivers.sh 0 1 portas -warp 1 1 >/dev/null
 	@sh tests/test_drivers.sh 0 1 elevadores -warp 1 3 >/dev/null
 	@sh tests/test_drivers.sh 0 1 pisos -warp 2 2 >/dev/null
+	@sh tests/test_drivers.sh 0 1 arma -warp 1 1 >/dev/null
 	@python3 tools/mutacoes.py
 
 # Metricas e custo do passo 2 (docs/registro/02-fluxo-de-telas.md).

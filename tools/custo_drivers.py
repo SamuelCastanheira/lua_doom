@@ -6,6 +6,8 @@ Compara, no mesmo roteiro:
   passo1-atm   main.atm da tag passo1 (Atmos, telas observadas)
   passo2-atm   main.atm da tag passo2 (Atmos, fluxo de telas em tasks)
   atual-atm    main.atm atual
+CUSTO_TAGS="passo2,passo3" troca as tags intermediarias (padrao: passo2);
+cada uma ganha um worktree em build/ref-<tag>, criado e compilado se faltar.
 
 Cada execucao roda numa pasta limpa (sem saves). O custo por quadro desconta
 a inicializacao, medida com um roteiro que sai no quadro 2.
@@ -13,7 +15,6 @@ a inicializacao, medida com um roteiro que sai no quadro 2.
 Uso (depois de: sh tests/test_drivers.sh 0 1 fluxo):
     python3 tools/custo_drivers.py [repeticoes] [roteiro] [args do jogo...]
     ex.: python3 tools/custo_drivers.py 5 build/drivers/replay_1luzes.txt -warp 4 1
-O worktree da tag passo2 (build/ref-passo2) e criado e compilado se faltar.
 """
 import os
 import shutil
@@ -23,7 +24,7 @@ import time
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 REF = os.path.join(ROOT, "build", "ref-passo1")
-REF2 = os.path.join(ROOT, "build", "ref-passo2")
+TAGS = [t for t in os.environ.get("CUSTO_TAGS", "passo2").split(",") if t]
 REPS = int(sys.argv[1]) if len(sys.argv) > 1 else 5
 SCRIPT = os.path.abspath(sys.argv[2]) if len(sys.argv) > 2 else os.path.join(ROOT, "build", "drivers", "replay_1fluxo.txt")
 QUIT = os.path.join(ROOT, "build", "custo", "quit2.txt")
@@ -32,7 +33,9 @@ GAME_ARGS = sys.argv[3:]
 DRIVERS = [
     ("passo1-lua", REF, ["lua5.4", "main.lua"]),
     ("passo1-atm", REF, ["atmos", "main.atm", "--"]),
-    ("passo2-atm", REF2, ["atmos", "main.atm", "--"]),
+] + [
+    (f"{t}-atm", os.path.join(ROOT, "build", f"ref-{t}"), ["atmos", "main.atm", "--"]) for t in TAGS
+] + [
     ("atual-atm", ROOT, ["atmos", "main.atm", "--"]),
 ]
 
@@ -58,18 +61,20 @@ def run(src, cmd, script):
     return dt, frames
 
 
-def ensure_ref2():
-    if not os.path.isdir(REF2):
-        subprocess.run(["git", "worktree", "add", "--detach", REF2, "passo2"],
+def ensure_ref(tag):
+    ref = os.path.join(ROOT, "build", f"ref-{tag}")
+    if not os.path.isdir(ref):
+        subprocess.run(["git", "worktree", "add", "--detach", ref, tag],
                        cwd=ROOT, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     for name in os.listdir(ROOT):
-        if name.endswith(".wad") and not os.path.exists(os.path.join(REF2, name)):
-            os.symlink(os.path.join(ROOT, name), os.path.join(REF2, name))
-    subprocess.run(["make", "-s"], cwd=REF2, check=True, stdout=subprocess.DEVNULL)
+        if name.endswith(".wad") and not os.path.exists(os.path.join(ref, name)):
+            os.symlink(os.path.join(ROOT, name), os.path.join(ref, name))
+    subprocess.run(["make", "-s"], cwd=ref, check=True, stdout=subprocess.DEVNULL)
 
 
 def main():
-    ensure_ref2()
+    for t in TAGS:
+        ensure_ref(t)
     os.makedirs(os.path.dirname(QUIT), exist_ok=True)
     with open(QUIT, "w") as f:
         f.write("2 quit\n")

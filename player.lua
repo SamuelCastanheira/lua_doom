@@ -758,10 +758,18 @@ local function raise_weapon(player, game)
   start_ready(player, game)
 end
 
-local function weapon_think(player, game)
+-- Arma (passo 4a): a maquina de estados da arma (antes weapon_think,
+-- chamada no meio de M.think) virou a task Arma (arma.atm), que acorda com
+-- :game.arma, emitido pelo Nivel entre M.think_antes e M.think_depois. Aqui
+-- ficam as partes de um tic que ela chama.
+
+-- Comeco de todo tic da arma: o jogador morto so baixa a arma (devolve nil);
+-- vivo, confere a municao (sem municao, pede a troca em pendingweapon) e
+-- devolve o que o resto do tic precisa.
+function M.arma_comeco(player, game)
   if player.playerstate == PST_DEAD or player.health <= 0 then
     lower_weapon(player, game)
-    return
+    return nil
   end
   local cmd = player.cmd
   local firing = band(cmd.buttons, BT_ATTACK) ~= 0
@@ -784,59 +792,19 @@ local function weapon_think(player, game)
       can_fire = ammo_type == nil or player.ammo[ammo_type] >= ammo_needed(player.readyweapon)
     end
   end
-  if player.flash_tics > 0 then
-    player.flash_tics = player.flash_tics - 1
-    if player.flash_tics <= 0 then
-      player.psprite_flash = ""
-      player.extralight = 0
-    end
-  end
-  if player.psprite_state == "fire" then
-    player.psprite_state = "atk"
-  end
-  if player.psprite_state == "atk" then
-    if firing then
-      player.attackdown = true
-    end
-    if player.psprite_tics > 0 then
-      player.psprite_tics = player.psprite_tics - 1
-    end
-    if player.psprite_tics > 0 then
-      return
-    end
-    player.psprite_step = player.psprite_step + 1
-    enter_atk_step(player, game, ammo_type, firing, can_fire)
-    return
-  end
-  if player.pendingweapon ~= WP_NOCHANGE or player.psprite_state == "down" then
-    lower_weapon(player, game)
-    return
-  end
-  if player.psprite_state == "up" then
-    raise_weapon(player, game)
-    return
-  end
-  if firing and can_fire then
-    local ready_gate = (not player.attackdown) or (player.readyweapon ~= WP_MISSILE and player.readyweapon ~= WP_BFG)
-    if ready_gate then
-      player.psprite_state = "atk"
-      player.psprite_step = 0
-      player.psprite_sy = WEAPONTOP
-      player.attackdown = true
-      enter_atk_step(player, game, ammo_type, firing, can_fire)
-      return
-    end
-  end
-  if player.psprite_state ~= "ready" then
-    start_ready(player, game)
-    return
-  end
-  tick_ready(player, game)
-  if not firing then
-    player.attackdown = false
-    player.refire = 0
-  end
+  return { firing = firing, ammo_type = ammo_type, can_fire = can_fire }
 end
+
+-- Pode comecar a atirar? (o lanca-foguetes e o BFG pedem soltar o gatilho)
+function M.arma_pode_atirar(player)
+  return (not player.attackdown) or (player.readyweapon ~= WP_MISSILE and player.readyweapon ~= WP_BFG)
+end
+
+M.arma_baixar = lower_weapon
+M.arma_subir = raise_weapon
+M.arma_pronta = start_ready
+M.arma_balanco = tick_ready
+M.arma_passo = enter_atk_step
 
 local function death_think(world, player, game, leveltime)
   local mo = player.mo
@@ -868,18 +836,18 @@ local function death_think(world, player, game, leveltime)
   elseif player.damagecount ~= 0 then
     player.damagecount = player.damagecount - 1
   end
-  weapon_think(player, game)
-  if band(cmd.buttons, BT_USE) ~= 0 then
-    player.playerstate = PST_REBORN
-  end
 end
 
-function M.think(world, player, game, leveltime)
+-- Um tic do jogador, em duas metades (passo 4a): entre elas, o Nivel emite
+-- :game.arma e a task Arma faz o tic da arma, no mesmo ponto em que M.think
+-- chamava weapon_think. think_antes devolve se o jogador estava morto no
+-- comeco do tic; think_depois recebe esse valor (o morto so pode renascer).
+function M.think_antes(world, player, game, leveltime)
   local mo = player.mo
   local cmd = player.cmd
   if player.playerstate == PST_DEAD then
     death_think(world, player, game, leveltime)
-    return
+    return true
   end
   mo.angle = as_u32(mo.angle + cmd.angleturn * 65536)
   local onground = mo.z <= mo.floorz
@@ -907,7 +875,25 @@ function M.think(world, player, game, leveltime)
       player.pendingweapon = neww
     end
   end
-  weapon_think(player, game)
+  return false
+end
+
+-- Sem main.atm (testes unitarios com game falso): as duas metades, sem a
+-- arma (que agora e a task Arma).
+function M.think(world, player, game, leveltime)
+  local morto = M.think_antes(world, player, game, leveltime)
+  M.think_depois(world, player, game, leveltime, morto)
+end
+
+function M.think_depois(world, player, game, leveltime, morto)
+  local mo = player.mo
+  local cmd = player.cmd
+  if morto then
+    if band(cmd.buttons, BT_USE) ~= 0 then
+      player.playerstate = PST_REBORN
+    end
+    return
+  end
   if (player.powers[PW_STRENGTH] or 0) ~= 0 then
     player.powers[PW_STRENGTH] = player.powers[PW_STRENGTH] + 1
   end
@@ -1595,6 +1581,8 @@ end
 -- 
 
 M.WEAPONBOTTOM = WEAPONBOTTOM
+M.WEAPONTOP = WEAPONTOP
+M.WP_NOCHANGE = WP_NOCHANGE
 M.PST_DEAD = PST_DEAD
 M.PST_REBORN = PST_REBORN
 M.WP_FIST = WP_FIST

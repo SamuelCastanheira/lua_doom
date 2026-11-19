@@ -418,7 +418,7 @@ entidade migrada:
 |---|---|---|---|
 | não | não | só no código | luzes (3a), teto (3d) |
 | não | sim | no registro (o save lê) | botão (3e, só o timer), piso (3d) |
-| sim (o recado) | sim | no registro | porta (3b), elevador (3c) |
+| sim (o recado) | sim | no registro | porta (3b), elevador (3c), arma (4a) |
 
 Para a monografia, isso dá uma regra prática e um resultado: a concorrência
 estruturada rende o máximo (a fase **é** a posição no código) quando a
@@ -426,6 +426,15 @@ entidade não é interrompida nem serializada. Cada uma dessas exigências
 devolve parte da fase para os dados. No Doom original os tetos **são**
 gravados e **podem** ser parados (linhas 57 e 74); se este port os
 corrigisse, o `Teto` teria de voltar a guardar a fase no registro.
+
+A arma (passo 4a) é o caso extremo da última linha: além do recado
+(`pendingweapon`) e do save, três consumidores leem a fase (renderer, save,
+hash), e ela é interrompida em qualquer fase (troca, morte). A task não
+guardou nenhum campo a menos (16 antes e depois), o código cresceu de 79
+para 135 linhas, e cada fase testa a própria saída. O único ganho foi de
+organização (uma função por fase, sem os 7 `return` do despacho; o clarão
+como ramo paralelo). Com as luzes num extremo e a arma no outro, a régua
+fica completa (`docs/registro/04-arma.md`, "Métricas").
 
 ### O oráculo também tem pontos cegos
 
@@ -460,3 +469,219 @@ com o Doom. Para a monografia, isso mostra um efeito colateral útil do
 método: escrever roteiros que exercitam cada caminho, e conferir a cobertura
 com prints, revela comportamentos que ninguém tinha notado no código
 imperativo.
+
+---
+
+## 8. A régua da fase: das luzes à arma
+
+Explicação pedida depois do passo 4a, para detalhar a seção 7. A pergunta
+que se repete a cada entidade migrada é: **onde fica a fase dela?** Fase é
+o "em que ponto estou" (subindo, esperando, atirando...). Ela pode morar no
+**código**, como a posição dentro de um laço, ou nos **dados**, como um campo
+numa tabela. A promessa da concorrência estruturada só se cumpre no primeiro
+caso, e quatro exigências empurram a fase de volta para os dados. A arma tem
+as quatro; as luzes não têm nenhuma.
+
+### A promessa: a fase vira posição no código
+
+A luz que pisca, antes, era um registro com contador e um despacho a cada
+tic:
+
+```lua
+-- tag passo2 (simplificado)
+if light.kind == "flash" then
+  light.count = light.count - 1
+  if light.count <= 0 then
+    if sector.lightlevel == light.maxlight then
+      sector.lightlevel = light.minlight
+      light.count = (p_random() & 7) + 1
+    else ...
+```
+
+Depois virou um programa linear:
+
+```
+val task Pisca (setor, maxl, minl) {
+    espera(band(rng.p_random(), 64) + 1)
+    loop {
+        if setor.lightlevel == maxl {
+            set setor.lightlevel = minl
+            espera(band(rng.p_random(), 7) + 1)   ;; o contador sumiu aqui dentro
+        } else { ... }
+    }
+}
+```
+
+O campo `count` e o `if kind ==` sumiram. A fase ("estou na espera curta") é
+a linha em que a task está parada. É aí que a task rende: menos estado,
+menos código, e a leitura segue a ordem do tempo.
+
+### As quatro exigências que devolvem a fase aos dados
+
+A posição no código tem um defeito: **só a própria task a enxerga**. Ninguém
+de fora consegue perguntar "em que linha você está?", e o Atmos não consegue
+gravar essa posição num arquivo (seção 1, o Stackless Python). Toda vez que
+alguém de fora precisa da fase, ela tem de existir como campo.
+
+**a) Leitores de fora.** Se alguém precisa saber a fase a qualquer momento,
+ela tem de estar num campo legível.
+
+- Na arma: o renderer desenha a arma a cada quadro lendo `psprite_body`,
+  `psprite_flash` e `psprite_sy`, e o hash do replay lê `psprite_state`.
+- Nas luzes: ninguém pergunta em que fase a luz está; só o efeito importa
+  (`lightlevel`).
+
+**b) Save e load.** O save precisa gravar a fase, e o load precisa recriar a
+task **no meio** dela.
+
+- A arma é gravada com `psprite_state`, `psprite_tics`, `psprite_step`,
+  `flash_tics` e mais.
+- No load, a task nova lê `psprite_state` para saber em que fase começar.
+  Se a fase estivesse só no código, não haveria o que gravar.
+- As luzes não são gravadas (no load, recomeçam do zero), e o teto também
+  não.
+
+**c) Escritor de fora no meio do tic (o "recado", seção 5).** Alguém que não
+é a task muda algo que altera a fase dela.
+
+- Na arma, `pendingweapon` é escrito pelo teclado (`think_antes`), por um
+  item apanhado (`touch_special`, durante os mobjs) e pela falta de munição.
+- A task precisa perceber isso **na sua fase**, no tic certo.
+- A alternativa "pura" seria um evento (`watching :arma.trocar`, como o
+  plano previa), mas há dois problemas:
+  - o Lua não pode emitir eventos (regra 4.3 do `CLAUDE.md`: o `emit`
+    poderia abortar quem está chamando);
+  - um evento é imediato: a arma reagiria fora do seu ponto no tic, e o
+    replay divergiria (a mutação `recado-vira-evento`, das portas, mostrou
+    isso).
+- Então a task lê o campo a cada tic.
+
+**d) Interrupção em qualquer fase.** Se a fase pode ser cortada a qualquer
+momento, cada fase precisa testar isso a cada tic.
+
+- Na arma, a morte interrompe todas as fases, e a troca de arma interrompe
+  a subida e a pronta.
+- Por isso cada função de fase tem o mesmo formato:
+
+```
+val func atirar (p, game) {
+    loop {
+        val c = tic(p, game)          ;; morto? (testado em toda fase, todo tic)
+        if c { ...um passo do tiro... }
+        until (p.psprite_state != :atk)   ;; a fase mudou? (cada fase testa a sua saída)
+    }
+}
+```
+
+- A luz nunca é interrompida: ela existe do começo ao fim do nível.
+
+### A régua
+
+| Entidade | a) leitores de fora | b) save | c) recado | d) interrupção | Onde ficou a fase | Resultado |
+|---|---|---|---|---|---|---|
+| Luzes (3a) | não | não | não | não | só no código | ganho claro |
+| Teto (3d) | não | não | não | não | só no código (`dir`, `vel`) | o desce-sobe virou o laço |
+| Botão (3e), piso (3d) | não | sim | não | não | no registro (o save lê) | neutro |
+| Porta (3b), elevador (3c) | não | sim | sim | sim (usar de novo, parar) | no registro | misto |
+| **Arma (4a)** | **sim (3)** | **sim** | **sim** | **sim (morte, troca)** | no registro | **negativo em tamanho** |
+
+Cada "sim" puxa um pedaço da fase de volta para os dados, e a arma tem
+todos. Por isso ela está na ponta oposta das luzes.
+
+### Por que o código da arma cresceu
+
+O `weapon_think` antigo era **uma** função com um despacho, que testava a
+fase uma vez por tic:
+
+```lua
+if player.psprite_state == "atk" then ... return end
+if player.pendingweapon ~= WP_NOCHANGE or player.psprite_state == "down" then ... return end
+if player.psprite_state == "up" then ... return end
+...
+```
+
+Na task, cada fase virou uma função com o próprio laço. Mas os testes não
+sumiram, só se espalharam:
+
+- a pergunta "morto?" (o `tic()` comum) aparece em todas;
+- cada fase testa a própria saída (`until (... != :atk)`);
+- a troca pedida aparece em duas fases;
+- o laço externo ainda despacha pela fase (`ifs { (st == :up) => subir ... }`),
+  porque depois de um load a task precisa começar na fase gravada.
+
+Somando (`tools/metricas_passo4.py`):
+
+- **linhas:** de 79 para 135;
+- **comparações com a fase:** de 4 para 12;
+- **campos do jogador:** os mesmos 16, porque todos continuam necessários
+  para o renderer, o save e o recado.
+
+O que se ganhou de fato é organização:
+
+- cada fase é um trecho legível;
+- não há 7 `return` no meio do tic;
+- o clarão é um ramo separado;
+- a task morre junto com o nível.
+
+É real, mas não reduz nem estado nem tamanho.
+
+### O que isso significa para o TCC
+
+O resultado **não** é "Atmos é pior para armas". O que limita a task são as
+**restrições da migração por equivalência**:
+
+- o save tem de ter o mesmo formato, byte a byte;
+- o renderer lê os mesmos campos;
+- a troca de arma tem de acontecer no mesmo tic.
+
+Essas restrições fixam o layout de dados do código imperativo, e a task tem
+de conviver com ele.
+
+A contribuição é transformar isso num **critério**: o ganho da concorrência
+estruturada é inversamente proporcional a quanto a fase de uma entidade
+precisa ser **observada, gravada, alterada ou interrompida de fora**. Com
+zero dessas exigências (luzes, teto), a fase vira código e o ganho é grande.
+Com todas (arma), a task vira uma reorganização do mesmo estado. Porta e
+elevador ficam no meio.
+
+Essa régua também ajuda a prever o passo 5 (monstros). Eles são lidos de
+fora (renderer, colisão, mira de outros monstros), gravados no save e
+interrompidos a qualquer momento (dor, morte). Pela régua, a expectativa é
+um resultado mais parecido com a arma do que com as luzes, a menos que o
+recorte escolhido evite algumas dessas exigências.
+
+---
+
+## 9. Corte por posição: etapas do motor x entidade não modelada
+
+Surgiu de uma crítica do autor ao passo 4a. Para encaixar a task `Arma` no
+ponto exato do tic, `player.think` foi dividido em `think_antes` e
+`think_depois`, com `emit :game.arma` entre os dois. Os nomes não dizem
+**o que** o jogador faz, só **onde** o corte caiu: é como se o thinker
+continuasse existindo como uma função monolítica chamada pelo motor, só que
+partida em dois pedaços. O Atmos não modelou o jogador; apenas remendou a
+ordem do tic.
+
+**A mesma crítica vale um nível acima.** `G.tic_view_antes`,
+`G.tic_view_meio` e `G.tic_view_depois` também são cortes por posição. A
+diferença é que eles espelham as **etapas do tic do motor**, que é uma noção
+real do Doom (`G_Ticker` → `P_Ticker`: jogadores, thinkers, specials,
+texturas, saída). Ali o corte é aceitável, talvez com nomes melhores, porque
+nomeia uma estrutura que existe no domínio. **Dentro de uma entidade**, como
+o jogador, o corte por posição é sintoma de que a entidade não foi modelada.
+
+**Critério para a monografia:** um corte só para encaixar um `emit` é
+aceitável quando separa etapas que o domínio reconhece (as fases do tic do
+motor). Dentro de uma entidade, o corte deve virar partes com nome do
+domínio (mover, pisar, usar, escolher a arma, contar os poderes) e, se a
+entidade tiver fases (vivo, morto), laços em sequência numa task própria.
+
+**Desdobramento previsto (subpasso 4c):** a task `Jogador`, com a `Arma`
+como filha, as partes nomeadas e as fases vivo e morto como dois laços. A
+variável `morto_no_tic` do `game.lua`, que só existe para atravessar o
+`emit`, vira uma local da task. Antes, testar se a arma precisa mesmo ficar
+no meio do tic do jogador: o que vem depois dela (poderes, efeito de tela,
+contadores) parece não interagir com ela, e, se o replay confirmar, o corte
+desaparece. Isso separa a ordem **semântica** (a arma antes dos monstros,
+por causa do `P_Random`) da ordem que é só **herança do código original** (a
+arma no meio do `P_PlayerThink`).

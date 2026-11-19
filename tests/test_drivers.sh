@@ -15,7 +15,7 @@
 # (mobjs, setores, jogador, RNG, tela atual). A primeira linha divergente
 # aponta o quadro em que a ordem ou o tempo mudou.
 #
-#   sh tests/test_drivers.sh [quadros] [semente] [exits|fluxo|luzes|botoes|portas|elevadores|pisos] [args do jogo...]
+#   sh tests/test_drivers.sh [quadros] [semente] [exits|fluxo|luzes|botoes|portas|elevadores|pisos|arma] [args do jogo...]
 #   exits: o roteiro tambem termina niveis -> intermissao e finale
 #   fluxo: roteiro fixo que passa por todas as transicoes (quadros ignorado)
 #   luzes: jogador parado no E4M1 e no E1M2 (rode com -warp 4 1; passo 3a)
@@ -23,6 +23,7 @@
 #   portas: portas em cada fase, save e load (rode com -warp 1 1; passo 3b)
 #   elevadores: elevadores em cada fase, parados, save e load (rode com -warp 1 3; passo 3c)
 #   pisos: pisos, escadas, donut e esmagadores, save e load (rode com -warp 2 2; passo 3d)
+#   arma: cada arma atirando, trocas, sem municao, save e load, morte (rode com -warp 1 1; passo 4a)
 #
 # REF_TAG=<tag> muda a referencia (padrao: passo1).
 set -e
@@ -219,5 +220,16 @@ if [ "$EXITS" = "pisos" ] && [ $status -eq 0 ]; then
     grep -q "^vista $m" "$OUT/ref.out" || { echo "COBERTURA INCOMPLETA: nao chegou ao $m"; status=1; }
   done
   [ $status -eq 0 ] && echo "  cobertura dos pisos: save e load com pisos subindo e descendo; E2M2, E2M4, E2M1, E3M5"
+fi
+# No roteiro "arma" (passo 4a): save no meio do tiro do BFG (slot 5 com
+# psprite_state "atk" e readyweapon 6) e um load. As trocas, a falta de
+# municao e a morte atirando foram conferidas com prints (registro do passo
+# 4, secao 4a).
+if [ "$EXITS" = "arma" ] && [ $status -eq 0 ]; then
+  grep -aq '"psprite_state":"atk"' "$OUT/run_atm/doomsav5.dsg" 2>/dev/null || { echo "COBERTURA INCOMPLETA: o slot 5 nao tem a arma atirando"; status=1; }
+  grep -aq '"readyweapon":6' "$OUT/run_atm/doomsav5.dsg" 2>/dev/null || { echo "COBERTURA INCOMPLETA: o slot 5 nao tem o BFG"; status=1; }
+  n=$(grep -c "^pedido jogo.carregar" "$OUT/atm.out" || true)
+  [ "$n" -ge 1 ] || { echo "COBERTURA INCOMPLETA: $n loads (esperado 1)"; status=1; }
+  [ $status -eq 0 ] && echo "  cobertura da arma: save e load no meio do tiro do BFG"
 fi
 exit $status

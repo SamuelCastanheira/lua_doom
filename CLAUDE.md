@@ -43,7 +43,7 @@ Atmos) e escreve em **português**. Responda em português.
 | 1. Ambiente e driver Atmos | concluído (`passo1`) |
 | 2. Fluxo de telas em tasks | concluído (`passo2`) |
 | 3. Specials de setor (luzes, portas, elevadores, pisos, botões, save) | concluído (`passo3`): subpassos 0, 3a, 3e, 3b, 3c e 3d |
-| **4. Arma (psprites)** | **próximo** (4a, por equivalência) |
+| **4. Arma (psprites)** | **em andamento:** 4a (por equivalência) feito; 4b fica para a fase de correções |
 | 5. Um monstro como task | planejado |
 
 ---
@@ -91,9 +91,11 @@ Um quadro tem três fases, sempre nesta ordem:
 1. G.handle_input(ev)        para cada evento
 2. ate 4 tics:   se G.wiping(): G.tic_wipe()
                  senao: G.tic_menu(), depois a tela atual:
-                        G.tic_view_antes()   -> "segue" | "parado" | "morte"
+                        G.tic_view_antes()   -> "segue" | "parado"
+                          emit :game.arma      (Nivel; task Arma, passo 4a)
+                        G.tic_view_meio()    -> "segue" | "morte"
                           emit :game.specials  (Nivel; G.specials_resto
-                                                roda o que ainda e Lua)
+                                                roda o scroll, ainda Lua)
                         G.tic_view_depois()  -> nil | "saida"
                         G.tic_intermission() -> true quando acaba
                         G.tic_finale()       -> nil | "title" | "worlddone"
@@ -384,11 +386,18 @@ esperar, `loop in n { await :game.tic }`. **Nunca** use `await 2s` nem
 consumida na ordem em que as entidades pensam. Se a ordem mudar, a sequência
 aleatória muda e o jogo diverge.
 
-Ordem atual de um tic de nível (`G.tic_view_antes`, 1 a 6;
-`emit :game.specials`, 7; `G.tic_view_depois`, 8 a 11):
+Ordem atual de um tic de nível (`G.tic_view_antes`, 1 a 3a;
+`emit :game.arma`, 3b; `G.tic_view_meio`, 3c a 6; `emit :game.specials`, 7;
+`G.tic_view_depois`, 8 a 11):
 1. automapa
 2. comando do jogador (`build_ticcmd`)
-3. `player_mod.think`
+3. o jogador, em três partes (passo 4a):
+   1. `player_mod.think_antes`: movimento, "use", troca pelo teclado (o
+      morto: `death_think`, sem a arma);
+   2. `emit :game.arma` em `Nivel`: a task `Arma` (`arma.atm`), no ponto do
+      antigo `weapon_think`; ramo do clarão antes da fase (P6);
+   3. `player_mod.think_depois`: poderes e contadores (o morto: "use" →
+      renascer)
 4. `player_mod.tick_fx`
 5. renascer? → `"morte"`
 6. `thinker.tick`: mobjs na ordem de `world.mobjs`
@@ -489,7 +498,7 @@ automapa, `-`/`=` mudam o tamanho da tela.
 ### 5.2 Equivalência da lógica (driver Atmos × referência)
 
 ```sh
-make test-drivers          # semantica do Atmos (P1-P9) + 8 roteiros contra a tag passo1; saves comparados byte a byte
+make test-drivers          # semantica do Atmos (P1-P9) + 9 roteiros contra a tag passo1; saves comparados byte a byte
 sh tests/test_drivers.sh 0 1 fluxo         # roteiro com todas as transicoes
 sh tests/test_drivers.sh 4000 1            # pseudoaleatorio, 4000 quadros, semente 1
 sh tests/test_drivers.sh 6000 2 exits      # tambem termina niveis
@@ -498,6 +507,7 @@ sh tests/test_drivers.sh 0 1 botoes -warp 1 1     # passo 3e: switches, save e l
 sh tests/test_drivers.sh 0 1 portas -warp 1 1     # passo 3b: portas em cada fase, save e load
 sh tests/test_drivers.sh 0 1 elevadores -warp 1 3 # passo 3c: elevadores em cada fase, parados, save e load
 sh tests/test_drivers.sh 0 1 pisos -warp 2 2      # passo 3d: pisos, escadas, donut, esmagadores (jogador embaixo), save e load
+sh tests/test_drivers.sh 0 1 arma -warp 1 1       # passo 4a: cada arma, trocas, sem municao, save e load no tiro, morte
 REF_TAG=passo2 sh tests/test_drivers.sh 0 1 fluxo   # outra referencia
 ```
 
@@ -625,15 +635,26 @@ revisões do próprio port na seção 5). No fim, as correções são feitas nas
 
 ---
 
-## 9. Passo 3 concluído (specials de setor); próximo: passo 4 (arma)
+## 9. Passos 3 e 4a concluídos; próximo: passo 5 (um monstro)
 
-**Próximo passo:** passo 4a do `docs/PLANO_ATMOS.md` (seção 6): a arma
-(psprites) como task, **por equivalência** com a lógica atual de
-`player.lua` (`WEAPON_PATCH`, `WEAPON_READY`, `WEAPON_ATK`), sem trocar
-pela máquina de estados do `p_pspr.c` (isso é o 4b, que muda o jogo de
-propósito). A referência continua sendo a tag `passo1`; o registro novo é
-`docs/registro/04-arma.md`. A receita do fim desta seção vale também para o
-passo 4.
+**Passo 4a (feito):** a arma como task `Arma` (`arma.atm`), por
+equivalência com a lógica de `player.lua` (as tabelas `WEAPON_*` e as
+partes de um tic continuam lá). `player.think` virou `think_antes` e
+`think_depois`; o `Nivel` emite `:game.arma` entre as duas, no ponto do
+antigo `weapon_think` (`G.tic_view_meio` é a segunda metade do antigo
+`tic_view_antes`). A fase continua em `psprite_state` (renderer, save e hash
+a leem; o Lua escreve `pendingweapon` no meio do tic). O clarão é um ramo do
+`par`, **antes** da fase (P6). O hash (com `DOOM_REPLAY_SIDES=1`) inclui
+todos os campos da arma; roteiro `arma`, com as teclas de arma presas por 3
+quadros (tics aos pares). Expressividade **negativa** em tamanho
+(79 → 135 linhas; os mesmos 16 campos): registrado em
+`docs/registro/04-arma.md`. O 4b (estados de `info.STATES` e ações do
+`p_pspr.c`) muda o jogo e fica para a fase de correções.
+
+**Próximo passo:** passo 5 do `docs/PLANO_ATMOS.md` (seção 6): um monstro
+como task, com emit direcionado a partir de `thinker.tick` (regra 4.2) e a
+discussão de `docs/NOTAS_MONOGRAFIA.md`, seção 6 (monstros orientados a
+dados). Registro novo: `docs/registro/05-monstro.md`.
 
 O passo 3, plano em `docs/PLANO_ATMOS.md`, seção 6, e registro em
 `docs/registro/03-specials.md`. Como ficou o código (`specials.lua` guarda
