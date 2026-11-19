@@ -230,6 +230,8 @@ if [ "$EXITS" = "arma" ] && [ $status -eq 0 ]; then
   grep -aq '"readyweapon":6' "$OUT/run_atm/doomsav5.dsg" 2>/dev/null || { echo "COBERTURA INCOMPLETA: o slot 5 nao tem o BFG"; status=1; }
   n=$(grep -c "^pedido jogo.carregar" "$OUT/atm.out" || true)
   [ "$n" -ge 1 ] || { echo "COBERTURA INCOMPLETA: $n loads (esperado 1)"; status=1; }
-  [ $status -eq 0 ] && echo "  cobertura da arma: save e load no meio do tiro do BFG"
+  v=$(grep -c "^vista E1M1" "$OUT/ref.out" || true)
+  [ "$v" -ge 3 ] || { echo "COBERTURA INCOMPLETA: o jogador nao renasceu ($v vistas do E1M1, esperado 3)"; status=1; }
+  [ $status -eq 0 ] && echo "  cobertura da arma: save e load no meio do tiro do BFG; morte e renascimento"
 fi
 exit $status

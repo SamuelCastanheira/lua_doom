@@ -34,7 +34,10 @@ os bugs de ciclo de vida na lógica de jogos, com custo aceitável?
 | 1. Ambiente e driver | concluído (tag `passo1`) | [registro/01-ambiente-e-driver.md](registro/01-ambiente-e-driver.md) |
 | 4.1–4.3. Referência, hash, roteiros | concluído junto com o passo 2 | [registro/02-fluxo-de-telas.md](registro/02-fluxo-de-telas.md), seção 5 |
 | 2. Fluxo do jogo por eventos | concluído (tag `passo2`) | [registro/02-fluxo-de-telas.md](registro/02-fluxo-de-telas.md) |
-| 3. Specials de setor | próximo | – |
+| 3. Specials de setor | concluído (tag `passo3`) | [registro/03-specials.md](registro/03-specials.md) |
+| 4. Arma (4a) e jogador (4c) | concluído (tag `passo4`); 4b adiado para a fase de correções | [registro/04-arma.md](registro/04-arma.md) |
+| 5. Um monstro | próximo | – |
+| 6. Wipe e quadro por evento (opcional) | planejado | – |
 
 Desvios em relação a este plano, decididos durante o passo 2:
 
@@ -530,6 +533,16 @@ referência.
 **Save:** os campos `psprite_*` do save viram o `pub` da task, com a mesma
 técnica do 3f.
 
+**4c, o jogador como task (acrescentado durante o passo 4).** No 4a,
+`player.think` foi partido em duas metades sem significado só para encaixar
+a arma no ponto do tic: um corte por posição, sintoma de que o jogador não
+estava modelado (`docs/NOTAS_MONOGRAFIA.md`, seção 9). No 4c, a task
+`Jogador` acorda com `:game.jogador`, faz o tic chamando partes com nomes do
+domínio (mover, pisar, usar, escolher a arma, contar os poderes e os
+avisos), tem as fases vivo e morto como dois laços e cria a `Arma` como
+filha. Antes, testar se a arma precisa mesmo ficar no meio do tic do
+jogador; se não, ela vem depois de todas as partes e o corte desaparece.
+
 ### Passo 5: um monstro (2 semanas, mostra a coexistência)
 
 Escolha um, como o Imp (`MT_TROOP`) ou o Zombieman (`MT_POSSESSED`).
@@ -561,6 +574,20 @@ Escolha um, como o Imp (`MT_TROOP`) ou o Zombieman (`MT_POSSESSED`).
   posição dele (regra 3.3).
 - **Escopo:** os outros monstros ficam como thinkers, e isso também é um
   resultado: os dois modelos coexistem na mesma lista.
+
+### Passo 6 (opcional): wipe como task e quadro por evento
+
+Só se houver tempo depois do passo 5; é apresentação, não lógica de jogo
+(`docs/NOTAS_MONOGRAFIA.md`, seção 2).
+
+- **Wipe como task:** a transição de tela ("derreter") deixa de ser
+  detectada no redesenho comparando `wipe_state` com `gamestate` e vira um
+  programa linear entre duas telas. Pela régua da fase (notas, seção 8), é um
+  bom candidato: ninguém de fora lê a fase do wipe, ele não vai para o save e
+  o Lua não escreve nele no meio.
+- **Quadro por evento:** cada task de tela desenha a si mesma em
+  `:game.frame`, e o despacho por `gamestate` no `redraw` some.
+- O renderer 3D em C continua como está: não tem dimensão de tempo.
 
 ---
 

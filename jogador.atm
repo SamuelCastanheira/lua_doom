@@ -1,0 +1,52 @@
+;; O jogador como task Atmos (passo 4c).
+;;
+;; Antes: player.think (player.lua, tag passo3), uma funcao so que o laco
+;; chamava a cada tic, com um "if playerstate == PST_DEAD" no comeco e a arma
+;; (weapon_think) no meio. No passo 4a ela foi partida em duas metades sem
+;; significado (think_antes, think_depois) so para encaixar a task Arma.
+;;
+;; Agora: a task Jogador acorda com :game.jogador (emitido pelo Nivel no
+;; ponto do antigo player.think) e faz o tic chamando partes com nomes do
+;; dominio. As fases vivo e morto sao dois lacos em sequencia: a task sabe em
+;; que fase esta pela posicao no codigo. playerstate continua existindo (os
+;; monstros, o renderer e o save o leem), mas a task so o consulta para
+;; perceber a morte, que vem de fora (dano no meio do tic).
+;;
+;; A arma (task Arma, arma.atm) e filha do Jogador e acorda com
+;; :jogador.arma, que so alcanca a subarvore do Jogador, depois de todas as
+;; partes do tic. No Doom ela ficava no meio do P_PlayerThink; o que vinha
+;; depois (poderes, efeito de tela, contadores) nao interage com ela, e o
+;; replay confirma (registro do passo 4, secao 4c).
+
+val J    = require "player"
+val arma = require "arma"
+
+val task Jogador (p, game) {
+    set pub = p
+    spawn arma.Arma(p, game)              ;; filha: termina com o Jogador
+    loop {                                ;; vivo
+        await :game.jogador
+        until (p.playerstate == J.PST_DEAD)   ;; morreu: este tic ja e de morto
+        val w = game.world
+        val t = game.leveltime || 0
+        J.mover(w, p, game, t)            ;; girar, andar, altura da camera
+        J.pisar(w, p, game, t)            ;; dano e segredo do setor
+        J.usar(w, p, game)                ;; linhas
+        J.escolher_arma(p)                ;; pedido pelo teclado
+        J.contar_poderes(p)               ;; e o efeito de tela
+        J.contar_avisos(p)                ;; claroes e mensagem
+        emit :jogador.arma
+    }
+    loop {                                ;; morto (o tic corrente ja chegou)
+        J.cair(game.world, p, game, game.leveltime || 0)
+        emit :jogador.arma                ;; a arma continua descendo
+        val renasce = J.usou(p)
+        if renasce {
+            set p.playerstate = J.PST_REBORN  ;; o Nivel le e recomeca
+        }
+        until (renasce)
+        await :game.jogador
+    }
+}
+
+[Jogador=Jogador]

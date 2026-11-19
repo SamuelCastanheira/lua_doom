@@ -10,7 +10,7 @@ do que mudou, do porquê e do que deu errado no caminho.
 | 1 | `passo1` | [01-ambiente-e-driver.md](01-ambiente-e-driver.md) | ambiente `atmos.env.doom`, `game.lua` em fases, `main.atm`, modo replay |
 | 2 | `passo2` | [02-fluxo-de-telas.md](02-fluxo-de-telas.md) | fluxo de telas em tasks; pedidos em vez de chamadas |
 | 3 | `passo3` | [03-specials.md](03-specials.md) | specials de setor em tasks (subpasso 0, 3a: luzes, 3e: botões, 3b: portas, 3c: elevadores, 3d: pisos e tetos) |
-| 4 | `passo4` (ao fim) | [04-arma.md](04-arma.md) | a arma do jogador em task (4a, por equivalência) |
+| 4 | `passo4` | [04-arma.md](04-arma.md) | a arma (4a) e o jogador (4c) em tasks |
 
 ## Cadeia de equivalência
 

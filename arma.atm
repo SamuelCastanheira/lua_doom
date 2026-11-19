@@ -2,9 +2,9 @@
 ;;
 ;; Antes: weapon_think (player.lua, tag passo3), chamada no meio de
 ;; player.think, despachava a cada tic por player.psprite_state ("up",
-;; "ready", "atk", "down"). Agora a task Arma acorda com :game.arma, que o
-;; Nivel emite entre player.think_antes e player.think_depois, no mesmo ponto
-;; do tic.
+;; "ready", "atk", "down"). Agora a task Arma e filha da task Jogador
+;; (jogador.atm, passo 4c) e acorda com :jogador.arma, que o Jogador emite
+;; depois das partes do seu tic.
 ;;
 ;; A fase continua em psprite_state, no registro do jogador, pelos mesmos
 ;; motivos da porta (passo 3b): o renderer, o save e o hash de estado a leem,
@@ -19,7 +19,7 @@ val A = require "player"
 ;; (devolve nil); vivo, devolve [firing, ammo_type, can_fire] (sem municao,
 ;; ja pediu a troca em pendingweapon).
 val func tic (p, game) {
-    await :game.arma
+    await :jogador.arma
     A.arma_comeco(p, game)
 }
 
@@ -106,7 +106,7 @@ val func pronta (p, game) {
 ;; (P6): o tiro deste tic liga um clarao novo depois da contagem.
 val func clarao (p) {
     loop {
-        await :game.arma
+        await :jogador.arma
         val vivo = (p.playerstate != A.PST_DEAD) && (p.health > 0)
         if vivo && (p.flash_tics > 0) {
             set p.flash_tics = p.flash_tics - 1

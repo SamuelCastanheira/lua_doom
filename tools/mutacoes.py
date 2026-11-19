@@ -37,6 +37,14 @@ ROTEIROS = {
 # Mutantes equivalentes: mudam o codigo mas nao o comportamento. Sobreviver
 # e o esperado; a justificativa fica registrada.
 EQUIVALENTES = {
+    "arma-no-meio-do-jogador":
+        "a arma no meio do tic do jogador, como no P_PlayerThink do Doom "
+        "(depois da troca pelo teclado, antes dos poderes). O que vem depois "
+        "dela nao interage com ela: a forca so cresce e o soco so pergunta se "
+        "e diferente de zero; tirar MF_SHADOW nao afeta o tiro; a arma nao le "
+        "damagecount, bonuscount, mensagem nem fixedcolormap; e nenhuma dessas "
+        "partes consome P_Random. Por isso o passo 4c poe a arma depois de "
+        "todas as partes, sem corte (registro do passo 4, secao 4c)",
     "tiro-sem-gatilho-preso":
         "durante o tiro, attackdown ja e verdadeiro: e ligado ao comecar o tiro "
         "(fase pronta) e por do_shot, e so e desligado na saida para a fase "
@@ -68,6 +76,12 @@ EQUIVALENTES = {
 # com o roteiro que deve passar a detecta-lo. Quando esse roteiro existir,
 # tire a mutacao daqui: ela tem de passar a "detectada".
 PENDENTES = {
+    "usar-antes-de-mover":
+        "nao e equivalente: use_lines usa a posicao e o angulo do jogador, e "
+        "usar antes de girar e andar muda o resultado quando o movimento do "
+        "tic poe uma linha ao alcance (ou a tira). Nenhum roteiro aperta use "
+        "exatamente no tic em que o jogador chega ao alcance de uma linha "
+        "(passo 4c). Seria preciso montar esse cenario",
     "portas-fora-de-movers":
         "so diverge com uma porta e um elevador (ou piso) vizinhos andando no "
         "mesmo tic e um mobj na fronteira: o centro num setor, o corpo no "
@@ -362,10 +376,10 @@ MUTACOES = [
      "",
      "saveg.lua", "pisos"),
     # --- passo 4a: arma como task (roteiro "arma": E1M1)
-    ("arma-depois-do-jogador",
-     "Arma acorda depois do resto do jogador e dos mobjs (fora do ponto do tic)",
-     "                    emit :game.arma           ;; passo 4a: task Arma\n                    val meio = G.tic_view_meio()  ;; \"segue\" | \"morte\"\n",
-     "                    val meio = G.tic_view_meio()  ;; \"segue\" | \"morte\"\n                    emit :game.arma\n",
+    ("jogador-depois-dos-mobjs",
+     "Jogador (e a arma) acordam depois dos mobjs (fora do ponto do tic)",
+     "                    emit :game.jogador        ;; passo 4c: task Jogador\n                    val meio = G.tic_view_meio()  ;; \"segue\" | \"morte\"\n",
+     "                    val meio = G.tic_view_meio()  ;; \"segue\" | \"morte\"\n                    emit :game.jogador\n",
      "main.atm", "arma"),
     ("clarao-depois-da-fase",
      "O clarao conta depois da fase: o clarao ligado no tic perde um tic",
@@ -402,6 +416,32 @@ MUTACOES = [
      '  player.psprite_state = take("psprite_state", player.psprite_state)\n',
      '  player.psprite_state = "up"\n',
      "saveg.lua", "arma"),
+    # --- passo 4c: o jogador como task (roteiros "arma" e "fluxo")
+    ("arma-no-meio-do-jogador",
+     "A arma no meio do tic do jogador, como no Doom (antes dos poderes)",
+     "        J.escolher_arma(p)                ;; pedido pelo teclado\n        J.contar_poderes(p)               ;; e o efeito de tela\n        J.contar_avisos(p)                ;; claroes e mensagem\n        emit :jogador.arma\n",
+     "        J.escolher_arma(p)                ;; pedido pelo teclado\n        emit :jogador.arma\n        J.contar_poderes(p)               ;; e o efeito de tela\n        J.contar_avisos(p)                ;; claroes e mensagem\n",
+     "jogador.atm", "arma"),
+    ("morto-perde-o-tic-da-morte",
+     "No tic em que percebe a morte, o Jogador espera o proximo tic para agir",
+     "    loop {                                ;; morto (o tic corrente ja chegou)\n        J.cair(",
+     "    loop {                                ;; morto (o tic corrente ja chegou)\n        await :game.jogador\n        J.cair(",
+     "jogador.atm", "arma"),
+    ("morto-sem-arma",
+     "Com o jogador morto, a arma para (nao desce)",
+     "        emit :jogador.arma                ;; a arma continua descendo\n",
+     "",
+     "jogador.atm", "arma"),
+    ("renasce-sem-use",
+     "O morto renasce sem apertar use",
+     "        val renasce = J.usou(p)\n",
+     "        val renasce = true\n",
+     "jogador.atm", "arma"),
+    ("usar-antes-de-mover",
+     "O jogador usa as linhas antes de se mover no tic",
+     "        J.mover(w, p, game, t)            ;; girar, andar, altura da camera\n        J.pisar(w, p, game, t)            ;; dano e segredo do setor\n        J.usar(w, p, game)                ;; linhas\n",
+     "        J.usar(w, p, game)                ;; linhas\n        J.mover(w, p, game, t)            ;; girar, andar, altura da camera\n        J.pisar(w, p, game, t)            ;; dano e segredo do setor\n",
+     "jogador.atm", "fluxo"),
     ("novo-nao-descarta",
      "New Game no meio do jogo e ignorado (o Jogo atual continua)",
      "            await <:jogo.novo || :jogo.carregar>   ;; descarta o jogo atual\n",

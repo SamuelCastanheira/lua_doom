@@ -226,7 +226,7 @@ if arma then
   arma_n("1"); wait(40); hold("ctrl", 40); wait(20)       -- punho
   -- morre atirando: a arma baixa e fica embaixo; renasce com "use"
   arma_n("2"); wait(40); at(f, "ctrl", "down"); wait(10); cmd("die"); wait(60)
-  at(f, "ctrl", "up"); wait(10); tap("space"); wait(80)
+  at(f, "ctrl", "up"); wait(10); hold("space", 3); wait(80)
   hold("ctrl", 40); wait(40)
   lines[#lines + 1] = string.format("%d quit", f + 20)
   local fh = assert(io.open(out_path, "w"))

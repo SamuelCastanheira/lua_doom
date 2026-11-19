@@ -26,14 +26,13 @@ def campos(text, nome):
     return set(re.findall(r"\b" + nome + r"\.(\w+)", sem_comentarios(text)))
 
 
-def main():
+def arma():
     antes = lua_function(read(REF, "player.lua"), "local function weapon_think")
     atual_lua = "\n".join(lua_function(read(None, "player.lua"), h) for h in (
         "function M.arma_comeco", "function M.arma_pode_atirar"))
     atm = read(None, "arma.atm")
     atm = atm[:atm.rindex("[Arma=Arma]")]
     rl, ll, al = code_lines(antes, "--"), code_lines(atual_lua, "--"), code_lines(atm, ";;")
-    print(f"referencia: tag {REF}   atual: arvore de trabalho\n")
     print(f"{'metrica':46} {'antes':>7} {'depois':>7}")
     print(f"{'linhas de codigo (Lua)':46} {rl:>7} {ll:>7}")
     print(f"{'linhas de codigo (Atmos)':46} {'-':>7} {al:>7}")
@@ -54,6 +53,42 @@ def main():
     nr = len(ret.findall(sem_comentarios(antes)))
     nd = len(ret.findall(sem_comentarios(atual_lua)))
     print(f"{'return no tic (Lua; Atmos nao tem)':46} {nr:>7} {nd:>7}")
+
+
+def jogador():
+    """4c: player.think (tag passo3) x task Jogador mais as partes nomeadas."""
+    antes = lua_function(read(REF, "player.lua"), "function M.think(")
+    atual = read(None, "player.lua")
+    partes = "\n".join(lua_function(atual, h) for h in (
+        "function M.mover", "function M.usar", "function M.escolher_arma",
+        "function M.contar_poderes", "function M.contar_avisos", "function M.usou"))
+    atm = read(None, "jogador.atm")
+    atm = atm[:atm.rindex("[Jogador=Jogador]")]
+    rl, ll, al = code_lines(antes, "--"), code_lines(partes, "--"), code_lines(atm, ";;")
+    print(f"{'metrica':46} {'antes':>7} {'depois':>7}")
+    print(f"{'linhas de codigo (Lua)':46} {rl:>7} {ll:>7}")
+    print(f"{'linhas de codigo (Atmos)':46} {'-':>7} {al:>7}")
+    print(f"{'linhas de codigo (total)':46} {rl:>7} {ll + al:>7}")
+    pa = len(re.findall(r"playerstate ==", sem_comentarios(antes)))
+    pd = len(re.findall(r"playerstate ==", sem_comentarios(partes))) + \
+        len(re.findall(r"playerstate ==", sem_comentarios(atm)))
+    print(f"{'testes de fase (playerstate ==)':46} {pa:>7} {pd:>7}")
+    fa = len(re.findall(r"^function |^local function ", antes, re.M))
+    print(f"{'funcoes com nome do dominio':46} {fa:>7} "
+          f"{len(re.findall(r'^function M\.', partes, re.M)):>7}")
+    # 4a: as duas metades e a variavel que atravessava o emit (commit do 4a)
+    g4a = read("903e023", "game.lua")
+    print(f"{'estado so para atravessar o emit (4a -> 4c)':46} "
+          f"{len(re.findall(r'morto_no_tic', g4a)):>7} "
+          f"{len(re.findall(r'morto_no_tic', read(None, 'game.lua'))):>7}")
+
+
+def main():
+    print(f"referencia: tag {REF}   atual: arvore de trabalho\n")
+    print("== 4a arma")
+    arma()
+    print("\n== 4c jogador")
+    jogador()
 
 
 if __name__ == "__main__":

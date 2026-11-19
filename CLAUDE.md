@@ -43,7 +43,8 @@ Atmos) e escreve em **português**. Responda em português.
 | 1. Ambiente e driver Atmos | concluído (`passo1`) |
 | 2. Fluxo de telas em tasks | concluído (`passo2`) |
 | 3. Specials de setor (luzes, portas, elevadores, pisos, botões, save) | concluído (`passo3`): subpassos 0, 3a, 3e, 3b, 3c e 3d |
-| **4. Arma (psprites)** | **em andamento:** 4a (por equivalência) feito; 4b fica para a fase de correções |
+| 4. Arma e jogador | concluído (`passo4`): 4a (arma) e 4c (jogador como task); 4b fica para a fase de correções |
+| **5. Um monstro** | **próximo** |
 | 5. Um monstro como task | planejado |
 
 ---
@@ -92,7 +93,7 @@ Um quadro tem três fases, sempre nesta ordem:
 2. ate 4 tics:   se G.wiping(): G.tic_wipe()
                  senao: G.tic_menu(), depois a tela atual:
                         G.tic_view_antes()   -> "segue" | "parado"
-                          emit :game.arma      (Nivel; task Arma, passo 4a)
+                          emit :game.jogador   (Nivel; task Jogador, com a Arma)
                         G.tic_view_meio()    -> "segue" | "morte"
                           emit :game.specials  (Nivel; G.specials_resto
                                                 roda o scroll, ainda Lua)
@@ -386,18 +387,18 @@ esperar, `loop in n { await :game.tic }`. **Nunca** use `await 2s` nem
 consumida na ordem em que as entidades pensam. Se a ordem mudar, a sequência
 aleatória muda e o jogo diverge.
 
-Ordem atual de um tic de nível (`G.tic_view_antes`, 1 a 3a;
-`emit :game.arma`, 3b; `G.tic_view_meio`, 3c a 6; `emit :game.specials`, 7;
+Ordem atual de um tic de nível (`G.tic_view_antes`, 1 e 2;
+`emit :game.jogador`, 3; `G.tic_view_meio`, 4 a 6; `emit :game.specials`, 7;
 `G.tic_view_depois`, 8 a 11):
 1. automapa
 2. comando do jogador (`build_ticcmd`)
-3. o jogador, em três partes (passo 4a):
-   1. `player_mod.think_antes`: movimento, "use", troca pelo teclado (o
-      morto: `death_think`, sem a arma);
-   2. `emit :game.arma` em `Nivel`: a task `Arma` (`arma.atm`), no ponto do
-      antigo `weapon_think`; ramo do clarão antes da fase (P6);
-   3. `player_mod.think_depois`: poderes e contadores (o morto: "use" →
-      renascer)
+3. `emit :game.jogador` em `Nivel`: a task `Jogador` (`jogador.atm`, passo
+   4c). Vivo: `mover`, `pisar`, `usar`, `escolher_arma`, `contar_poderes`,
+   `contar_avisos` (partes em `player.lua`) e então `emit :jogador.arma`,
+   que acorda a filha `Arma` (`arma.atm`; ramo do clarão antes da fase, P6).
+   Morto: `cair`, `emit :jogador.arma`, "use" → `PST_REBORN`. No Doom a arma
+   ficava no meio do `P_PlayerThink`; depois de tudo é equivalente (mutação
+   `arma-no-meio-do-jogador`, em `EQUIVALENTES`)
 4. `player_mod.tick_fx`
 5. renascer? → `"morte"`
 6. `thinker.tick`: mobjs na ordem de `world.mobjs`
@@ -507,7 +508,7 @@ sh tests/test_drivers.sh 0 1 botoes -warp 1 1     # passo 3e: switches, save e l
 sh tests/test_drivers.sh 0 1 portas -warp 1 1     # passo 3b: portas em cada fase, save e load
 sh tests/test_drivers.sh 0 1 elevadores -warp 1 3 # passo 3c: elevadores em cada fase, parados, save e load
 sh tests/test_drivers.sh 0 1 pisos -warp 2 2      # passo 3d: pisos, escadas, donut, esmagadores (jogador embaixo), save e load
-sh tests/test_drivers.sh 0 1 arma -warp 1 1       # passo 4a: cada arma, trocas, sem municao, save e load no tiro, morte
+sh tests/test_drivers.sh 0 1 arma -warp 1 1       # passo 4: cada arma, trocas, sem municao, save e load no tiro, morte e renascer
 REF_TAG=passo2 sh tests/test_drivers.sh 0 1 fluxo   # outra referencia
 ```
 
@@ -534,7 +535,7 @@ Se a tag nova não tiver algum comando de teste do replay, crie
 ### 5.3 Sensibilidade, métricas e custo
 
 ```sh
-make test-mutacoes         # tools/mutacoes.py: 44/46 detectadas, 4 equivalentes, 2 pendentes
+make test-mutacoes         # tools/mutacoes.py: 54/57 detectadas, 6 equivalentes, 3 pendentes
 make metricas              # tools/metricas_passo2.py + tools/custo_drivers.py
 python3 tools/custo_drivers.py 5           # ms/quadro dos 3 drivers
 N=500 atmos tools/bench_tasks.atm          # custo por task acordada
@@ -635,14 +636,14 @@ revisões do próprio port na seção 5). No fim, as correções são feitas nas
 
 ---
 
-## 9. Passos 3 e 4a concluídos; próximo: passo 5 (um monstro)
+## 9. Passos 3 e 4 concluídos; próximo: passo 5 (um monstro)
 
 **Passo 4a (feito):** a arma como task `Arma` (`arma.atm`), por
 equivalência com a lógica de `player.lua` (as tabelas `WEAPON_*` e as
-partes de um tic continuam lá). `player.think` virou `think_antes` e
-`think_depois`; o `Nivel` emite `:game.arma` entre as duas, no ponto do
-antigo `weapon_think` (`G.tic_view_meio` é a segunda metade do antigo
-`tic_view_antes`). A fase continua em `psprite_state` (renderer, save e hash
+partes de um tic continuam lá). No 4a, `player.think` foi partido em
+`think_antes` e `think_depois`, com `emit :game.arma` entre os dois; o 4c
+trocou isso pela task `Jogador` (abaixo), e a `Arma` passou a acordar com
+`:jogador.arma`. A fase continua em `psprite_state` (renderer, save e hash
 a leem; o Lua escreve `pendingweapon` no meio do tic). O clarão é um ramo do
 `par`, **antes** da fase (P6). O hash (com `DOOM_REPLAY_SIDES=1`) inclui
 todos os campos da arma; roteiro `arma`, com as teclas de arma presas por 3
@@ -650,6 +651,17 @@ quadros (tics aos pares). Expressividade **negativa** em tamanho
 (79 → 135 linhas; os mesmos 16 campos): registrado em
 `docs/registro/04-arma.md`. O 4b (estados de `info.STATES` e ações do
 `p_pspr.c`) muda o jogo e fica para a fase de correções.
+
+**Passo 4c (feito):** o jogador como task `Jogador` (`jogador.atm`), com a
+`Arma` como filha. Motivo: as metades `think_antes`/`think_depois` do 4a
+eram um corte por posição, sem significado (notas, seção 9). Agora o tic do
+jogador são partes com nome do domínio em `player.lua` e as fases vivo e
+morto são dois laços; `morto_no_tic` sumiu. A arma vem depois de todas as
+partes (experimento: idêntico nos roteiros; mutação equivalente). O laço do
+morto age já no tic em que a morte é percebida. A morte **não** aborta a
+`Arma` (a arma desce depois da morte, e isso aparece). O `Nivel` ainda lê
+`playerstate` para renascer (`G.tic_view_meio`), porque o `tick_fx` roda
+antes no tic de renascer.
 
 **Próximo passo:** passo 5 do `docs/PLANO_ATMOS.md` (seção 6): um monstro
 como task, com emit direcionado a partir de `thinker.tick` (regra 4.2) e a

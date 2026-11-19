@@ -1,4 +1,4 @@
-# Passo 4: a arma do jogador em concorrência estruturada
+# Passo 4: a arma e o jogador em concorrência estruturada
 
 - Branch: `atmos`
 - Referência de equivalência: tag `passo1` (nenhum subpasso muda o
@@ -10,8 +10,9 @@ Este registro cresce a cada commit do passo 4: uma seção por subpasso.
 
 | Subpasso | Commit | Situação |
 |---|---|---|
-| 4a. Arma por equivalência | (este commit) | concluído |
+| 4a. Arma por equivalência | `903e023` | concluído |
 | 4b. Fidelidade ao `p_pspr.c` | – | opcional; muda o jogo de propósito (fica para a fase de correções, `docs/DIFERENCAS_DOOM.md`) |
+| 4c. O jogador como task | (este commit) | concluído; acrescentado ao plano durante o passo |
 
 ---
 
@@ -356,3 +357,227 @@ python3 tools/diagramas.py
 | `tools/metricas_passo4.py` | novo |
 | `tools/custo_drivers.py` | `CUSTO_TAGS`: mede outras tags intermediárias além da `passo2` |
 | `Makefile` | roteiro `arma` |
+
+---
+
+## Subpasso 4c: o jogador como task
+
+### Resumo
+
+O jogador virou a task `Jogador` (`jogador.atm`), com a `Arma` como filha.
+O `Nivel` emite `:game.jogador` no ponto do antigo `player.think`, e a task
+faz o tic chamando partes com nomes do domínio: mover, pisar, usar,
+escolher a arma, contar os poderes, contar os avisos. As fases vivo e morto
+são dois laços em sequência. A arma é avisada com `:jogador.arma`, que só
+alcança a subárvore do `Jogador`, **depois** de todas as partes: um
+experimento mostrou que a posição dela no meio do tic, herdada do
+`P_PlayerThink` do Doom, não é semântica. Com isso sumiram as duas metades
+sem significado do 4a (`think_antes`, `think_depois`) e a variável
+`morto_no_tic`, que só existia para atravessar o `emit`.
+
+### Por que este subpasso (situação no 4a, commit `903e023`)
+
+No 4a, para encaixar a arma no ponto exato do tic, `player.think` foi
+dividido em `think_antes` e `think_depois`, com `emit :game.arma` entre os
+dois, e o `game.lua` ganhou `morto_no_tic` para passar de uma metade à
+outra se o jogador estava morto. O autor apontou que os nomes não diziam
+**o que** o jogador faz, só **onde** o corte caiu: o thinker continuava
+existindo como uma função chamada pelo motor, partida em dois pedaços. A
+discussão está em `docs/NOTAS_MONOGRAFIA.md`, seção 9 (corte por posição:
+aceitável entre as etapas do tic do motor; sintoma, dentro de uma
+entidade).
+
+### O experimento: a arma precisa ficar no meio?
+
+O que vinha depois da arma em `player.think` (tag `passo3`,
+`player.lua:877`) era: contar os poderes, o efeito de tela deles
+(`fixedcolormap`), os clarões de dano e de item e a mensagem. Nada disso
+parece interagir com a arma:
+
+- a força só cresce, e o soco só pergunta se ela é diferente de zero;
+- tirar `MF_SHADOW` (fim da invisibilidade) não afeta o tiro do jogador;
+- a arma não lê `damagecount`, `bonuscount`, a mensagem nem
+  `fixedcolormap`;
+- nenhuma dessas partes consome `P_Random`.
+
+Teste: as duas metades juntas antes do `emit` (a arma depois de todo o
+jogador), nos roteiros `arma`, `fluxo`, semente 1 e semente 2 com saídas.
+**Idêntico nos quatro.** A mutação `arma-no-meio-do-jogador` (a arma de
+volta ao meio, como no Doom) ficou registrada como **equivalente**, com essa
+justificativa. A mutação `jogador-depois-dos-mobjs` (o jogador inteiro
+depois dos monstros) continua detectada: essa ordem **é** semântica, por
+causa do `P_Random`.
+
+### Solução
+
+```
+val task Jogador (p, game) {
+    set pub = p
+    spawn arma.Arma(p, game)              ;; filha: termina com o Jogador
+    loop {                                ;; vivo
+        await :game.jogador
+        until (p.playerstate == J.PST_DEAD)   ;; morreu: este tic já é de morto
+        val w = game.world
+        val t = game.leveltime || 0
+        J.mover(w, p, game, t)            ;; girar, andar, altura da câmera
+        J.pisar(w, p, game, t)            ;; dano e segredo do setor
+        J.usar(w, p, game)                ;; linhas
+        J.escolher_arma(p)                ;; pedido pelo teclado
+        J.contar_poderes(p)               ;; e o efeito de tela
+        J.contar_avisos(p)                ;; clarões e mensagem
+        emit :jogador.arma
+    }
+    loop {                                ;; morto (o tic corrente já chegou)
+        J.cair(game.world, p, game, game.leveltime || 0)
+        emit :jogador.arma                ;; a arma continua descendo
+        val renasce = J.usou(p)
+        if renasce {
+            set p.playerstate = J.PST_REBORN  ;; o Nivel lê e recomeça
+        }
+        until (renasce)
+        await :game.jogador
+    }
+}
+```
+
+As partes (`M.mover`, `M.pisar`, `M.usar`, `M.escolher_arma`,
+`M.contar_poderes`, `M.contar_avisos`, `M.cair`, `M.usou`) estão no
+`player.lua`; algumas já existiam (`special_sector`, `death_think`) e só
+ganharam o nome. `M.think` continua existindo para os testes unitários sem
+`main.atm`, compondo as partes sem a arma.
+
+**Os dois laços.** A morte vem de fora, no meio do tic (o dano de um
+monstro, ou o chão do próprio `pisar`). No Doom, o tic em que o jogador
+morre continua inteiro como "vivo" (usar, trocar, a arma já vê o morto e
+baixa), e só o tic seguinte é de morto. Por isso o teste da morte fica no
+começo do tic de vivo, e o laço do morto começa agindo no tic corrente,
+sem esperar. A mutação `morto-perde-o-tic-da-morte` (o laço do morto
+esperando antes de agir) é detectada.
+
+**O que não ficou como no plano idiomático.** A morte não aborta a `Arma`:
+neste port a arma continua descendo depois da morte, e isso aparece na tela
+(mutação `morto-sem-arma`). Então a `Arma` é filha do `Jogador`, não da fase
+vivo. E o `Nivel` ainda percebe o renascimento lendo `playerstate`
+(`G.tic_view_meio`), porque no tic de renascer o `tick_fx` roda antes de o
+nível recomeçar; trocar isso por `await` no fim da task mudaria a ordem
+daquele tic.
+
+### Diagramas
+
+**Fluxo depois do 4c:**
+
+```mermaid
+flowchart TD
+    NV["Nivel: loop on :game.tic"] --> TA["G.tic_view_antes<br/>automapa, comando"]
+    NV --> EJ["emit :game.jogador"]
+    EJ --> JG["task Jogador"]
+    JG --> V{"fase (posição no código)"}
+    V -->|vivo| PV["mover, pisar, usar, escolher_arma,<br/>contar_poderes, contar_avisos"]
+    V -->|morto| PM["cair; use: playerstate = REBORN"]
+    PV --> EA["emit :jogador.arma"]
+    PM --> EA
+    EA --> AR["task Arma (filha)"]
+    NV --> TM["G.tic_view_meio<br/>tick_fx, renascer?, thinker.tick"]
+    NV --> ES["emit :game.specials ..."]
+```
+
+**Máquina de estados da task `Jogador`:**
+
+```mermaid
+stateDiagram-v2
+    [*] --> Vivo: nível novo ou load
+    Vivo --> Vivo: tic (mover ... avisos, arma)
+    Vivo --> Morto: playerstate DEAD no começo do tic
+    Morto --> Morto: tic (cair, arma)
+    Morto --> Fim: use (playerstate REBORN)
+    Fim --> [*]: o Nivel recomeça; a Arma termina junto
+```
+
+### Validação
+
+**Equivalência.** `make test-drivers`, idêntico à tag `passo1` nos 9
+roteiros. O roteiro `arma` ganhou uma checagem de cobertura: o jogador
+renasce (três vistas do E1M1). Ela pegou um problema: depois do ajuste do
+lança-foguetes no 4a, o toque em "use" para renascer caía num quadro sem
+tic (tics aos pares) e se perdia, e o roteiro terminava com o jogador
+morto. A tecla passou a ficar presa por 3 quadros.
+
+**Mutações do 4c:**
+
+| Mutação | Erro simulado | Roteiro | 1º quadro | Quadros dif. |
+|---|---|---|---|---|
+| `jogador-depois-dos-mobjs` | o jogador (e a arma) depois dos monstros | `arma` | 45 | 1.028 (save difere) |
+| `arma-no-meio-do-jogador` | a arma no meio do tic, como no Doom | `arma` | – | 0: **equivalente** |
+| `morto-perde-o-tic-da-morte` | o laço do morto espera antes de agir | `arma` | 2.738 | 253 |
+| `morto-sem-arma` | com o jogador morto, a arma para | `arma` | 2.738 | 72 |
+| `renasce-sem-use` | o morto renasce sem apertar "use" | `arma` | 2.738 | 257 |
+| `usar-antes-de-mover` | usar as linhas antes de girar e andar | `fluxo` | – | 0: **pendente** |
+
+`usar-antes-de-mover` não é equivalente: `use_lines` usa a posição e o
+ângulo do jogador, e a ordem importa quando o movimento do tic põe uma
+linha ao alcance. Nenhum roteiro aperta "use" exatamente nesse tic; está em
+`PENDENTES`, com o cenário que falta.
+
+`make test-mutacoes` (todas as mutações do projeto): **54/57 não
+equivalentes detectadas**, 6 equivalentes justificadas, 3 pendentes.
+`make test`: o mesmo de antes (12 passam, as mesmas 8 falhas).
+
+### Métricas
+
+`python3 tools/metricas_passo4.py` (seção "4c", contra `player.think` da
+tag `passo3`):
+
+| Métrica | Antes | Depois |
+|---|---|---|
+| Linhas de código (Lua) | 82 | 89 |
+| Linhas de código (Atmos) | – | 29 |
+| Linhas de código (total) | 82 | 118 |
+| Testes de fase (`playerstate ==`) | 1 | 1 |
+| Funções com nome do domínio | 1 | 6 |
+| Estado só para atravessar o `emit` (`morto_no_tic`, 4a → 4c) | 3 | 0 |
+
+O código cresceu (as partes viraram funções, e há a task). O que mudou foi
+a forma: uma função de 82 linhas com um `if` de fase virou seis partes com
+nome e uma task de 29 linhas que lê como a descrição do tic. A fase vivo e
+morto é a posição no código; `playerstate` continua existindo porque
+monstros, renderer e save o leem (régua, notas, seção 8), mas a task só o
+consulta uma vez por tic, para perceber a morte que vem de fora.
+
+### Custo
+
+`CUSTO_TAGS=passo3 python3 tools/custo_drivers.py 5 [roteiro]` (ms por
+quadro): `passo3` 0,875 e atual 0,904 no `fluxo` (+3,3%); `passo3` 0,783 e
+atual 0,829 no `arma` (+5,9%). É o custo do passo 4 inteiro (4a e 4c): um
+`emit` do `Nivel` e um do `Jogador` por tic.
+
+### Diferenças conhecidas
+
+Nenhuma no comportamento. A ordem da arma dentro do tic do jogador mudou em
+relação ao Doom (agora depois dos poderes e contadores), com a equivalência
+provada pelo replay e justificada em `EQUIVALENTES`. Do Doom original,
+continua a lista de `docs/DIFERENCAS_DOOM.md`.
+
+### Como reproduzir
+
+```sh
+make test-drivers
+make test-mutacoes
+python3 tools/metricas_passo4.py
+CUSTO_TAGS=passo3 python3 tools/custo_drivers.py 5
+python3 tools/diagramas.py docs/registro/04-arma.md
+```
+
+### Arquivos alterados
+
+| Arquivo | Mudança |
+|---|---|
+| `jogador.atm` | novo: task `Jogador` (fases vivo e morto; cria a `Arma`) |
+| `arma.atm` | acorda com `:jogador.arma` |
+| `player.lua` | partes nomeadas (`mover`, `pisar`, `usar`, `escolher_arma`, `contar_poderes`, `contar_avisos`, `cair`, `usou`); saíram `think_antes` e `think_depois` |
+| `game.lua` | `tic_view_antes` sem o jogador; `tic_view_meio` sem `think_depois`; saiu `morto_no_tic` |
+| `main.atm` | `emit :game.jogador`; a task `Jogador` nasce depois de montar o nível |
+| `tools/make_replay.lua`, `tests/test_drivers.sh` | "use" para renascer preso por 3 quadros; cobertura do renascimento |
+| `tools/mutacoes.py` | 6 mutações do 4c (1 equivalente, 1 pendente) |
+| `tools/metricas_passo4.py` | seção 4c |
+| `docs/PLANO_ATMOS.md` | andamento; 4c e passo 6 acrescentados |
+

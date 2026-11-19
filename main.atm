@@ -32,7 +32,7 @@
 val env  = require "atmos.env.doom"
 val game = require "game"
 val G    = game.new(game.atmos_args(arg))
-val arma = require "arma"            ;; passo 4a: task Arma
+val jogador = require "jogador"      ;; passo 4c: task Jogador (e a Arma, filha)
 
 ;; Emite, em ordem, os pedidos que o Lua registrou na fase que acabou.
 func pedidos () {
@@ -94,15 +94,16 @@ task Nivel (save) {
         G.start_level()
     }
     G.enter(:view)
-    ;; Arma do jogador (passo 4a): acorda com :game.arma. Nasce depois de
-    ;; montar o nivel (o jogador e o do nivel; o load ja restaurou a fase).
-    spawn arma.Arma(G.game.player, G.game)
+    ;; O jogador (passo 4c), com a arma como filha: acorda com :game.jogador.
+    ;; Nasce depois de montar o nivel (o jogador e o do nivel; o load ja
+    ;; restaurou o estado dele e a fase da arma).
+    spawn jogador.Jogador(G.game.player, G.game)
     par :any {
         loop on :game.tic {
             val antes = G.tic_view_antes()    ;; "segue" | "parado"
             val fim = ifs {
                 (antes == :segue) => {
-                    emit :game.arma           ;; passo 4a: task Arma
+                    emit :game.jogador        ;; passo 4c: task Jogador
                     val meio = G.tic_view_meio()  ;; "segue" | "morte"
                     ifs {
                         (meio == :morte) => :morte

@@ -759,9 +759,9 @@ local function raise_weapon(player, game)
 end
 
 -- Arma (passo 4a): a maquina de estados da arma (antes weapon_think,
--- chamada no meio de M.think) virou a task Arma (arma.atm), que acorda com
--- :game.arma, emitido pelo Nivel entre M.think_antes e M.think_depois. Aqui
--- ficam as partes de um tic que ela chama.
+-- chamada no meio de M.think) virou a task Arma (arma.atm), filha da task
+-- Jogador (passo 4c), que a acorda com :jogador.arma depois do tic do
+-- jogador. Aqui ficam as partes de um tic que ela chama.
 
 -- Comeco de todo tic da arma: o jogador morto so baixa a arma (devolve nil);
 -- vivo, confere a municao (sem municao, pede a troca em pendingweapon) e
@@ -838,17 +838,18 @@ local function death_think(world, player, game, leveltime)
   end
 end
 
--- Um tic do jogador, em duas metades (passo 4a): entre elas, o Nivel emite
--- :game.arma e a task Arma faz o tic da arma, no mesmo ponto em que M.think
--- chamava weapon_think. think_antes devolve se o jogador estava morto no
--- comeco do tic; think_depois recebe esse valor (o morto so pode renascer).
-function M.think_antes(world, player, game, leveltime)
+-- O jogador (passo 4c): a task Jogador (jogador.atm) faz o tic do jogador
+-- chamando estas partes, com nomes do dominio, na ordem do antigo
+-- P_PlayerThink. Antes eram uma funcao so (M.think, tag passo3), e no passo
+-- 4a duas metades sem significado (think_antes, think_depois) para encaixar
+-- a arma no meio. A arma agora vem depois de todas elas: o que vinha depois
+-- dela (poderes, efeito de tela, contadores) nao interage com ela (conferido
+-- pelo replay; registro do passo 4, secao 4c).
+
+-- Girar, andar (so no chao), mover e ajustar a altura da camera.
+function M.mover(world, player, game, leveltime)
   local mo = player.mo
   local cmd = player.cmd
-  if player.playerstate == PST_DEAD then
-    death_think(world, player, game, leveltime)
-    return true
-  end
   mo.angle = as_u32(mo.angle + cmd.angleturn * 65536)
   local onground = mo.z <= mo.floorz
   if cmd.forwardmove ~= 0 and onground then
@@ -860,8 +861,14 @@ function M.think_antes(world, player, game, leveltime)
   M.xy_movement(world, mo, game)
   M.z_movement(mo, world, game)
   calc_height(player, leveltime)
-  special_sector(world, player, game, leveltime)
-  if band(cmd.buttons, BT_USE) ~= 0 then
+end
+
+-- O chao do setor: dano (lodo, lava), segredo, saida.
+M.pisar = special_sector
+
+-- Botao "use" (so na borda: segurar nao repete).
+function M.usar(world, player, game)
+  if band(player.cmd.buttons, BT_USE) ~= 0 then
     if not player.usedown then
       collision.use_lines(world, player, game)
       player.usedown = true
@@ -869,31 +876,23 @@ function M.think_antes(world, player, game, leveltime)
   else
     player.usedown = false
   end
+end
+
+-- Troca de arma pelo teclado: so registra o pedido (a task Arma troca).
+function M.escolher_arma(player)
+  local cmd = player.cmd
   if band(cmd.buttons, BT_CHANGE) ~= 0 then
     local neww = math.floor(band(cmd.buttons, BT_WEAPONMASK) / (2 ^ BT_WEAPONSHIFT))
     if neww >= 0 and neww <= WP_SUPERSHOTGUN and player.weaponowned[neww] and neww ~= player.readyweapon then
       player.pendingweapon = neww
     end
   end
-  return false
 end
 
--- Sem main.atm (testes unitarios com game falso): as duas metades, sem a
--- arma (que agora e a task Arma).
-function M.think(world, player, game, leveltime)
-  local morto = M.think_antes(world, player, game, leveltime)
-  M.think_depois(world, player, game, leveltime, morto)
-end
-
-function M.think_depois(world, player, game, leveltime, morto)
+-- Poderes (forca, invulnerabilidade, invisibilidade, infravermelho, roupa):
+-- descontam a cada tic; e o efeito de tela deles (fixedcolormap).
+function M.contar_poderes(player)
   local mo = player.mo
-  local cmd = player.cmd
-  if morto then
-    if band(cmd.buttons, BT_USE) ~= 0 then
-      player.playerstate = PST_REBORN
-    end
-    return
-  end
   if (player.powers[PW_STRENGTH] or 0) ~= 0 then
     player.powers[PW_STRENGTH] = player.powers[PW_STRENGTH] + 1
   end
@@ -929,6 +928,11 @@ function M.think_depois(world, player, game, leveltime, morto)
   else
     player.fixedcolormap = 0
   end
+end
+
+-- Avisos que somem sozinhos: clarao vermelho do dano, dourado do item e a
+-- mensagem na tela.
+function M.contar_avisos(player)
   if player.damagecount ~= 0 then
     player.damagecount = player.damagecount - 1
   end
@@ -941,6 +945,29 @@ function M.think_depois(world, player, game, leveltime, morto)
       player.message = ""
     end
   end
+end
+
+-- O morto: a camera cai e vira para quem matou.
+M.cair = death_think
+
+-- Apertou "use"? (o morto renasce)
+function M.usou(player)
+  return band(player.cmd.buttons, BT_USE) ~= 0
+end
+
+-- Sem main.atm (testes unitarios com game falso): o tic do jogador, sem a
+-- arma (que e a task Arma) e sem renascer (que e a task Jogador).
+function M.think(world, player, game, leveltime)
+  if player.playerstate == PST_DEAD then
+    M.cair(world, player, game, leveltime)
+    return
+  end
+  M.mover(world, player, game, leveltime)
+  M.pisar(world, player, game, leveltime)
+  M.usar(world, player, game)
+  M.escolher_arma(player)
+  M.contar_poderes(player)
+  M.contar_avisos(player)
 end
 
 function M.tick_fx(world)
@@ -1583,6 +1610,7 @@ end
 M.WEAPONBOTTOM = WEAPONBOTTOM
 M.WEAPONTOP = WEAPONTOP
 M.WP_NOCHANGE = WP_NOCHANGE
+M.PST_LIVE = PST_LIVE
 M.PST_DEAD = PST_DEAD
 M.PST_REBORN = PST_REBORN
 M.WP_FIST = WP_FIST

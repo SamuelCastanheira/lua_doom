@@ -20,7 +20,7 @@
 --   2. ate 4 tics:        se wiping: tic_wipe()
 --                         senao:     tic_menu(), depois a tela atual:
 --                                    tic_view_antes()   -> "segue" | "parado"
---                                    (emit :game.arma -> task Arma)
+--                                    (emit :game.jogador -> task Jogador)
 --                                    tic_view_meio()    -> "segue" | "morte"
 --                                    (emit :game.specials -> specials_resto())
 --                                    tic_view_depois()  -> nil | "saida"
@@ -811,10 +811,10 @@ function M.new(argv)
 
   -- Fase 2c: tic do nivel, em quatro partes (passos 3 e 4). A task Nivel
   -- (main.atm) chama, em ordem:
-  --   G.tic_view_antes()    automapa, comando, primeira metade do jogador
-  --   emit :game.arma       a task Arma (passo 4a), no ponto do antigo
-  --                         weapon_think
-  --   G.tic_view_meio()     resto do jogador, efeitos, renascer, mobjs
+  --   G.tic_view_antes()    automapa, comando do jogador
+  --   emit :game.jogador    a task Jogador (passo 4c), com a Arma como filha,
+  --                         no ponto do antigo player.think
+  --   G.tic_view_meio()     efeitos, renascer, mobjs
   --   emit :game.specials   specials de setor: tasks nas pools do Nivel e,
   --                         entre elas, G.specials_resto() (o que ainda e
   --                         Lua), na ordem do antigo specials_mod.tick
@@ -824,12 +824,11 @@ function M.new(argv)
   -- rodavam (regra da ordem do tic, CLAUDE.md 4.2).
   --
   -- tic_view_antes devolve:
-  --   "segue"   o tic continua (arma, tic_view_meio, specials, depois)
+  --   "segue"   o tic continua (jogador, tic_view_meio, specials, depois)
   --   "parado"  fora da vista (sem jogador ou mundo): nada mais roda
   -- tic_view_meio devolve "segue" ou
   --   "morte"   o jogador vai renascer (antes: start_level aqui dentro)
   -- Quem decide o que fazer com isso e a task Jogo, no main.atm.
-  local morto_no_tic = false          -- think_antes -> think_depois (passo 4a)
   function G.tic_view_antes()
     if not (game.gamestate == "view" and game.player and game.world) then
       return "parado"
@@ -851,16 +850,13 @@ function M.new(argv)
       game.mousex = 0
       game.mousey = 0
     end
-    morto_no_tic = player_mod.think_antes(game.world, game.player, game, game.leveltime or 0)
     return "segue"
   end
 
-  -- Fase 2a, segunda metade (passo 4a): depois do emit :game.arma (a task
-  -- Arma faz o tic da arma entre as duas metades de player.think, onde antes
-  -- ficava weapon_think). Resto do jogador, efeitos, renascer e mobjs.
+  -- Fase 2a, depois do emit :game.jogador (a task Jogador faz o tic do
+  -- jogador e da arma, passo 4c): efeitos, renascer e mobjs.
   -- Devolve "segue" | "morte".
   function G.tic_view_meio()
-    player_mod.think_depois(game.world, game.player, game, game.leveltime or 0, morto_no_tic)
     player_mod.tick_fx(game.world)
     if game.player and game.player.playerstate == player_mod.PST_REBORN then
       dirty = true

@@ -685,3 +685,17 @@ contadores) parece não interagir com ela, e, se o replay confirmar, o corte
 desaparece. Isso separa a ordem **semântica** (a arma antes dos monstros,
 por causa do `P_Random`) da ordem que é só **herança do código original** (a
 arma no meio do `P_PlayerThink`).
+
+**Desfecho (subpasso 4c).** O experimento confirmou a suspeita: com a arma
+depois de todas as partes do jogador, o replay é idêntico nos quatro
+roteiros testados, e a mutação que a devolve ao meio (como no Doom) é
+equivalente. O corte desapareceu. A task `Jogador` lê como a descrição do
+tic (mover, pisar, usar, escolher a arma, contar os poderes e os avisos,
+arma), e as fases vivo e morto são dois laços. Dois limites, ambos pela
+equivalência: a morte não aborta a `Arma` (a arma continua descendo depois
+da morte, e isso aparece na tela), e o `Nivel` ainda lê `playerstate` para
+renascer, porque no tic de renascer o `tick_fx` roda antes de o nível
+recomeçar. Em números, o código cresceu (82 → 118 linhas), mas uma função
+de 82 linhas com um `if` de fase virou seis partes com nome e uma task de 29
+linhas (`docs/registro/04-arma.md`, seção 4c).
+
