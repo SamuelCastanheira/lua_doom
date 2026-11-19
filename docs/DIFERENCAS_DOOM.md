@@ -88,6 +88,7 @@ fase de correção.
 |---|---|---|
 | `carry` vaza para um jogo novo | `G.new_game` (registro do passo 2, seção 8.1) | um jogo novo iniciado na intermissão começa com as armas do anterior; correção proposta: `game.carry = nil` em `G.new_game` (ou `defer` no início de `task Jogo`) |
 | Rosto da barra fora do hash de estado | `G.state_string` (ferramenta de teste) | um efeito de um tic na barra pode cair num tic que não vira quadro (tics aos pares no replay, passo 3d); pôr `face_index` no hash. Muda os logs da referência: fazer junto com uma tag nova |
+| Load aplica os mobjs por índice | `saveg.apply` | os registros gravados vão para os mobjs que o nível acabou de criar, na ordem da lista; se ela mudou desde o save (itens apanhados, projéteis), um mobj recebe o estado de outro tipo (visto no passo 5: um zumbi com o estado 825). O Doom recria os mobjs a partir do save (`P_UnArchiveThinkers`); corrigir isso muda o formato do save |
 | Mutações pendentes de cobertura | `tools/mutacoes.py`, `PENDENTES` | porta e elevador vizinhos andando no mesmo tic, com um mobj na fronteira: montar um roteiro com esse cenário |
 
 ---

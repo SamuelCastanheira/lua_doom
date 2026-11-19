@@ -40,6 +40,8 @@ local ONCEILINGZ = 2147483647
 M.ONFLOORZ = ONFLOORZ
 M.ONCEILINGZ = ONCEILINGZ
 
+local monstro = nil                    -- monstro.atm (passo 5), carregado sob demanda
+
 local function skill_bit(skill)
   if skill <= 1 then
     return 1
@@ -106,6 +108,14 @@ function M.spawn_mobj(world, x, y, z, typ, game)
     mo.sprite = info.SPRNAMES[st[0]]
     mo.frame = st[1]
   end
+  -- Monstro como task (passo 5): o Zombieman ganha a task Zumbi (monstro.atm)
+  -- na pool "monstros" do Nivel. Sem main.atm (testes unitarios) nao ha
+  -- pools, e ele fica com o thinker Lua. O spawn e sincrono (P8): a task
+  -- roda ate o primeiro await, sem mexer no mobj.
+  if typ == info.MT_POSSESSED and game and game.pools and game.pools.monstros then
+    monstro = monstro or require("monstro")
+    mo.task = spawn_in(game.pools.monstros, monstro.Zumbi, mo, game)
+  end
   return mo
 end
 
@@ -156,19 +166,52 @@ function M.set_mobj_state(mo, state, world, game)
   end
 end
 
-function M.mobj_thinker(world, mo, game)
+-- Partes de um tic de mobj, usadas pelo thinker Lua (mobj_thinker) e pela
+-- task Zumbi (monstro.atm, passo 5).
+
+-- Movimento (momento e gravidade). Devolve false se o mobj foi removido.
+function M.mobj_mover(world, mo, game)
   local enemy = require("enemy")
   if (mo.momx or 0) ~= 0 or (mo.momy or 0) ~= 0 or band(mo.flags or 0, MF_SKULLFLY) ~= 0 then
     enemy.p_xy_movement(world, mo, game)
     if mo.alive == false then
-      return
+      return false
     end
   end
   if mo.z ~= mo.floorz or (mo.momz or 0) ~= 0 then
     enemy.mobj_z(mo, world, game)
     if mo.alive == false then
-      return
+      return false
     end
+  end
+  return true
+end
+
+-- Um estado da tabela STATES: sprite, quadro, tics e a acao (uma volta de
+-- set_mobj_state, sem encadear o proximo). Devolve false se o mobj sumiu.
+function M.aplicar_estado(mo, state, world, game)
+  if state == S_NULL then
+    M.remove_mobj(world, mo)
+    return false
+  end
+  local st = info.STATES[state]
+  mo.istate = state
+  mo.tics = st[2]
+  mo.sprite = info.SPRNAMES[st[0]]
+  mo.frame = st[1]
+  local act = info.ACTIONS[st[3]]
+  if act ~= nil and act ~= "" then
+    require("enemy").call_action(act, mo, world, game)
+    if mo.alive == false then
+      return false
+    end
+  end
+  return true
+end
+
+function M.mobj_thinker(world, mo, game)
+  if not M.mobj_mover(world, mo, game) then
+    return
   end
   if mo.tics ~= -1 then
     mo.tics = mo.tics - 1
@@ -177,6 +220,20 @@ function M.mobj_thinker(world, mo, game)
     end
     return
   end
+  M.mobj_parado(world, mo, game)
+end
+
+-- Fim dos tics de um estado qualquer: segue o ponteiro "proximo" da tabela
+-- (com o encadeamento de set_mobj_state). Usado pela task Zumbi num estado
+-- que nao e do Zombieman (o load aplica os registros por indice).
+function M.seguir_tabela(mo, world, game)
+  return M.set_mobj_state(mo, info.STATES[mo.istate][4], world, game)
+end
+
+-- Estado sem fim (tics -1, como um corpo): no pesadelo (-respawn), o
+-- monstro morto pode voltar depois de 12 s.
+function M.mobj_parado(world, mo, game)
+  local enemy = require("enemy")
   if band(mo.flags or 0, MF_COUNTKILL) == 0 then
     return
   end
@@ -317,20 +374,30 @@ function M.spawn_map(world, skill, game)
   return kills, items
 end
 
-function M.tick(world, game)
+-- Os mobjs que pensam neste tic, na ordem de world.mobjs, copiados no
+-- comeco (os que nascem durante o tic so pensam no proximo). Desde o passo 5
+-- o laco fica no Nivel (main.atm): os monstros com task recebem :mobj.tic na
+-- sua posicao (emit direcionado), e os outros chamam mobj_thinker.
+function M.pensantes(world, game)
   local player = game.player
   if player == nil or player.mo == nil then
-    return
+    return {}
   end
   local list = {}
   for i = 1, #world.mobjs do
-    list[i] = world.mobjs[i]
-  end
-  for i = 1, #list do
-    local mo = list[i]
+    local mo = world.mobjs[i]
     if mo ~= player.mo and not mo.fx then
-      M.mobj_thinker(world, mo, game)
+      list[#list + 1] = mo
     end
+  end
+  return list
+end
+
+-- Sem main.atm (testes unitarios): o laco inteiro em Lua.
+function M.tick(world, game)
+  local list = M.pensantes(world, game)
+  for i = 1, #list do
+    M.mobj_thinker(world, list[i], game)
   end
 end
 

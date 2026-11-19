@@ -814,7 +814,9 @@ function M.new(argv)
   --   G.tic_view_antes()    automapa, comando do jogador
   --   emit :game.jogador    a task Jogador (passo 4c), com a Arma como filha,
   --                         no ponto do antigo player.think
-  --   G.tic_view_meio()     efeitos, renascer, mobjs
+  --   G.tic_view_meio()     efeitos, renascer
+  --   (mobjs)               o laco dos mobjs, no Nivel (passo 5): monstros com
+  --                         task por emit direcionado, os outros em Lua
   --   emit :game.specials   specials de setor: tasks nas pools do Nivel e,
   --                         entre elas, G.specials_resto() (o que ainda e
   --                         Lua), na ordem do antigo specials_mod.tick
@@ -854,7 +856,8 @@ function M.new(argv)
   end
 
   -- Fase 2a, depois do emit :game.jogador (a task Jogador faz o tic do
-  -- jogador e da arma, passo 4c): efeitos, renascer e mobjs.
+  -- jogador e da arma, passo 4c): efeitos e renascer. Os mobjs vem depois,
+  -- no Nivel (passo 5).
   -- Devolve "segue" | "morte".
   function G.tic_view_meio()
     player_mod.tick_fx(game.world)
@@ -862,8 +865,28 @@ function M.new(argv)
       dirty = true
       return "morte"
     end
-    thinker.tick(game.world, game)
     return "segue"
+  end
+
+  -- Os mobjs que pensam neste tic (passo 5): o laco que era thinker.tick fica
+  -- no Nivel (main.atm), para os monstros com task acordarem na sua posicao.
+  function G.pensantes()
+    return thinker.pensantes(game.world, game)
+  end
+
+  -- Roda o thinker Lua dos mobjs de lista, a partir da posicao i, ate o
+  -- proximo com task; devolve a posicao dele (0 se a lista acabou). Assim o
+  -- laco do Nivel so da uma volta por monstro com task (custo, passo 5).
+  function G.pensar_ate_task(lista, i)
+    local world = game.world
+    for k = i, #lista do
+      local mo = lista[k]
+      if mo.task then
+        return k
+      end
+      thinker.mobj_thinker(world, mo, game)
+    end
+    return 0
   end
 
   -- Specials de setor que ainda sao thinkers Lua. Roda dentro do emit

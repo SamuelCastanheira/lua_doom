@@ -400,6 +400,21 @@ modelos; se sobrar tempo, migrar uma **família** que compartilha ações
 (Zombieman + Shotgun Guy, ou Imp + Cacodemon + Baron) mostra o reuso a custo
 marginal baixo, sem enfrentar a cauda inteira.
 
+**Desfecho (passo 5).** O Zombieman virou a task `Zumbi`: as 33 linhas
+`S_POSS_*` da tabela viraram sete comportamentos com nome e cinco
+transições no código ("atacar, dor e levantar voltam a correr"). A previsão
+da régua (seção 8) se confirmou: as ações e o dano trocam o estado de fora,
+no meio do tic, e o renderer, o save e o hash leem `istate` e `tics`. A
+task precisa perceber esses saltos e voltar ao comportamento certo a partir
+de `istate`, o que é um despacho pelo estado: a forma de um interpretador,
+agora com nomes. Em tamanho, o código mais que dobrou (87 → 221 linhas,
+porque o interpretador Lua continua para os outros mobjs). O ganho é de
+legibilidade do comportamento, que antes só existia nos ponteiros "próximo"
+da tabela. Um achado colateral: o load aplica os mobjs por índice, e um
+zumbi pode receber o estado de outro tipo de mobj (registrado como revisão
+do port em `docs/DIFERENCAS_DOOM.md`, seção 5). Detalhes em
+`docs/registro/05-monstro.md`.
+
 ---
 
 ## 7. Passo 3d: a fase no código, e o que o replay não mostra

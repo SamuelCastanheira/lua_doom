@@ -44,7 +44,8 @@ Atmos) e escreve em **português**. Responda em português.
 | 2. Fluxo de telas em tasks | concluído (`passo2`) |
 | 3. Specials de setor (luzes, portas, elevadores, pisos, botões, save) | concluído (`passo3`): subpassos 0, 3a, 3e, 3b, 3c e 3d |
 | 4. Arma e jogador | concluído (`passo4`): 4a (arma) e 4c (jogador como task); 4b fica para a fase de correções |
-| **5. Um monstro** | **próximo** |
+| 5. Um monstro | concluído (`passo5`): o Zombieman como task `Zumbi` |
+| **6. Wipe e quadro (opcional)** | **próximo** |
 | 5. Um monstro como task | planejado |
 
 ---
@@ -401,7 +402,9 @@ Ordem atual de um tic de nível (`G.tic_view_antes`, 1 e 2;
    `arma-no-meio-do-jogador`, em `EQUIVALENTES`)
 4. `player_mod.tick_fx`
 5. renascer? → `"morte"`
-6. `thinker.tick`: mobjs na ordem de `world.mobjs`
+6. os mobjs, na ordem de `world.mobjs` (passo 5: o laço `mobjs()` fica no
+   `Nivel`; o Zombieman recebe `emit @(mo.task) (:mobj.tic)` na sua posição,
+   os outros chamam `mobj_thinker` por `G.mobj_pensar`)
 7. `emit :game.specials` em `Nivel`. Acorda, na ordem de declaração em
    `Nivel` (P7):
    1. pool `luzes` (tasks de `setores.atm`, passo 3a), na ordem dos setores;
@@ -499,7 +502,7 @@ automapa, `-`/`=` mudam o tamanho da tela.
 ### 5.2 Equivalência da lógica (driver Atmos × referência)
 
 ```sh
-make test-drivers          # semantica do Atmos (P1-P9) + 9 roteiros contra a tag passo1; saves comparados byte a byte
+make test-drivers          # semantica do Atmos (P1-P9) + 10 roteiros contra a tag passo1; saves comparados byte a byte
 sh tests/test_drivers.sh 0 1 fluxo         # roteiro com todas as transicoes
 sh tests/test_drivers.sh 4000 1            # pseudoaleatorio, 4000 quadros, semente 1
 sh tests/test_drivers.sh 6000 2 exits      # tambem termina niveis
@@ -509,6 +512,7 @@ sh tests/test_drivers.sh 0 1 portas -warp 1 1     # passo 3b: portas em cada fas
 sh tests/test_drivers.sh 0 1 elevadores -warp 1 3 # passo 3c: elevadores em cada fase, parados, save e load
 sh tests/test_drivers.sh 0 1 pisos -warp 2 2      # passo 3d: pisos, escadas, donut, esmagadores (jogador embaixo), save e load
 sh tests/test_drivers.sh 0 1 arma -warp 1 1       # passo 4: cada arma, trocas, sem municao, save e load no tiro, morte e renascer
+sh tests/test_drivers.sh 0 1 monstro -warp 1 2 -respawn  # passo 5: zumbis em todos os comportamentos, save e load, pesadelo
 REF_TAG=passo2 sh tests/test_drivers.sh 0 1 fluxo   # outra referencia
 ```
 
@@ -636,7 +640,7 @@ revisões do próprio port na seção 5). No fim, as correções são feitas nas
 
 ---
 
-## 9. Passos 3 e 4 concluídos; próximo: passo 5 (um monstro)
+## 9. Passos 3, 4 e 5 concluídos; próximo: passo 6 (opcional)
 
 **Passo 4a (feito):** a arma como task `Arma` (`arma.atm`), por
 equivalência com a lógica de `player.lua` (as tabelas `WEAPON_*` e as
@@ -663,10 +667,23 @@ morto age já no tic em que a morte é percebida. A morte **não** aborta a
 `playerstate` para renascer (`G.tic_view_meio`), porque o `tick_fx` roda
 antes no tic de renascer.
 
-**Próximo passo:** passo 5 do `docs/PLANO_ATMOS.md` (seção 6): um monstro
-como task, com emit direcionado a partir de `thinker.tick` (regra 4.2) e a
-discussão de `docs/NOTAS_MONOGRAFIA.md`, seção 6 (monstros orientados a
-dados). Registro novo: `docs/registro/05-monstro.md`.
+**Passo 5 (feito):** o Zombieman como task `Zumbi` (`monstro.atm`); os
+outros mobjs continuam Lua, na mesma lista. O laço dos mobjs saiu de
+`thinker.tick` (o Lua não emite) e foi para o `Nivel` (`mobjs()`), com
+`thinker.pensantes` montando a lista. A task nasce em `spawn_mobj` (pool
+`monstros`). Ela "descompila" as linhas `S_POSS_*` de `info.STATES` em sete
+comportamentos com nome; cada quadro ainda vem da tabela
+(`thinker.aplicar_estado`). As ações e o dano trocam `istate` de fora: a
+task percebe o salto (`:aplicado`, `:salto`, com `vencido` quando os tics do
+estado novo acabaram no mesmo tic). Caso `estranho`: o load aplica os mobjs
+por índice e um zumbi pode receber o estado de outro tipo; a task segue a
+tabela (`thinker.seguir_tabela`). Cuidado no Atmos: `until (c, v)` devolve
+`c` quando `v` é `nil` ou `false`. Roteiro `monstro` (`-warp 1 2
+-respawn`). Resultado em tamanho negativo (87 → 221 linhas), ganho de nome
+e forma: `docs/registro/05-monstro.md`.
+
+**Próximo passo (opcional):** passo 6 do `docs/PLANO_ATMOS.md`: o wipe como
+task e, depois, o quadro por evento (`docs/NOTAS_MONOGRAFIA.md`, seção 2).
 
 O passo 3, plano em `docs/PLANO_ATMOS.md`, seção 6, e registro em
 `docs/registro/03-specials.md`. Como ficou o código (`specials.lua` guarda

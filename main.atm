@@ -35,6 +35,22 @@ val G    = game.new(game.atmos_args(arg))
 val jogador = require "jogador"      ;; passo 4c: task Jogador (e a Arma, filha)
 
 ;; Emite, em ordem, os pedidos que o Lua registrou na fase que acabou.
+;; Os mobjs do tic, na ordem de world.mobjs (passo 5; antes, thinker.tick em
+;; Lua). Um monstro com task recebe :mobj.tic na sua posicao (emit
+;; direcionado: so ele acorda); os outros pensam pelo thinker Lua, em
+;; sequencia, dentro de G.pensar_ate_task (uma volta deste laco por monstro
+;; com task, nao por mobj). A ordem e a do P_Random.
+func mobjs () {
+    val lista = G.pensantes()
+    var i = G.pensar_ate_task(lista, 1)
+    loop {
+        until (i == 0)
+        val mo = lista@i
+        emit @(mo.task) (:mobj.tic)
+        set i = G.pensar_ate_task(lista, i + 1)
+    }
+}
+
 func pedidos () {
     loop _, r in G.take_requests() {
         emit(r)
@@ -84,7 +100,9 @@ task Nivel (save) {
     pin movers = tasks()                  ;; 3b-3d: portas, elevadores, pisos
                                           ;; e tetos (setores.atm)
     pin botoes = tasks()                  ;; 3e: botoes (setores.atm)
-    G.set_pools([luzes=luzes, movers=movers, botoes=botoes])
+    pin monstros = tasks()                ;; 5: monstros com task (monstro.atm);
+                                          ;; acordam pelo emit direcionado
+    G.set_pools([luzes=luzes, movers=movers, botoes=botoes, monstros=monstros])
     defer {
         G.set_pools(nil)
     }
@@ -108,6 +126,7 @@ task Nivel (save) {
                     ifs {
                         (meio == :morte) => :morte
                         else => {
+                            mobjs()           ;; passo 5: os mobjs, em ordem
                             emit :game.specials
                             G.tic_view_depois()   ;; nil | "saida"
                         }

@@ -1,0 +1,153 @@
+;; Um monstro como task Atmos (passo 5 do docs/PLANO_ATMOS.md): o Zombieman
+;; (MT_POSSESSED).
+;;
+;; Antes: o mobj e interpretado pela tabela info.STATES. Cada linha e um
+;; quadro (sprite, tics, acao, proximo estado); mobj_thinker (thinker.lua)
+;; desconta os tics a cada tic e set_mobj_state aplica o proximo. O
+;; comportamento ("procura, corre, atira, sente dor, morre") so existe
+;; implicito nos ponteiros "proximo" da tabela.
+;;
+;; Agora: a task Zumbi "descompila" a parte da tabela que e do Zombieman em
+;; comportamentos com nome (as sequencias de quadros abaixo) e escreve no
+;; codigo as transicoes entre eles: atacar e dor voltam a correr; procurar e
+;; correr se repetem; morrer e explodir terminam num quadro sem fim (o corpo).
+;; Cada quadro continua vindo da tabela (thinker.aplicar_estado: sprite,
+;; tics, acao), porque o renderer, o save e o hash leem istate e tics.
+;;
+;; Saltos de fora: as acoes (A_Look ve o jogador e poe o monstro a correr;
+;; A_Chase decide atacar) e o dano (dor, morte) trocam istate no meio do tic,
+;; por set_mobj_state no Lua. A task percebe o salto e vai para o
+;; comportamento do estado novo, no mesmo ponto em que o thinker o seguiria.
+;; E o mesmo "recado" das portas e da arma, aqui imposto pela tabela.
+;;
+;; A task acorda com :mobj.tic, emitido pelo Nivel (main.atm) direto para
+;; ela, na posicao do mobj em world.mobjs (ordem do P_Random).
+
+val T    = require "thinker"
+val info = require "info"
+
+;; Os comportamentos do Zombieman: sequencias de estados de info.STATES,
+;; na ordem da tabela (info.c). Entre parenteses, a acao de cada quadro.
+val PROCURAR = [info.S_POSS_STND, info.S_POSS_STND2]          ;; (A_Look) x2
+val CORRER   = [info.S_POSS_RUN1, info.S_POSS_RUN2, info.S_POSS_RUN3,
+                info.S_POSS_RUN4, info.S_POSS_RUN5, info.S_POSS_RUN6,
+                info.S_POSS_RUN7, info.S_POSS_RUN8]             ;; (A_Chase) x8
+val ATACAR   = [info.S_POSS_ATK1, info.S_POSS_ATK2,
+                info.S_POSS_ATK3]           ;; (A_FaceTarget), (A_PosAttack), ()
+val DOR      = [info.S_POSS_PAIN, info.S_POSS_PAIN2]           ;; (), (A_Pain)
+val MORRER   = [info.S_POSS_DIE1, info.S_POSS_DIE2, info.S_POSS_DIE3,
+                info.S_POSS_DIE4, info.S_POSS_DIE5]  ;; DIE2 (A_Scream), DIE3 (A_Fall); DIE5 sem fim
+val EXPLODIR = [info.S_POSS_XDIE1, info.S_POSS_XDIE2, info.S_POSS_XDIE3,
+                info.S_POSS_XDIE4, info.S_POSS_XDIE5, info.S_POSS_XDIE6,
+                info.S_POSS_XDIE7, info.S_POSS_XDIE8,
+                info.S_POSS_XDIE9]           ;; XDIE2 (A_XScream), XDIE3 (A_Fall); XDIE9 sem fim
+val LEVANTAR = [info.S_POSS_RAISE1, info.S_POSS_RAISE2, info.S_POSS_RAISE3,
+                info.S_POSS_RAISE4]          ;; ressurreicao pelo Arch-vile (Doom 2)
+
+;; Posicao do estado st na sequencia seq (0 se nao estiver). O valor do
+;; until nao serve aqui: "until (c, v)" devolve c quando v e nil ou false.
+val func indice (seq, st) {
+    var achou = 0
+    var i = 0
+    loop {
+        set i = i + 1
+        until (i > #seq)
+        if (seq@i) == st {
+            set achou = i
+        }
+    }
+    achou
+}
+
+;; Conta os tics do estado atual, um :mobj.tic por vez (movimento primeiro,
+;; como mobj_thinker). Devolve :fim (acabaram os tics), :salto (o estado foi
+;; trocado de fora; o tic ja descontou o estado novo) ou :fora (removido).
+val func contar (mo, game) {
+    val st = mo.istate
+    loop {
+        await :mobj.tic
+        until (!T.mobj_mover(game.world, mo, game), :fora)
+        if mo.tics == -1 {
+            T.mobj_parado(game.world, mo, game)   ;; corpo: pesadelo (-respawn)
+            until (mo.alive == false, :fora)
+        } else {
+            set mo.tics = mo.tics - 1
+            until (mo.istate != st, :salto)
+            until (mo.tics <= 0, :fim)
+        }
+    }
+}
+
+;; Aplica o estado st. Devolve :ok, :aplicado (a acao pulou para outro
+;; estado, ja aplicado) ou :fora.
+val func entrar (mo, game, st) {
+    ifs {
+        !T.aplicar_estado(mo, st, game.world, game) => :fora
+        (mo.istate != st) => :aplicado
+        else => :ok
+    }
+}
+
+;; Roda a sequencia seq a partir do estado atual (ja aplicado). "vencido":
+;; os tics do estado atual ja acabaram neste tic (salto de fora com tics 0).
+;; "repete": volta ao comeco no fim. Devolve :fim, :salto, :aplicado ou :fora.
+val func sequencia (mo, game, seq, vencido, repete) {
+    var i = indice(seq, mo.istate)
+    var r = if vencido => :fim => contar(mo, game)
+    loop {
+        until (r != :fim, r)
+        set i = i + 1
+        if repete && (i > #seq) {
+            set i = 1
+        }
+        until (i > #seq, :fim)
+        val e = entrar(mo, game, seq@i)
+        until (e != :ok, e)
+        set r = contar(mo, game)
+    }
+}
+
+;; Estado que nao e de nenhum comportamento do Zombieman. Acontece no load:
+;; saveg.apply aplica os registros gravados por indice aos mobjs recem-
+;; criados, e se a ordem da lista mudou desde o save (itens apanhados,
+;; projeteis), um zumbi recebe o estado de outro tipo de mobj. O thinker Lua
+;; so segue a tabela dali em diante; aqui, o mesmo: conta os tics e segue o
+;; ponteiro "proximo", ate cair num comportamento conhecido.
+val func estranho (mo, game, vencido) {
+    val r = if vencido => :fim => contar(mo, game)
+    ifs {
+        (r != :fim) => r
+        T.seguir_tabela(mo, game.world, game) => :aplicado
+        else => :fora
+    }
+}
+
+val task Zumbi (mo, game) {
+    set pub = mo
+    defer {
+        set mo.task = nil
+    }
+    var vencido = false
+    loop {
+        val st = mo.istate
+        ;; o comportamento do estado atual; ao terminar, o proximo
+        val r = ifs {
+            (indice(PROCURAR, st) > 0) => sequencia(mo, game, PROCURAR, vencido, true)
+            (indice(CORRER, st) > 0)   => sequencia(mo, game, CORRER, vencido, true)
+            (indice(ATACAR, st) > 0)   => sequencia(mo, game, ATACAR, vencido, false)
+            (indice(DOR, st) > 0)      => sequencia(mo, game, DOR, vencido, false)
+            (indice(LEVANTAR, st) > 0) => sequencia(mo, game, LEVANTAR, vencido, false)
+            (indice(MORRER, st) > 0)   => sequencia(mo, game, MORRER, vencido, false)
+            (indice(EXPLODIR, st) > 0) => sequencia(mo, game, EXPLODIR, vencido, false)
+            else => estranho(mo, game, vencido)  ;; outro tipo (load por indice)
+        }
+        set vencido = (r == :salto) && (mo.tics <= 0)  ;; trocado de fora, ja vencido
+        val prox = ifs {
+            (r == :fim) => entrar(mo, game, info.S_POSS_RUN1)  ;; atacar, dor e levantar voltam a correr
+            else => r                         ;; :salto, :aplicado: segue o estado novo
+        }
+        until (prox == :fora)
+    }
+}
+
+[Zumbi=Zumbi]

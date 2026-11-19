@@ -15,7 +15,7 @@
 # (mobjs, setores, jogador, RNG, tela atual). A primeira linha divergente
 # aponta o quadro em que a ordem ou o tempo mudou.
 #
-#   sh tests/test_drivers.sh [quadros] [semente] [exits|fluxo|luzes|botoes|portas|elevadores|pisos|arma] [args do jogo...]
+#   sh tests/test_drivers.sh [quadros] [semente] [exits|fluxo|luzes|botoes|portas|elevadores|pisos|arma|monstro] [args do jogo...]
 #   exits: o roteiro tambem termina niveis -> intermissao e finale
 #   fluxo: roteiro fixo que passa por todas as transicoes (quadros ignorado)
 #   luzes: jogador parado no E4M1 e no E1M2 (rode com -warp 4 1; passo 3a)
@@ -24,6 +24,7 @@
 #   elevadores: elevadores em cada fase, parados, save e load (rode com -warp 1 3; passo 3c)
 #   pisos: pisos, escadas, donut e esmagadores, save e load (rode com -warp 2 2; passo 3d)
 #   arma: cada arma atirando, trocas, sem municao, save e load, morte (rode com -warp 1 1; passo 4a)
+#   monstro: zumbis procurando, correndo, atirando, morrendo, save e load, -respawn (rode com -warp 1 2 -respawn; passo 5)
 #
 # REF_TAG=<tag> muda a referencia (padrao: passo1).
 set -e
@@ -233,5 +234,14 @@ if [ "$EXITS" = "arma" ] && [ $status -eq 0 ]; then
   v=$(grep -c "^vista E1M1" "$OUT/ref.out" || true)
   [ "$v" -ge 3 ] || { echo "COBERTURA INCOMPLETA: o jogador nao renasceu ($v vistas do E1M1, esperado 3)"; status=1; }
   [ $status -eq 0 ] && echo "  cobertura da arma: save e load no meio do tiro do BFG; morte e renascimento"
+fi
+# No roteiro "monstro" (passo 5): save e load no meio da briga e o E1M2.
+# Os comportamentos percorridos (procurar, correr, atacar, dor, morrer,
+# explodir, pesadelo) foram conferidos com prints (registro do passo 5).
+if [ "$EXITS" = "monstro" ] && [ $status -eq 0 ]; then
+  [ -e "$OUT/run_atm/doomsav5.dsg" ] || { echo "COBERTURA INCOMPLETA: sem o save do slot 5"; status=1; }
+  n=$(grep -c "^pedido jogo.carregar" "$OUT/atm.out" || true)
+  [ "$n" -ge 1 ] || { echo "COBERTURA INCOMPLETA: $n loads (esperado 1)"; status=1; }
+  [ $status -eq 0 ] && echo "  cobertura do monstro: save e load no meio da briga; E1M2 com -respawn"
 fi
 exit $status

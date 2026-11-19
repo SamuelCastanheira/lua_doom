@@ -65,6 +65,13 @@ local pisos = arg[4] == "pisos"
 -- (balanco com som) e punho; o jogador morre atirando e renasce.
 -- "quadros" e ignorado.
 local arma = arg[4] == "arma"
+-- "monstro": roteiro do passo 5, rodado com "-warp 1 2 -respawn". O E1M2 tem
+-- varios Zombieman perto da entrada. iddqd e idkfa; escopeta atirando com o
+-- jogador andando (acorda os zumbis: procuram, correm, atiram, sentem dor e
+-- morrem); save e load no meio da briga (slot 5); lanca-foguetes (o zumbi
+-- despedacado: comportamento "explodir"); espera para os corpos voltarem
+-- (-respawn: pesadelo, 12 s). "quadros" e ignorado.
+local monstro = arg[4] == "monstro"
 
 local function rand(n)
   seed = (seed * 1103515245 + 12345) % 2147483648
@@ -176,6 +183,37 @@ if elevadores then
   keys({ "escape" }); up(1); keys({ "return" }); wait(10); up(1); keys({ "return" })
   wait(100)
   cross(114); wait(200)                                -- nao reativa
+  lines[#lines + 1] = string.format("%d quit", f + 20)
+  local fh = assert(io.open(out_path, "w"))
+  fh:write(table.concat(lines, "\n"), "\n")
+  fh:close()
+  print(string.format("%s: %d eventos, ate o quadro %d", out_path, #lines, f + 20))
+  return
+end
+
+if monstro then
+  local function hold(key, n)
+    at(f, key, "down")
+    at(f + n, key, "up")
+    f = f + n + 1
+  end
+  local function down(n) for _ = 1, n do tap("down") end end
+  local function up(n) for _ = 1, n do tap("up") end end
+  wait(40)
+  type_text("iddqd"); wait(10); type_text("idkfa"); wait(20)
+  hold("3", 3); wait(40)                               -- escopeta
+  play(700)                                            -- anda e atira
+  -- Save no meio da briga, slot 5: main 0 -> 3 Save -> slot 0 -> 5
+  keys({ "escape" }); down(3); keys({ "return" }); wait(10); down(5); keys({ "return" })
+  wait(10)
+  -- Load: main 3 -> 2 Load -> slot 0 -> 5
+  keys({ "escape" }); up(1); keys({ "return" }); wait(10); down(5); keys({ "return" })
+  wait(20)
+  play(400)
+  hold("5", 3); wait(40)                               -- lanca-foguetes
+  play(500)
+  wait(500)                                            -- os corpos voltam (-respawn)
+  play(300)
   lines[#lines + 1] = string.format("%d quit", f + 20)
   local fh = assert(io.open(out_path, "w"))
   fh:write(table.concat(lines, "\n"), "\n")
