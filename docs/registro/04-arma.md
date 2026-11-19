@@ -12,7 +12,7 @@ Este registro cresce a cada commit do passo 4: uma seção por subpasso.
 |---|---|---|
 | 4a. Arma por equivalência | `903e023` | concluído |
 | 4b. Fidelidade ao `p_pspr.c` | – | opcional; muda o jogo de propósito (fica para a fase de correções, `docs/DIFERENCAS_DOOM.md`) |
-| 4c. O jogador como task | (este commit) | concluído; acrescentado ao plano durante o passo |
+| 4c. O jogador como task | `61ffac9` | concluído; acrescentado ao plano durante o passo |
 
 ---
 

@@ -728,3 +728,125 @@ recomeçar. Em números, o código cresceu (82 → 118 linhas), mas uma função
 de 82 linhas com um `if` de fase virou seis partes com nome e uma task de 29
 linhas (`docs/registro/04-arma.md`, seção 4c).
 
+
+---
+
+## 10. Impressões gerais sobre o Atmos (depois dos passos 1 a 6)
+
+Balanço pedido pelo autor ao fim do passo 6, apoiado no que foi medido nos
+registros.
+
+### Onde o Atmos brilha
+
+**1. Sequência no tempo vira código linear.** É o ganho mais claro e mais
+repetido. A luz que pisca, o teto que desce e sobe, o relógio com a fase do
+wipe e o fluxo de telas do passo 2 (`Titulo → Jogo → Nivel → Saida`) deixaram
+de ser contadores e `if estado ==` e viraram programas que se leem na ordem
+em que acontecem. Quando nada de fora precisa saber em que ponto a entidade
+está, a fase some para dentro do código, e com ela o estado.
+
+**2. Ciclo de vida pelo escopo.** Esse ganho aparece até nos casos em que o
+tamanho piorou. Quando o `Nivel` termina (morte, saída, load, troca de
+nível), todas as tasks de dentro terminam juntas, e o `defer` limpa o
+`specialdata`. Sumiram as listas `self.thinkers`, `self.lights` e
+`self.buttons`, o campo `dead`, a reconstrução das listas a cada nível e a
+limpeza manual. É uma classe inteira de erros, o "thinker esquecido vivo",
+que deixa de existir por construção.
+
+**3. Determinismo com semântica precisa.** Foi a surpresa mais importante. O
+modelo síncrono tem regras exatas: a ordem de declaração das pools (P7), o
+tic exato em que uma task nasce e age (P9), a ordem dos ramos (P6). Por isso
+foi possível provar a equivalência quadro a quadro, com o `P_Random` na
+mesma ordem, em dez roteiros. Com threads ou corrotinas sem regra de
+escalonamento, isso seria inviável. Para jogos com replay, rede
+determinística ou testes por replay, essa previsibilidade vale muito.
+
+**4. Composição.** `par`, `watching`, o `emit` com alcance (só a subárvore)
+e o `emit` direcionado deixaram a hierarquia legível: o `Nivel` tem as
+pools, o `Jogador` contém a `Arma`, cada tela desenha a si mesma.
+
+### Onde o Atmos não rende
+
+**1. A régua da fase** (seção 8). Quatro exigências devolvem a fase aos
+dados:
+
+- alguém de fora lê o estado (renderer, save, hash);
+- o save grava o estado;
+- o Lua escreve no meio do tic (o recado);
+- a entidade é interrompida em qualquer fase.
+
+Com todas elas, a task vira uma reorganização do mesmo estado. Foi o que
+aconteceu com a arma (79 → 135 linhas, os mesmos 16 campos) e com o monstro
+(87 → 221 linhas), que acabou com a forma de um interpretador com nomes. O
+jogador e os monstros são justamente as entidades mais observadas do jogo.
+
+**2. Não há como gravar uma continuação.** A posição no código não vai para
+o save. Para um jogo com save no meio da ação, isso é estrutural: tudo o que
+precisa sobreviver ao save tem de ser dado, e a task só pode guardar o que
+não precisa (seção 1).
+
+**3. Eventos são imediatos; o Doom adia para a fase.** O "recado no
+registro" das portas, dos elevadores e da arma existe porque um `emit`
+agiria no momento errado do tic (seção 5). Num jogo escrito do zero em
+Atmos, isso seria desenhado de outro jeito. Numa migração, é atrito
+constante.
+
+**4. Maturidade.** A linguagem está em desenvolvimento (`dev-4`), e o
+projeto tropeçou várias vezes:
+
+- `until (c, v)` devolve `c` quando `v` é `nil` ou `false`;
+- o `--` obrigatório na linha de comando;
+- `a ++ b` no lugar de `a .. b`;
+- o alcance padrão do `emit`;
+- um `spawn` dentro de um `if` que morre com o bloco.
+
+Nada disso é grave, mas cada um custou uma rodada de depuração. A
+documentação é curta, e várias coisas foram confirmadas lendo o runtime e
+escrevendo testes pequenos.
+
+### Custo
+
+Medido, não estimado (`tools/bench_tasks.atm`, `tools/custo_drivers.py` e o
+teste de emit direcionado do registro do passo 5):
+
+- uma task acordada por `emit` comum custa cerca de 2 µs, e um `emit`
+  direcionado com o despertar, cerca de 3,5 µs;
+- um zumbi custa cerca de 16 µs por tic, contando o corpo da task;
+- **acumulado**, o atual custa +51% por quadro no roteiro `fluxo` em relação
+  ao `passo1` em Lua puro (de 0,74 para 1,12 ms), e o monstro sozinho é a
+  maior parte do passo 5.
+
+Em termos absolutos, porém, 1,1 ms está muito abaixo dos 28,6 ms de um tic a
+35 Hz. Para lógica de jogo, o custo é irrelevante enquanto o número de tasks
+for de dezenas ou poucas centenas. Ele cresce de forma linear com as
+entidades com task, então migrar centenas de monstros e projéteis começaria
+a pesar. E o renderer não é lugar para tasks: ele não tem dimensão de tempo.
+
+### Custo-benefício: onde usar em jogos
+
+| Usaria | Evitaria (ou só para o fluxo de controle) |
+|---|---|
+| fluxo de telas, menus, transições | entidades lidas a cada quadro por muitos sistemas |
+| roteiros: cenas, diálogos, eventos de fase, tutoriais | estado que precisa ir para o save no meio da ação |
+| temporizadores, efeitos, luzes, sequências | IA orientada a dados, que já é uma máquina de estados em tabela |
+| fases de chefe, ondas de inimigos, objetivos | sistemas de alta contagem (partículas, projéteis) |
+| ciclo de vida: o que nasce e morre com a fase | o laço quente do motor (render, física, colisão) |
+
+O desenho que parece certo é **híbrido**: os dados ficam em registros, que
+todos podem ler e gravar, e as tasks cuidam do **fluxo de controle** e do
+**ciclo de vida**. Foi para onde o projeto convergiu naturalmente: o
+renderer em C, a geometria e as tabelas em Lua, e o "quando" e o "quanto
+tempo" em Atmos.
+
+### Um alerta sobre o resultado do TCC
+
+Os números de expressividade estão enviesados contra o Atmos pela exigência
+de **equivalência**. Ela obriga a manter o formato do save, os campos lidos
+pelo renderer e o tic exato de cada reação. Um jogo pensado desde o início
+em Atmos desenharia o save e a comunicação de outro jeito, e algumas
+exigências da régua não existiriam.
+
+O resultado justo é condicional: "numa migração equivalente, o ganho depende
+de quanto o estado é observado, gravado, alterado e interrompido de fora". E
+vale registrar na monografia o que só a migração equivalente permitiu medir:
+o ciclo de vida, o determinismo e o custo.
