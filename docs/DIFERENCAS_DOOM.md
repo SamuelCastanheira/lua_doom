@@ -12,6 +12,20 @@ com uma nova referência e a divergência esperada documentada (como o bug do
 `carry`, `CLAUDE.md`, seção 8). Ao corrigir um item, mova-o para a seção
 "Corrigido" no fim deste arquivo, com o commit e a tag de referência nova.
 
+**Quando corrigir (decisão do usuário, 2026-11-18):** todas as diferenças e
+revisões deste arquivo ficam guardadas até **o fim de todos os passos** da
+migração (`docs/PLANO_ATMOS.md`). Só então são corrigidas, **nas duas
+versões**: na branch `atmos` (Atmos) e na branch `lua` (Lua imperativo), para
+que a comparação do TCC continue sendo entre duas versões do mesmo jogo.
+Até lá, cada passo só acrescenta itens aqui. Na hora de corrigir:
+
+- um commit por correção em cada branch, com o mesmo comportamento nas duas;
+- uma tag de referência nova depois de cada correção (ou grupo), e a
+  divergência esperada documentada;
+- a branch `lua` não tem modo replay: a igualdade entre as duas depois da
+  correção precisa de um método próprio (por exemplo, levar o modo replay e
+  o hash de estado para a `lua` antes de começar).
+
 ---
 
 ## 1. Specials de setor
@@ -64,6 +78,17 @@ desce até o piso) e 141 (esmagador silencioso).
 | Multiplayer | – | cooperativo e deathmatch ausentes |
 | Arma | `player.lua` (`WEAPON_PATCH`, `WEAPON_READY`, `WEAPON_ATK`) | tabelas próprias, não a máquina de estados do `p_pspr.c`; é o passo 4b (`PLANO_ATMOS.md`) |
 | Transição de tela (wipe) | `wipe.lua` | usa `math.random`, não a tabela fixa (`M_Random`); só é determinística porque o replay fixa a semente |
+
+## 5. Revisões do próprio port (não são do Doom)
+
+Bugs e pendências encontrados durante a migração, guardados para a mesma
+fase de correção.
+
+| Revisão | Onde | O que fazer |
+|---|---|---|
+| `carry` vaza para um jogo novo | `G.new_game` (registro do passo 2, seção 8.1) | um jogo novo iniciado na intermissão começa com as armas do anterior; correção proposta: `game.carry = nil` em `G.new_game` (ou `defer` no início de `task Jogo`) |
+| Rosto da barra fora do hash de estado | `G.state_string` (ferramenta de teste) | um efeito de um tic na barra pode cair num tic que não vira quadro (tics aos pares no replay, passo 3d); pôr `face_index` no hash. Muda os logs da referência: fazer junto com uma tag nova |
+| Mutações pendentes de cobertura | `tools/mutacoes.py`, `PENDENTES` | porta e elevador vizinhos andando no mesmo tic, com um mobj na fronteira: montar um roteiro com esse cenário |
 
 ---
 

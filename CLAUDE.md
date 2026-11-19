@@ -598,6 +598,12 @@ Lista completa do que difere do Doom original (specials, save, som, demos,
 multiplayer): `docs/DIFERENCAS_DOOM.md`. Ao corrigir algo, mova o item para
 a seção "Corrigido" desse arquivo.
 
+**Nada disso é corrigido antes do fim de todos os passos** (decisão do
+usuário). Durante os passos, só acrescente itens ao
+`docs/DIFERENCAS_DOOM.md` (diferenças do Doom na seção certa; bugs e
+revisões do próprio port na seção 5). No fim, as correções são feitas nas
+**duas** branches, `atmos` e `lua`, com nova referência a cada correção.
+
 - **Bug preservado:** o `carry` de um nível vaza para um novo jogo iniciado
   na intermissão (o novo jogo começa com as armas do anterior). Correção
   proposta: `game.carry = nil` em `G.new_game`, num commit separado, com nova
