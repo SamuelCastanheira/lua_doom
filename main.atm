@@ -33,7 +33,8 @@ val env  = require "atmos.env.doom"
 val game = require "game"
 val G    = game.new(game.atmos_args(arg))
 val telas = require "telas"
-val barra = require "barra"          ;; passo 8b: o rosto da barra de status          ;; passo 7: intermissao e finale
+val barra = require "barra"
+val interface = require "interface"  ;; passo 8: menu e automapa          ;; passo 8b: o rosto da barra de status          ;; passo 7: intermissao e finale
 val jogador = require "jogador"      ;; passo 4c: task Jogador (e a Arma, filha)
 
 ;; Emite, em ordem, os pedidos que o Lua registrou na fase que acabou.
@@ -284,9 +285,16 @@ task Fluxo () {
 }
 
 ;; ------------------------------------------------------------- entrada
+;; Passo 8c: a tecla que o menu pode usar vai primeiro a task Menu
+;; (:menu.tecla), que marca se usou; G.handle_input le essa marca.
+
+spawn interface.Menu(G.game.menu, G)
 
 spawn {
     loop ev on :input {
+        if G.tecla_para_menu(ev) {
+            emit [tag="menu.tecla", ev=ev]
+        }
         G.handle_input(ev)
         pedidos()
     }
@@ -304,7 +312,7 @@ spawn {
     loop {
         watching :tela.transicao {
             loop on :tic {
-                G.tic_menu()
+                emit :menu.tic            ;; passo 8c: a caveira do menu
                 pedidos()
                 emit :game.tic
                 pedidos()

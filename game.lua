@@ -773,7 +773,10 @@ function M.new(argv)
         local block_menu = (game.gamestate == "intermission" or game.gamestate == "finale")
           and not menu.active and ev.key == "return"
         local used = false
-        if not block_menu and menu_mod.responder(menu, ev.key) then
+        -- passo 8c: o menu e a task Menu (interface.atm); a entrada do
+        -- main.atm ja lhe ofereceu a tecla (G.tecla_para_menu) e ela marcou se
+        -- usou. block_menu foi decidido la, com o menu antes da tecla.
+        if ev.menu_oferecida and ev.menu_usado then
           used = true
           dirty = true
         end
@@ -834,11 +837,25 @@ function M.new(argv)
     return fim
   end
 
-  -- Fase 2b: tic do menu (anima o cursor; roda em todas as telas).
-  function G.tic_menu()
-    if menu_mod.ticker(menu) then
-      dirty = true
+  -- Passo 8c: a tecla vai para o menu (task Menu)? E o mesmo caminho de
+  -- G.handle_input ate o menu: tecla apertada, nao e alt+enter, e "enter" na
+  -- intermissao ou no finale com o menu fechado nao abre o menu. Marca o
+  -- evento (menu_oferecida), com o estado do menu antes da tecla.
+  function G.tecla_para_menu(ev)
+    if ev.replay_exit or ev.replay_die or ev.replay_use or ev.replay_cross
+        or ev.replay_goto or ev.mouse then
+      return false
     end
+    if ev.key == "" or not ev.down or ev.key == "quit" then
+      return false
+    end
+    if ev.key == "return" and (held.alt or ev.alt) then
+      return false
+    end
+    local block_menu = (game.gamestate == "intermission" or game.gamestate == "finale")
+      and not menu.active and ev.key == "return"
+    ev.menu_oferecida = not block_menu
+    return ev.menu_oferecida
   end
 
   -- Fase 2c: tic do nivel, em quatro partes (passos 3 e 4). A task Nivel
@@ -1138,6 +1155,9 @@ function M.new(argv)
       if game.status then
         t[#t + 1] = string.format("r%s", tostring(game.status.face_index))
       end
+      -- o menu (passo 8c): a caveira, a tela e o item
+      t[#t + 1] = string.format("m%s,%s,%s", tostring(menu.which_skull),
+        tostring(menu.screen), tostring(menu.item_on))
     end
     local p = game.player
     if p then

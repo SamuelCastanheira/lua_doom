@@ -13,9 +13,9 @@ do autor (o mais custoso). Este registro cresce a cada commit do passo 8.
 | Subpasso | Commit | Situação |
 |---|---|---|
 | 8a. Task `Mundo` (A5) | `b15f4e8` | concluído |
-| 8b. Barra de status, o rosto (A2) | (este commit) | concluído; inclui o B1 (o rosto no hash) |
-| 8c. Menu (A1) | – | próximo |
-| 8d. Automapa (A3) | – | planejado |
+| 8b. Barra de status, o rosto (A2) | `0797733` | concluído; inclui o B1 (o rosto no hash) |
+| 8c. Menu (A1) | (este commit) | concluído |
+| 8d. Automapa (A3) | – | próximo |
 
 ---
 
@@ -253,4 +253,119 @@ para emitir `:barra.tic` (no primeiro caso, de dentro do `Mundo`, com
 | `tests/ref-passo1.patch`; branch `lua`: `main.lua` | `face_index` no hash de estado |
 | `tools/mutacoes.py` | 4 mutações do 8b; `specials-no-fim-do-tic` e `status-antes-do-mundo` com `:barra.tic` |
 | `tools/metricas_passo8.py` | novo |
+
+---
+
+## Subpasso 8c: o menu
+
+### Resumo
+
+O menu virou a task `Menu` (`interface.atm`), que vive o programa inteiro.
+A entrada do `main.atm` oferece a ela as teclas que o menu pode usar
+(`:menu.tecla`); a task decide (`menu.responder`) e marca no evento se usou
+a tecla, e `G.handle_input` só lê essa marca. A caveira que pisca é um ramo
+da task, com o contador numa variável. A navegação (telas, itens,
+mensagens) continua em `menu.lua`. Resultado neutro, como a régua previa:
+`menu.active` é lido de fora (o comando do jogador, o mouse, a intermissão,
+o finale, o hash) e escrito de fora (as ações do menu, o fim de jogo), então
+a fase fechado/aberto não pode ser só a posição no código.
+
+### Situação antes (tag `passo7`)
+
+- `menu.ticker` (`menu.lua:136`), chamado pelo relógio a cada tic
+  (`G.tic_menu`): com o menu aberto, desconta `skull_tics` e troca a caveira
+  (`which_skull`) a cada 8 tics.
+- `menu.responder` (`menu.lua:321`), chamado de dentro de
+  `G.handle_input`: mensagens (sim/não), a ajuda (F1), abrir (Escape,
+  Enter), navegar, fechar. Devolve se usou a tecla, e só então ela não vai
+  para o jogo.
+
+### Solução
+
+```
+val task Menu (m, G) {
+    var caveira = m.skull_tics            ;; antes: skull_tics (só anda aberto)
+    par {
+        loop {                            ;; a caveira pisca a cada 8 tics
+            await :menu.tic
+            if m.active {
+                set caveira = caveira - 1
+                if caveira <= 0 {
+                    set m.which_skull = 1 - m.which_skull
+                    set caveira = 8
+                    G.redesenhar()
+                }
+            }
+        }
+    } with {
+        loop {                            ;; as teclas que a entrada oferece
+            val e = await :menu.tecla
+            set e.ev.menu_usado = MENU.responder(m, e.ev.key)
+        }
+    }
+}
+```
+
+Na entrada (`main.atm`):
+
+```
+loop ev on :input {
+    if G.tecla_para_menu(ev) {
+        emit [tag="menu.tecla", ev=ev]
+    }
+    G.handle_input(ev)
+    pedidos()
+}
+```
+
+**A tecla consumida.** Antes, `G.handle_input` calculava se o Enter na
+intermissão estava bloqueado e chamava o menu no meio. Agora
+`G.tecla_para_menu` faz esse mesmo cálculo antes de a tecla chegar ao menu,
+com o menu ainda no estado anterior, e marca o evento (`menu_oferecida`);
+`G.handle_input` não recalcula, porque o menu já pode ter mudado (Escape
+abre o menu). O `emit` roda a task antes de retornar (P1), então a marca
+`menu_usado` está pronta quando `G.handle_input` a lê. A mutação
+`menu-depois-da-entrada` (oferecer a tecla depois do resto da entrada) é
+detectada.
+
+**O menu no hash.** Com `DOOM_REPLAY_SIDES=1`, o hash passou a incluir a
+caveira, a tela e o item do menu, nos três lugares.
+
+### Validação
+
+`make test-drivers`: idêntico à tag `passo1` nos 11 roteiros (o roteiro
+`fluxo` passa pelo menu inteiro: jogo novo, save, load, fim de jogo, sair).
+Mutações do 8c (roteiro `fluxo`):
+
+| Mutação | Erro simulado | 1º quadro | Quadros dif. |
+|---|---|---|---|
+| `menu-caveira-lenta` | a caveira pisca a cada 9 tics | 1.955 | 2.372 |
+| `menu-caveira-fechado` | a caveira conta os tics com o menu fechado | 8 | 2.260 |
+| `menu-depois-da-entrada` | o menu recebe a tecla depois do resto da entrada | 41 | 443 |
+
+Duas mutações antigas citavam `G.tic_menu` e foram reescritas com
+`emit :menu.tic`: `wipe-nao-pausa` continua detectada e
+`menu-depois-da-tela` continua equivalente (a caveira e a tela do jogo não
+dependem uma da outra dentro do tic, mesmo com a caveira no hash).
+
+### Métricas
+
+`python3 tools/metricas_passo8.py` (seção "8c"): o ticker do menu (12
+linhas de Lua) virou a task `Menu` (22 linhas de Atmos), e os campos de
+estado escritos por tic caíram de 2 para 1 (`skull_tics` virou variável;
+`which_skull`, que o desenho lê, continua campo). No `game.lua`, saiu
+`G.tic_menu` (5 linhas) e entrou `G.tecla_para_menu` (16), o custo de
+decidir antes, fora do `G.handle_input`, quais teclas o menu recebe. O menu
+cresceu em código e não ganhou forma: é o resultado neutro da régua.
+
+### Arquivos alterados
+
+| Arquivo | Mudança |
+|---|---|
+| `interface.atm` | novo: task `Menu` |
+| `main.atm` | a entrada oferece as teclas ao menu; o relógio emite `:menu.tic` |
+| `game.lua` | `G.tecla_para_menu`; `G.handle_input` lê a marca do menu; saiu `G.tic_menu`; o menu no hash |
+| `tests/ref-passo1.patch`; branch `lua`: `main.lua` | o menu no hash de estado |
+| `tools/mutacoes.py` | 3 mutações do 8c; `menu-depois-da-tela` e `wipe-nao-pausa` com `:menu.tic` |
+| `tools/metricas_passo8.py` | seção 8c |
 

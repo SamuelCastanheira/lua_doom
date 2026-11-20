@@ -23,6 +23,11 @@ SUBPASSOS = [
       "function M.rosto_dano", "function M.deus"),
      "barra.atm",
      ("face_count", "face_priority", "last_attackdown", "old_health", "face_index")),
+    ("8c menu", "menu.lua",
+     ("function M.ticker",),
+     (),
+     "interface.atm",
+     ("skull_tics", "which_skull")),
 ]
 
 
@@ -38,6 +43,9 @@ def main():
         antes = "\n".join(lua_function(read(REF, lua), h) for h in fa)
         dl = "\n".join(lua_function(read(None, lua), h) for h in fd)
         da = bloco_atm(atm)
+        if nome.startswith("8c"):
+            da = da[da.index("val task Menu"):]
+            da = da[:da.index("\n}\n") + 3]
         rl, ll, al = code_lines(antes, "--"), code_lines(dl, "--"), code_lines(da, ";;")
         print(f"== {nome}")
         print(f"{'metrica':48} {'antes':>7} {'depois':>7}")

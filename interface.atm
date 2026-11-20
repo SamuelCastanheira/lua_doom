@@ -1,0 +1,43 @@
+;; Interface como tasks Atmos (passo 8): o menu (8c) e o automapa (8d).
+;;
+;; As duas vivem o programa inteiro (no nivel superior do main.atm). O que
+;; elas escrevem e lido de fora (menu.active pelo comando do jogador, pelo
+;; mouse, pela intermissao e pelo finale; o automapa pelo desenho e pelo
+;; tic), entao a fase delas continua nos campos (docs/NOTAS_MONOGRAFIA.md,
+;; secao 8).
+
+val MENU = require "menu"
+
+;; ------------------------------------------------------------------- menu
+
+;; O menu (passo 8c). Antes: menu.ticker (a caveira que pisca, chamada pelo
+;; relogio a cada tic) e menu.responder (chamado de dentro de
+;; G.handle_input). Agora a task recebe as teclas que a entrada lhe oferece
+;; (:menu.tecla) e marca se usou cada uma, e o ramo da caveira conta os seus
+;; tics numa variavel. A navegacao (telas, itens, mensagens) continua em
+;; menu.lua: menu.active e lido e escrito de fora, entao a fase fechado ou
+;; aberto nao pode ser so a posicao no codigo.
+val task Menu (m, G) {
+    set pub = m
+    var caveira = m.skull_tics            ;; antes: skull_tics (so anda aberto)
+    par {
+        loop {                            ;; a caveira pisca a cada 8 tics
+            await :menu.tic
+            if m.active {
+                set caveira = caveira - 1
+                if caveira <= 0 {
+                    set m.which_skull = 1 - m.which_skull
+                    set caveira = 8
+                    G.redesenhar()
+                }
+            }
+        }
+    } with {
+        loop {                            ;; as teclas que a entrada oferece
+            val e = await :menu.tecla
+            set e.ev.menu_usado = MENU.responder(m, e.ev.key)
+        }
+    }
+}
+
+[Menu=Menu]
