@@ -1014,3 +1014,34 @@ lógica espalhada. A versão com a task `Mundo` e o `toggle` expressa melhor a
 intenção ("este pedaço do jogo para"); a versão com o `if` é mais curta. Na
 fase de correções, dá para fazer a primeira e registrar a segunda como a
 alternativa equivalente.
+
+---
+
+## 12. O meio da régua: rosto, menu e automapa (passo 8)
+
+O passo 8 migrou três peças de interface que a régua classificava no meio, e
+os resultados ficaram onde ela previa:
+
+| Peça | O que é lido ou escrito de fora | Campos escritos por tic | Resultado |
+|---|---|---|---|
+| Rosto da barra | só `face_index`, pelo desenho | 5 → 1 | médio |
+| Menu | `menu.active`, lido e escrito por vários | 2 → 1 | neutro |
+| Automapa | posição e escala, pelo desenho; aberto e fechado de fora | 1 → 1 | modesto |
+
+Uma lição nova: **a régua mede o estado, mas a forma de sequência é outra
+condição.** O rosto não tem leitores de fora além do desenho, e mesmo assim
+não virou um programa linear: a sua regra é uma arbitragem ("a expressão
+mais importante vence, e fica por um tempo"), reavaliada a cada tic. A
+intermissão e o finale (passo 7) ganharam nas duas frentes porque, além de
+não serem lidos de fora, **são sequências no tempo**. Para a monografia, o
+ganho completo da concorrência estruturada exige as duas coisas: estado que
+ninguém de fora precisa (a régua) e comportamento que é uma sequência no
+tempo (pausa, conta, espera, mostra). Faltando a segunda, o ganho fica no
+estado (campos que viram variáveis); faltando a primeira, a task só
+reorganiza.
+
+A task `Mundo` (8a) não mede expressividade: é a estrutura que a pausa com
+`toggle` pede (seção 11), e agora existe no código, com o automapa e a barra
+fora dela, como o `AM_Ticker` e o `ST_Ticker` do Doom ficam fora do
+`P_Ticker` (`docs/registro/10-interface-e-mundo.md`).
+

@@ -888,9 +888,8 @@ function M.new(argv)
     if not (game.gamestate == "view" and game.player and game.world) then
       return "parado"
     end
-    if game.automap then
-      am_map.ticker(game.automap, game)
-    end
+    -- passo 8d: o automapa e a task Automapa (interface.atm), acordada pelo
+    -- Nivel com :automapa.tic logo depois desta funcao
     return "segue"
   end
 
@@ -1158,6 +1157,12 @@ function M.new(argv)
       -- o menu (passo 8c): a caveira, a tela e o item
       t[#t + 1] = string.format("m%s,%s,%s", tostring(menu.which_skull),
         tostring(menu.screen), tostring(menu.item_on))
+      -- o automapa (passo 8d): aberto, seguir, posicao e escala
+      local am = game.automap
+      if am then
+        t[#t + 1] = string.format("am%s,%s,%s,%s,%s", tostring(am.active),
+          tostring(am.followplayer), tostring(am.m_x), tostring(am.m_y), tostring(am.scale_mtof))
+      end
     end
     local p = game.player
     if p then

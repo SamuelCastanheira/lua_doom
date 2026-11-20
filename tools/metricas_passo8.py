@@ -28,6 +28,11 @@ SUBPASSOS = [
      (),
      "interface.atm",
      ("skull_tics", "which_skull")),
+    ("8d automapa", "am_map.lua",
+     ("function M.ticker",),
+     ("function M.passo",),
+     "interface.atm",
+     ("amclock", "m_x", "m_y", "scale_mtof")),
 ]
 
 
@@ -43,8 +48,8 @@ def main():
         antes = "\n".join(lua_function(read(REF, lua), h) for h in fa)
         dl = "\n".join(lua_function(read(None, lua), h) for h in fd)
         da = bloco_atm(atm)
-        if nome.startswith("8c"):
-            da = da[da.index("val task Menu"):]
+        if nome.startswith("8c") or nome.startswith("8d"):
+            da = da[da.index("val task Menu" if nome.startswith("8c") else "val task Automapa"):]
             da = da[:da.index("\n}\n") + 3]
         rl, ll, al = code_lines(antes, "--"), code_lines(dl, "--"), code_lines(da, ";;")
         print(f"== {nome}")

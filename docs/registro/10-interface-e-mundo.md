@@ -14,8 +14,8 @@ do autor (o mais custoso). Este registro cresce a cada commit do passo 8.
 |---|---|---|
 | 8a. Task `Mundo` (A5) | `b15f4e8` | concluído |
 | 8b. Barra de status, o rosto (A2) | `0797733` | concluído; inclui o B1 (o rosto no hash) |
-| 8c. Menu (A1) | (este commit) | concluído |
-| 8d. Automapa (A3) | – | próximo |
+| 8c. Menu (A1) | `0f1b752` | concluído |
+| 8d. Automapa (A3) | (este commit) | concluído; fecha o passo 8 |
 
 ---
 
@@ -71,15 +71,15 @@ task Mundo (r) {
 
 task Nivel (save) {
     val r = [fim=nil]
-    spawn Mundo(r)                        ;; pools prontas antes de montar
+    pin mundo = spawn Mundo(r)            ;; pools prontas antes de montar
     ...                                   ;; monta ou carrega o nível
-    emit :mundo.pronto
+    emit @(mundo) (:mundo.pronto)
     ...
         loop on :game.tic {
             val antes = G.tic_view_antes()    ;; "segue" | "parado" (automapa)
             val fim = ifs {
                 (antes == :segue) => {
-                    emit :mundo.tic           ;; o tic do mundo
+                    emit @(mundo) (:mundo.tic)  ;; o tic do mundo
                     if !r.fim {
                         G.tic_status()        ;; a barra, fora do mundo
                     }
@@ -311,7 +311,7 @@ Na entrada (`main.atm`):
 ```
 loop ev on :input {
     if G.tecla_para_menu(ev) {
-        emit [tag="menu.tecla", ev=ev]
+        emit @(menu) ([tag="menu.tecla", ev=ev])
     }
     G.handle_input(ev)
     pedidos()
@@ -368,4 +368,136 @@ cresceu em código e não ganhou forma: é o resultado neutro da régua.
 | `tests/ref-passo1.patch`; branch `lua`: `main.lua` | o menu no hash de estado |
 | `tools/mutacoes.py` | 3 mutações do 8c; `menu-depois-da-tela` e `wipe-nao-pausa` com `:menu.tic` |
 | `tools/metricas_passo8.py` | seção 8c |
+
+---
+
+## Subpasso 8d: o automapa
+
+### Resumo
+
+O tic do automapa virou a task `Automapa` (`interface.atm`), no `Nivel`,
+fora do `Mundo` (o automapa continua andando numa pausa, como o `AM_Ticker`
+do Doom). Ela acorda com `:automapa.tic`, que o `Nivel` emite no mesmo ponto
+do tic de antes (logo antes do mundo). Aberto, o automapa conta o seu
+relógio, segue o jogador e aplica zoom e deslocamento. Resultado modesto,
+como a régua previa: tudo o que o tic muda (posição, escala) é lido pelo
+desenho, e o automapa é aberto e fechado de fora (Tab, troca de nível), então
+nenhum campo virou variável.
+
+### Situação antes (tag `passo7`)
+
+`am_map.ticker` (`am_map.lua:383`), chamado em `G.tic_view_antes`: com o
+automapa aberto, `amclock + 1`, segue o jogador (`do_follow`), aplica o zoom
+(`change_window_scale`) e o deslocamento (`change_window_loc`). O desenho
+lê `active`, a posição e a escala. `amclock` é escrito e não é lido por
+ninguém (também no Doom, onde só serve a um efeito que este port não tem).
+
+### Solução
+
+```
+val task Automapa (a, game) {
+    set pub = a
+    loop {
+        await :automapa.tic
+        if a.active {
+            set a.amclock = a.amclock + 1  ;; ninguém lê (como no Doom)
+            AM.passo(a, game)
+        }
+    }
+}
+```
+
+`AM.passo` é o resto do antigo ticker (seguir, zoom, deslocamento).
+`G.tic_view_antes` ficou só com "está na vista?", e o `Nivel` emite
+`:automapa.tic` antes de `:mundo.tic`. O hash (com `DOOM_REPLAY_SIDES=1`)
+passou a incluir `active`, `followplayer`, a posição e a escala do
+automapa, nos três lugares.
+
+### Validação
+
+O automapa é aberto, com o jogador andando, no roteiro pseudoaleatório da
+semente 1, que entrou na lista do `tools/mutacoes.py` (`semente1`).
+
+| Mutação | Erro simulado | Roteiro | 1º quadro | Quadros dif. |
+|---|---|---|---|---|
+| `automapa-depois-do-mundo` | o automapa anda depois do mundo no tic (segue a posição nova) | `semente1` | 3.182 | 10 |
+| `automapa-parado` | o automapa aberto não segue o jogador nem aplica zoom | `semente1` | 246 | 3.753 |
+
+### Métricas
+
+`python3 tools/metricas_passo8.py` (seção "8d"): o ticker (15 linhas de
+Lua) virou `AM.passo` (11) mais a task (10 de Atmos), 15 → 21 linhas; o
+único campo escrito pelo próprio tic, `amclock`, continua campo (é o que o
+`am_map` reinicia ao abrir).
+
+---
+
+## Fechamento do passo 8
+
+| Subpasso | Exigências da régua | Linhas | Campos escritos por tic | Resultado |
+|---|---|---|---|---|
+| 8a. `Mundo` | (estrutura) | – | – | estrutura para a pausa; nada muda no comportamento |
+| 8b. Rosto | só o desenho lê (`face_index`) | 101 → 115 | 5 → 1 | médio: os campos viraram variáveis, a arbitragem continua por tic |
+| 8c. Menu | lido e escrito de fora (`menu.active`) | 12 → 22 (+ 16 em `G.tecla_para_menu`) | 2 → 1 | neutro |
+| 8d. Automapa | lido pelo desenho; aberto e fechado de fora | 15 → 21 | 1 → 1 | modesto |
+
+Os três subpassos de interface confirmam a régua pelo lado do meio: o
+rosto, em que só o desenho lê um campo, perdeu quatro campos; o menu e o
+automapa, lidos e escritos de fora, só mudaram de lugar. Nenhum dos três
+tem a forma de sequência que a intermissão e o finale tinham (passo 7), e é
+isso que separa os resultados: a régua mede o estado, e a forma de sequência
+mede se há tempo para a task contar.
+
+## Validação do passo 8
+
+- `make test-drivers`: idêntico à tag `passo1` nos 11 roteiros, com o
+  rosto, o menu e o automapa no hash de estado.
+- `make test-branches`: idêntico entre as branches `lua` e `atmos` nos 11
+  roteiros (os três campos novos do hash entraram também na branch `lua`).
+- `make test-mutacoes`: **82/85 não equivalentes detectadas**, 6
+  equivalentes justificadas, 3 pendentes; nenhuma sobrevivente.
+- `make test`: o mesmo de antes (12 passam, as mesmas 8 falhas).
+
+## Custo, e um achado sobre o alcance do `emit`
+
+`CUSTO_TAGS=passo7 python3 tools/custo_drivers.py 5` (ms por quadro, roteiro
+`fluxo`). A primeira versão do passo 8 custava **+13%** em relação à
+`passo7` (1,104 → 1,249): ela emitia quatro eventos novos por tic
+(`:menu.tic`, `:automapa.tic`, `:mundo.tic`, `:barra.tic`) com o alcance
+padrão, e um `emit` comum percorre a subárvore inteira de quem emite. O
+`:menu.tic`, emitido do relógio, percorria o programa todo (as pools de
+luzes, portas e monstros incluídas), e o `:mundo.tic`, o `Nivel` inteiro.
+Com **emits direcionados** (`emit @(menu) (:menu.tic)`,
+`emit @(mundo) (:mundo.tic)`, e o mesmo para o rosto, o automapa e
+`:menu.tecla`), o custo caiu para **+3,4%** (1,124 → 1,162), com o replay
+idêntico. As referências às tasks ficam em `pin` (o Atmos exige `pin`, não
+`val`, para guardar o resultado de um `spawn`).
+
+Para a monografia: o custo de um evento no Atmos é proporcional ao tamanho
+da subárvore que ele percorre. Eventos de "relógio" que só uma task escuta
+devem ser direcionados; é a mesma técnica do passo 5 (o `:mobj.tic` de cada
+zumbi), agora por custo e não por ordem.
+
+## Como reproduzir
+
+```sh
+make test-drivers
+make test-branches
+make test-mutacoes
+python3 tools/metricas_passo8.py
+CUSTO_TAGS=passo7 python3 tools/custo_drivers.py 5
+python3 tools/diagramas.py docs/registro/10-interface-e-mundo.md
+```
+
+## Arquivos alterados no 8d
+
+| Arquivo | Mudança |
+|---|---|
+| `interface.atm` | task `Automapa` |
+| `am_map.lua` | `M.passo` (`M.ticker` continua para os testes sem `main.atm`) |
+| `game.lua` | `G.tic_view_antes` sem o automapa; o automapa no hash |
+| `main.atm` | o `Nivel` cria o `Automapa` e emite `:automapa.tic`; todos os emits novos do passo 8 direcionados (`emit @(t)`), com as tasks em `pin` |
+| `tests/ref-passo1.patch`; branch `lua`: `main.lua` | o automapa no hash de estado |
+| `tools/mutacoes.py`, `Makefile` | roteiro `semente1` nas mutações; 2 mutações do 8d |
+| `tools/metricas_passo8.py` | seção 8d |
 

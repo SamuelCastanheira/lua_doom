@@ -40,7 +40,8 @@ os bugs de ciclo de vida na lógica de jogos, com custo aceitável?
 | 6. Wipe e quadro por evento (opcional) | concluído (tag `passo6`) | [registro/06-wipe-e-quadro.md](registro/06-wipe-e-quadro.md) |
 | Métricas finais (seção 7) | concluído | [registro/07-metricas-finais.md](registro/07-metricas-finais.md) |
 | 7. Intermissão e finale (acrescentado) | concluído (tag `passo7`); as partes do Doom 2 sem cobertura | [registro/09-intermissao-e-finale.md](registro/09-intermissao-e-finale.md) |
-| Depois do passo 7 (A a D, M) | planejado: menu, barra, oráculo, correções, experimentos, escrita | seção 6, "Depois do passo 7" |
+| 8. Mundo, barra, menu, automapa (A5, A2, A1, A3) | concluído (tag `passo8`); inclui o B1 (o rosto no hash) | [registro/10-interface-e-mundo.md](registro/10-interface-e-mundo.md) |
+| Depois do passo 8 (A4, B2, C, D, M) | planejado: família de monstros, mutações pendentes, correções, experimentos, escrita | seção 6, "Depois do passo 7" |
 
 Desvios em relação a este plano, decididos durante o passo 2:
 

@@ -16,6 +16,7 @@ do que mudou, do porquê e do que deu errado no caminho.
 | – | – | [07-metricas-finais.md](07-metricas-finais.md) | métricas consolidadas de todos os passos (seção 7 do plano) |
 | – | branch `lua` `09d8078` | [08-branch-lua-replay.md](08-branch-lua-replay.md) | modo replay na branch `lua`; as duas branches comparadas direto (`make test-branches`) |
 | 7 | `passo7` | [09-intermissao-e-finale.md](09-intermissao-e-finale.md) | a intermissão e o finale em tasks (`telas.atm`) |
+| 8 | `passo8` | [10-interface-e-mundo.md](10-interface-e-mundo.md) | a task `Mundo`, o rosto da barra, o menu e o automapa |
 
 ## Cadeia de equivalência
 

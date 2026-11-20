@@ -214,6 +214,7 @@ test-mutacoes: all
 	@sh tests/test_drivers.sh 0 1 monstro -warp 1 2 -respawn >/dev/null
 	@sh tests/test_drivers.sh 0 1 telas -warp 1 1 >/dev/null
 	@sh tests/test_drivers.sh 6000 2 exits >/dev/null
+	@sh tests/test_drivers.sh 4000 1 >/dev/null
 	@python3 tools/mutacoes.py
 
 # Metricas e custo do passo 2 (docs/registro/02-fluxo-de-telas.md).

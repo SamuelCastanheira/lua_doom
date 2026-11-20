@@ -380,6 +380,21 @@ local function change_window_scale(self)
   end
 end
 
+-- Passo 8d: o tic do automapa e a task Automapa (interface.atm), que chama
+-- M.passo com o automapa aberto. M.ticker continua para os testes sem
+-- main.atm.
+function M.passo(self, game)
+  if self.followplayer ~= 0 then
+    do_follow(self, game)
+  end
+  if self.ftom_zoommul ~= FRACUNIT then
+    change_window_scale(self)
+  end
+  if self.m_paninc_x ~= 0 or self.m_paninc_y ~= 0 then
+    change_window_loc(self)
+  end
+end
+
 function M.ticker(self, game)
   if not self.active then
     return

@@ -26,7 +26,7 @@ Atmos) e escreve em **português**. Responda em português.
 
 | Ref | O que é |
 |---|---|
-| branch `lua` (`855183a`) | renderer em C, lógica em Lua com thinkers, laço `while` no `main.lua` (original); desde `09d8078`, com o modo replay e o hash de estado (só instrumentação de teste; o hash das telas em `855183a`). Worktree em `build/branch-lua` |
+| branch `lua` (`92e6ab3`) | renderer em C, lógica em Lua com thinkers, laço `while` no `main.lua` (original); desde `09d8078`, com o modo replay e o hash de estado (só instrumentação de teste; o hash das telas em `855183a`; o do rosto, do menu e do automapa até `92e6ab3`). Worktree em `build/branch-lua` |
 | branch `atmos` | trabalho atual |
 | tag `passo1` (`75c5e67`) | `game.lua` em fases, ambiente `atmos.env.doom`, `main.atm` só observando as telas; `main.lua` ainda é o laço imperativo. **É a referência de equivalência atual.** |
 | tag `passo2` | fluxo de telas inteiro em tasks Atmos; `main.lua` virou lançador |
@@ -34,7 +34,8 @@ Atmos) e escreve em **português**. Responda em português.
 | tag `passo4` | a arma (`arma.atm`) e o jogador (`jogador.atm`) em tasks |
 | tag `passo5` | o Zombieman em task (`monstro.atm`); laço dos mobjs no `Nivel` |
 | tag `passo6` | o wipe como fase do relógio; cada tela desenha a si mesma |
-| tag `passo7` | a intermissão e o finale em tasks (`telas.atm`). **Estado atual da migração** |
+| tag `passo7` | a intermissão e o finale em tasks (`telas.atm`) |
+| tag `passo8` | a task `Mundo`, o rosto da barra (`barra.atm`), o menu e o automapa (`interface.atm`). **Estado atual da migração** |
 | tag `luaV.1` | marco antigo do usuário (sem relação com a migração) |
 | commit `522b06f` | renderer 100% Lua (referência pixel a pixel do renderer em C, usada por `make compare`) |
 
@@ -51,6 +52,7 @@ Atmos) e escreve em **português**. Responda em português.
 | 5. Um monstro | concluído (`passo5`): o Zombieman como task `Zumbi` |
 | 6. Wipe e quadro (opcional) | concluído (`passo6`): o wipe como fase do relógio; cada tela desenha a si mesma |
 | 7. Intermissão e finale | concluído (`passo7`): tasks `Contagem` e `Texto` (`telas.atm`) |
+| 8. Mundo, barra, menu, automapa | concluído (`passo8`): itens A5, A2, A1 e A3 do plano (o A4 ficou de fora) |
 
 ---
 
@@ -96,12 +98,13 @@ Um quadro tem três fases, sempre nesta ordem:
 ```
 1. G.handle_input(ev)        para cada evento
 2. ate 4 tics:   na transicao de tela: G.tic_wipe() (fase do relogio, passo 6)
-                 senao: G.tic_menu(), depois a tela atual:
+                 senao: emit :menu.tic (task Menu, passo 8c), depois a tela atual:
                         G.tic_view_antes()   -> "segue" | "parado"
-                          emit :game.jogador   (Nivel; task Jogador, com a Arma)
-                        G.tic_view_meio()    -> "segue" | "morte"
-                          emit :game.specials  (Nivel; G.specials_resto
-                                                roda o scroll, ainda Lua)
+                          emit :automapa.tic   (Nivel; task Automapa, 8d)
+                          emit :mundo.tic      (Nivel; task Mundo, 8a): tic_comando,
+                                               :game.jogador, tic_view_meio, mobjs,
+                                               :game.specials, tic_mundo_fim
+                          emit :barra.tic      (Nivel; task Rosto, 8b)
                         G.tic_view_depois()  -> nil | "saida"
                         intermissao e finale: tasks Contagem e Texto
                         (telas.atm, passo 7), que acordam com :game.tic
@@ -318,6 +321,12 @@ Cuidados:
   custo.
 - **O alcance padrão do `emit` é a task corrente** (não global). Um
   `:game.specials` emitido em `Nivel` só alcança a subárvore de `Nivel`.
+- **O custo do `emit` é proporcional à subárvore que ele percorre.** Um
+  evento que só uma task escuta deve ser direcionado (`emit @(t) (:ev)`, com
+  a task guardada em `pin t = spawn ...`; `val` não serve). No passo 8, os
+  quatro eventos novos por tic com o alcance padrão custavam +13%;
+  direcionados, +3,4%. `emit @1 (:ev)` alcança o escopo do pai (uma task
+  irmã).
 - **Um `spawn` dentro de `if c { ... }` fica preso ao bloco do `if`** e é
   abortado quando ele termina. Em `Nivel`, crie tasks nas pools
   (`spawn @pool` ou `spawn_in`), não em blocos condicionais.
@@ -549,7 +558,7 @@ Se a tag nova não tiver algum comando de teste do replay, crie
 ### 5.3 Sensibilidade, métricas e custo
 
 ```sh
-make test-mutacoes         # tools/mutacoes.py: 72/75 detectadas, 6 equivalentes, 3 pendentes
+make test-mutacoes         # tools/mutacoes.py: 82/85 detectadas, 6 equivalentes, 3 pendentes
 make metricas              # tools/metricas_passo2.py + tools/custo_drivers.py
 python3 tools/metricas_finais.py --custo --memoria   # tabelas finais de todos os passos (le build/test-drivers.log e build/mutacoes.log)
 python3 tools/custo_drivers.py 5           # ms/quadro dos 3 drivers
@@ -653,7 +662,7 @@ revisões do próprio port na seção 5). No fim, as correções são feitas nas
 
 ---
 
-## 9. Passos 3 a 7 e métricas finais concluídos; próximo: correções e escrita
+## 9. Passos 3 a 8 e métricas finais concluídos; próximo: correções e escrita
 
 **Passo 4a (feito):** a arma como task `Arma` (`arma.atm`), por
 equivalência com a lógica de `player.lua` (as tabelas `WEAPON_*` e as
@@ -711,6 +720,17 @@ continuam lidos do teclado em Lua. As telas entraram no hash de estado (nos
 três lugares: `atmos`, `tests/ref-passo1.patch`, branch `lua`): sem isso,
 três mutações sobreviviam. Roteiro `telas` (E1M1 com os segredos, E1M2,
 E1M8 e o finale). Registro: `docs/registro/09-intermissao-e-finale.md`.
+
+**Passo 8 (feito):** itens A5, A2, A1 e A3 do plano. 8a: a task `Mundo`
+(o `P_Ticker`: pools, `Jogador`, o tic do mundo) dentro do `Nivel`, com o
+automapa e a barra fora; o resultado do tic volta em `r.fim`. 8b: o rosto
+da barra como task `Rosto` (`barra.atm`), 5 campos → 1. 8c: o menu como
+task `Menu` (`interface.atm`): a entrada oferece as teclas
+(`G.tecla_para_menu`, `:menu.tecla`) e a task marca se usou; neutro. 8d: o
+automapa como task `Automapa`; modesto. O rosto, o menu e o automapa
+entraram no hash (nos três lugares). Os emits novos são direcionados (custo:
++13% com o alcance padrão, +3,4% direcionados). Registro:
+`docs/registro/10-interface-e-mundo.md`.
 
 **Próximo:** a lista do que vem depois do passo 7 está em
 `docs/PLANO_ATMOS.md`, seção 6, "Depois do passo 7": A (migração por

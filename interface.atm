@@ -7,6 +7,7 @@
 ;; secao 8).
 
 val MENU = require "menu"
+val AM   = require "am_map"
 
 ;; ------------------------------------------------------------------- menu
 
@@ -40,4 +41,25 @@ val task Menu (m, G) {
     }
 }
 
-[Menu=Menu]
+;; --------------------------------------------------------------- automapa
+
+;; O automapa (passo 8d). Antes: am_map.ticker, chamado no comeco do tic do
+;; nivel. Agora a task acorda com :automapa.tic, emitido pelo Nivel no mesmo
+;; ponto, fora do Mundo (o automapa continua andando numa pausa, como o
+;; AM_Ticker do Doom). Aberto, ele conta o seu relogio, segue o jogador e
+;; aplica zoom e deslocamento (AM.passo). Tudo o que o tic muda (posicao,
+;; escala) e lido pelo desenho, e o automapa e aberto e fechado de fora
+;; (Tab, troca de nivel): a fase fica em a.active. Resultado modesto, como a
+;; regua previa.
+val task Automapa (a, game) {
+    set pub = a
+    loop {
+        await :automapa.tic
+        if a.active {
+            set a.amclock = a.amclock + 1  ;; ninguem le (como no Doom)
+            AM.passo(a, game)
+        }
+    }
+}
+
+[Menu=Menu, Automapa=Automapa]

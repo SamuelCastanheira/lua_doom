@@ -142,26 +142,28 @@ task Mundo (r) {
 ;; seguiu, a barra de status.
 task Nivel (save) {
     val r = [fim=nil]
-    spawn Mundo(r)                        ;; pools prontas antes de montar
+    pin mundo = spawn Mundo(r)            ;; pools prontas antes de montar
     if save {
         G.load_level(save)
     } else {
         G.start_level()
     }
     G.enter(:view)
-    emit :mundo.pronto
-    spawn barra.Rosto(G.game.status, G.game.player)   ;; passo 8b, fora do mundo
+    emit @(mundo) (:mundo.pronto)
+    pin rosto = spawn barra.Rosto(G.game.status, G.game.player)      ;; 8b, fora do mundo
+    pin automapa = spawn interface.Automapa(G.game.automap, G.game)  ;; 8d, fora do mundo
     spawn {                               ;; passo 6: a vista desenha a si mesma
         loop on :game.frame { G.pintar_vista() }
     }
     par :any {
         loop on :game.tic {
-            val antes = G.tic_view_antes()    ;; "segue" | "parado" (automapa)
+            val antes = G.tic_view_antes()    ;; "segue" | "parado"
             val fim = ifs {
                 (antes == :segue) => {
-                    emit :mundo.tic           ;; passo 8a: o tic do mundo
+                    emit @(automapa) (:automapa.tic)   ;; passo 8d: o automapa
+                    emit @(mundo) (:mundo.tic)         ;; passo 8a: o tic do mundo
                     if !r.fim {
-                        emit :barra.tic       ;; passo 8b: o rosto (task Rosto)
+                        emit @(rosto) (:barra.tic)     ;; passo 8b: o rosto
                         G.redesenhar()
                     }
                     r.fim
@@ -288,12 +290,12 @@ task Fluxo () {
 ;; Passo 8c: a tecla que o menu pode usar vai primeiro a task Menu
 ;; (:menu.tecla), que marca se usou; G.handle_input le essa marca.
 
-spawn interface.Menu(G.game.menu, G)
+pin menu = spawn interface.Menu(G.game.menu, G)
 
 spawn {
     loop ev on :input {
         if G.tecla_para_menu(ev) {
-            emit [tag="menu.tecla", ev=ev]
+            emit @(menu) ([tag="menu.tecla", ev=ev])
         }
         G.handle_input(ev)
         pedidos()
@@ -312,7 +314,7 @@ spawn {
     loop {
         watching :tela.transicao {
             loop on :tic {
-                emit :menu.tic            ;; passo 8c: a caveira do menu
+                emit @(menu) (:menu.tic)  ;; passo 8c: a caveira do menu
                 pedidos()
                 emit :game.tic
                 pedidos()
