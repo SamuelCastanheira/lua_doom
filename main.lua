@@ -638,6 +638,21 @@ local function state_string()
       t[#t + 1] = string.format("f%s,%s", tostring(s.floorpic), tostring(s.ceilingpic))
     end
   end
+  -- intermissao e finale (passo 7): o que as telas escrevem e o desenho le;
+  -- tambem so com DOOM_REPLAY_SIDES=1
+  if os.getenv("DOOM_REPLAY_SIDES") == "1" then
+    local wi = game.wi
+    if wi then
+      t[#t + 1] = string.format("w%s,%s,%s,%s,%s,%s,%s,%s,%s", tostring(wi.state),
+        tostring(wi.cnt_kills), tostring(wi.cnt_items), tostring(wi.cnt_secret),
+        tostring(wi.cnt_time), tostring(wi.cnt_par), tostring(wi.snl_pointeron),
+        tostring(wi.bcnt), tostring(wi.accelerate))
+    end
+    local fi = game.finale
+    if fi then
+      t[#t + 1] = string.format("e%s,%s", tostring(fi.stage), tostring(fi.count))
+    end
+  end
   local p = game.player
   if p then
     t[#t + 1] = string.format("p%s,%s,%s,%s,%s", tostring(p.health), tostring(p.armorpoints),
