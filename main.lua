@@ -656,6 +656,9 @@ local function state_string()
     if game.status then
       t[#t + 1] = string.format("r%s", tostring(game.status.face_index))
     end
+    -- o menu (passo 8c): a caveira, a tela e o item
+    t[#t + 1] = string.format("m%s,%s,%s", tostring(menu.which_skull),
+      tostring(menu.screen), tostring(menu.item_on))
   end
   local p = game.player
   if p then
