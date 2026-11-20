@@ -15,7 +15,7 @@
 # (mobjs, setores, jogador, RNG, tela atual). A primeira linha divergente
 # aponta o quadro em que a ordem ou o tempo mudou.
 #
-#   sh tests/test_drivers.sh [quadros] [semente] [exits|fluxo|luzes|botoes|portas|elevadores|pisos|arma|monstro|telas] [args do jogo...]
+#   sh tests/test_drivers.sh [quadros] [semente] [exits|fluxo|luzes|botoes|portas|elevadores|pisos|arma|monstro|familia|telas] [args do jogo...]
 #   exits: o roteiro tambem termina niveis -> intermissao e finale
 #   fluxo: roteiro fixo que passa por todas as transicoes (quadros ignorado)
 #   luzes: jogador parado no E4M1 e no E1M2 (rode com -warp 4 1; passo 3a)
@@ -25,6 +25,7 @@
 #   pisos: pisos, escadas, donut e esmagadores, save e load (rode com -warp 2 2; passo 3d)
 #   arma: cada arma atirando, trocas, sem municao, save e load, morte (rode com -warp 1 1; passo 4a)
 #   monstro: zumbis procurando, correndo, atirando, morrendo, save e load, -respawn (rode com -warp 1 2 -respawn; passo 5)
+#   familia: Zombieman, Shotgun Guy, Demon e Spectre, save e load, -respawn (rode com -warp 1 5 -respawn; passo 9)
 #
 # REF_TAG=<tag> muda a referencia (padrao: passo1); REF_DIR=<pasta> aponta
 # para uma pasta pronta (por exemplo, a branch lua: build/branch-lua).
@@ -246,6 +247,17 @@ if [ "$EXITS" = "monstro" ] && [ $status -eq 0 ]; then
   n=$(grep -c "^pedido jogo.carregar" "$OUT/atm.out" || true)
   [ "$n" -ge 1 ] || { echo "COBERTURA INCOMPLETA: $n loads (esperado 1)"; status=1; }
   [ $status -eq 0 ] && echo "  cobertura do monstro: save e load no meio da briga; E1M2 com -respawn"
+fi
+# No roteiro "familia" (passo 9): os quatro tipos com a task Monstro no
+# E1M5, save e load no meio da briga. Os comportamentos percorridos por tipo
+# (procurar, correr, atacar, dor, morrer; explodir no Zombieman e no Shotgun
+# Guy) foram conferidos com prints (registro do passo 9).
+if [ "$EXITS" = "familia" ] && [ $status -eq 0 ]; then
+  [ -e "$OUT/run_atm/doomsav5.dsg" ] || { echo "COBERTURA INCOMPLETA: sem o save do slot 5"; status=1; }
+  n=$(grep -c "^pedido jogo.carregar" "$OUT/atm.out" || true)
+  [ "$n" -ge 1 ] || { echo "COBERTURA INCOMPLETA: $n loads (esperado 1)"; status=1; }
+  grep -q "^vista E1M5" "$OUT/ref.out" || { echo "COBERTURA INCOMPLETA: nao esta no E1M5"; status=1; }
+  [ $status -eq 0 ] && echo "  cobertura da familia: save e load no meio da briga; E1M5 com -respawn"
 fi
 # No roteiro "telas" (passo 7): intermissoes acelerada (E1M1, no meio dos
 # segredos) e completa (E1M2), E1M8 e o finale (pular no comeco da arte). Os caminhos de dentro

@@ -108,13 +108,17 @@ function M.spawn_mobj(world, x, y, z, typ, game)
     mo.sprite = info.SPRNAMES[st[0]]
     mo.frame = st[1]
   end
-  -- Monstro como task (passo 5): o Zombieman ganha a task Zumbi (monstro.atm)
-  -- na pool "monstros" do Nivel. Sem main.atm (testes unitarios) nao ha
-  -- pools, e ele fica com o thinker Lua. O spawn e sincrono (P8): a task
-  -- roda ate o primeiro await, sem mexer no mobj.
-  if typ == info.MT_POSSESSED and game and game.pools and game.pools.monstros then
+  -- Monstro como task (passos 5 e 9): os tipos de monstro.TIPOS (Zombieman,
+  -- Shotgun Guy, Demon, Spectre) ganham a task Monstro (monstro.atm), com a
+  -- tabela do tipo, na pool "monstros" do Nivel. Sem main.atm (testes
+  -- unitarios) nao ha pools, e eles ficam com o thinker Lua. O spawn e
+  -- sincrono (P8): a task roda ate o primeiro await, sem mexer no mobj.
+  if game and game.pools and game.pools.monstros then
     monstro = monstro or require("monstro")
-    mo.task = spawn_in(game.pools.monstros, monstro.Zumbi, mo, game)
+    local tipo = monstro.TIPOS[typ]
+    if tipo ~= nil then
+      mo.task = spawn_in(game.pools.monstros, monstro.Monstro, mo, game, tipo)
+    end
   end
   return mo
 end
@@ -167,7 +171,7 @@ function M.set_mobj_state(mo, state, world, game)
 end
 
 -- Partes de um tic de mobj, usadas pelo thinker Lua (mobj_thinker) e pela
--- task Zumbi (monstro.atm, passo 5).
+-- task Monstro (monstro.atm, passos 5 e 9).
 
 -- Movimento (momento e gravidade). Devolve false se o mobj foi removido.
 function M.mobj_mover(world, mo, game)
@@ -224,8 +228,8 @@ function M.mobj_thinker(world, mo, game)
 end
 
 -- Fim dos tics de um estado qualquer: segue o ponteiro "proximo" da tabela
--- (com o encadeamento de set_mobj_state). Usado pela task Zumbi num estado
--- que nao e do Zombieman (o load aplica os registros por indice).
+-- (com o encadeamento de set_mobj_state). Usado pela task Monstro num estado
+-- que nao e do seu tipo (o load aplica os registros por indice).
 function M.seguir_tabela(mo, world, game)
   return M.set_mobj_state(mo, info.STATES[mo.istate][4], world, game)
 end

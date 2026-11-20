@@ -33,6 +33,7 @@ ROTEIROS = {
     "pisos": ("replay_1pisos.txt", "ref_1pisos.log", ["-warp", "2", "2"]),
     "arma": ("replay_1arma.txt", "ref_1arma.log", ["-warp", "1", "1"]),
     "monstro": ("replay_1monstro.txt", "ref_1monstro.log", ["-warp", "1", "2", "-respawn"]),
+    "familia": ("replay_1familia.txt", "ref_1familia.log", ["-warp", "1", "5", "-respawn"]),
     "telas": ("replay_1telas.txt", "ref_1telas.log", ["-warp", "1", "1"]),
     "exits": ("replay_2exits.txt", "ref_2exits.log", []),
     "semente1": ("replay_1.txt", "ref_1.log", []),
@@ -73,6 +74,14 @@ EQUIVALENTES = {
         "resto em Lua (linhas com scroll: textureoffset) e os movimentadores "
         "(alturas de setor) nao leem texturas de lado e nao consomem P_Random "
         "no tick: campos disjuntos, sem dependencia de leitura",
+    "spectre-com-tabela-do-soldado":
+        "a task Monstro com uma tabela que nao cobre os estados do mobj cai "
+        "no caso estranho, que segue o ponteiro proximo de info.STATES, como "
+        "o thinker Lua: o Spectre com a tabela do Shotgun Guy anda pela "
+        "tabela quadro a quadro, sem os comportamentos com nome, e faz o "
+        "mesmo. O caso estranho, criado para o load por indice, torna "
+        "silencioso um erro de cobertura da tabela do tipo (registro do "
+        "passo 9)"
 }
 
 # Mutantes NAO equivalentes que o roteiro ainda nao cobre. Sobreviver e
@@ -460,8 +469,8 @@ MUTACOES = [
      "monstro.atm", "monstro"),
     ("dor-volta-a-procurar",
      "Depois de atacar ou sentir dor, o zumbi volta a procurar (nao a correr)",
-     "            (r == :fim) => entrar(mo, game, info.S_POSS_RUN1)",
-     "            (r == :fim) => entrar(mo, game, info.S_POSS_STND)",
+     "            (r == :fim) => entrar(mo, game, C.correr@1)",
+     "            (r == :fim) => entrar(mo, game, C.procurar@1)",
      "monstro.atm", "monstro"),
     ("salto-sem-vencido",
      "Depois de um salto de fora com os tics ja no fim, o zumbi espera mais um tic",
@@ -592,6 +601,32 @@ MUTACOES = [
      "        if (prioridade < 5) && S.deus(p) {                       ;; modo deus\n",
      "        if false {\n",
      "barra.atm", "arma"),
+    # --- passo 9: a familia de monstros (roteiro "familia": E1M5, -respawn)
+    ("tipo-volta-como-zumbi",
+     "Depois de atacar ou sentir dor, todo tipo volta a correr como Zombieman (a generalizacao esqueceu um estado)",
+     "            (r == :fim) => entrar(mo, game, C.correr@1)",
+     "            (r == :fim) => entrar(mo, game, info.S_POSS_RUN1)",
+     "monstro.atm", "familia"),
+    ("demonio-nao-morde",
+     "A sequencia de ataque do Demon termina antes do quadro da mordida",
+     "    atacar   = faixa(info.S_SARG_ATK1, info.S_SARG_ATK3),",
+     "    atacar   = faixa(info.S_SARG_ATK1, info.S_SARG_ATK2),",
+     "monstro.atm", "familia"),
+    ("demonio-dor-curta",
+     "A dor do Demon tem um quadro so (sem A_Pain)",
+     "    dor      = faixa(info.S_SARG_PAIN, info.S_SARG_PAIN2),",
+     "    dor      = faixa(info.S_SARG_PAIN, info.S_SARG_PAIN),",
+     "monstro.atm", "familia"),
+    ("soldado-levanta-morto",
+     "A morte do Shotgun Guy termina antes do corpo (ele volta a correr)",
+     "    morrer   = faixa(info.S_SPOS_DIE1, info.S_SPOS_DIE5),",
+     "    morrer   = faixa(info.S_SPOS_DIE1, info.S_SPOS_DIE4),",
+     "monstro.atm", "familia"),
+    ("spectre-com-tabela-do-soldado",
+     "O Spectre recebe a tabela do Shotgun Guy",
+     "set TIPOS@(info.MT_SHADOWS)   = DEMONIO",
+     "set TIPOS@(info.MT_SHADOWS)   = SOLDADO",
+     "monstro.atm", "familia"),
     # --- passo 2 (continuacao): fluxo de telas (roteiro "fluxo")
     ("novo-nao-descarta",
      "New Game no meio do jogo e ignorado (o Jogo atual continua)",

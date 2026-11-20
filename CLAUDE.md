@@ -35,7 +35,8 @@ Atmos) e escreve em **português**. Responda em português.
 | tag `passo5` | o Zombieman em task (`monstro.atm`); laço dos mobjs no `Nivel` |
 | tag `passo6` | o wipe como fase do relógio; cada tela desenha a si mesma |
 | tag `passo7` | a intermissão e o finale em tasks (`telas.atm`) |
-| tag `passo8` | a task `Mundo`, o rosto da barra (`barra.atm`), o menu e o automapa (`interface.atm`). **Estado atual da migração** |
+| tag `passo8` | a task `Mundo`, o rosto da barra (`barra.atm`), o menu e o automapa (`interface.atm`) |
+| tag `passo9` | a família de monstros: Zombieman, Shotgun Guy, Demon e Spectre com a task `Monstro` (`monstro.atm`). **Estado atual da migração** |
 | tag `luaV.1` | marco antigo do usuário (sem relação com a migração) |
 | commit `522b06f` | renderer 100% Lua (referência pixel a pixel do renderer em C, usada por `make compare`) |
 
@@ -52,7 +53,8 @@ Atmos) e escreve em **português**. Responda em português.
 | 5. Um monstro | concluído (`passo5`): o Zombieman como task `Zumbi` |
 | 6. Wipe e quadro (opcional) | concluído (`passo6`): o wipe como fase do relógio; cada tela desenha a si mesma |
 | 7. Intermissão e finale | concluído (`passo7`): tasks `Contagem` e `Texto` (`telas.atm`) |
-| 8. Mundo, barra, menu, automapa | concluído (`passo8`): itens A5, A2, A1 e A3 do plano (o A4 ficou de fora) |
+| 8. Mundo, barra, menu, automapa | concluído (`passo8`): itens A5, A2, A1 e A3 do plano |
+| 9. Família de monstros (A4) | concluído (`passo9`): task `Monstro` com uma tabela por tipo |
 
 ---
 
@@ -418,8 +420,8 @@ Ordem atual de um tic de nível (`G.tic_view_antes`, 1 e 2;
 4. `player_mod.tick_fx`
 5. renascer? → `"morte"`
 6. os mobjs, na ordem de `world.mobjs` (passo 5: o laço `mobjs()` fica no
-   `Nivel`; o Zombieman recebe `emit @(mo.task) (:mobj.tic)` na sua posição,
-   os outros chamam `mobj_thinker` por `G.mobj_pensar`)
+   `Mundo`; os monstros com task, passo 9, recebem `emit @(mo.task) (:mobj.tic)`
+   na sua posição, os outros chamam `mobj_thinker` por `G.pensar_ate_task`)
 7. `emit :game.specials` em `Nivel`. Acorda, na ordem de declaração em
    `Nivel` (P7):
    1. pool `luzes` (tasks de `setores.atm`, passo 3a), na ordem dos setores;
@@ -519,7 +521,7 @@ automapa, `-`/`=` mudam o tamanho da tela.
 ### 5.2 Equivalência da lógica (driver Atmos × referência)
 
 ```sh
-make test-drivers          # semantica do Atmos (P1-P9) + 11 roteiros contra a tag passo1; saves comparados byte a byte
+make test-drivers          # semantica do Atmos (P1-P9) + 12 roteiros contra a tag passo1; saves comparados byte a byte
 sh tests/test_drivers.sh 0 1 fluxo         # roteiro com todas as transicoes
 sh tests/test_drivers.sh 4000 1            # pseudoaleatorio, 4000 quadros, semente 1
 sh tests/test_drivers.sh 6000 2 exits      # tambem termina niveis
@@ -530,6 +532,7 @@ sh tests/test_drivers.sh 0 1 elevadores -warp 1 3 # passo 3c: elevadores em cada
 sh tests/test_drivers.sh 0 1 pisos -warp 2 2      # passo 3d: pisos, escadas, donut, esmagadores (jogador embaixo), save e load
 sh tests/test_drivers.sh 0 1 arma -warp 1 1       # passo 4: cada arma, trocas, sem municao, save e load no tiro, morte e renascer
 sh tests/test_drivers.sh 0 1 monstro -warp 1 2 -respawn  # passo 5: zumbis em todos os comportamentos, save e load, pesadelo
+sh tests/test_drivers.sh 0 1 familia -warp 1 5 -respawn # passo 9: os quatro tipos com task no E1M5, save e load
 sh tests/test_drivers.sh 0 1 telas -warp 1 1      # passo 7: intermissao acelerada e completa, E1M8, finale
 REF_TAG=passo2 sh tests/test_drivers.sh 0 1 fluxo   # outra referencia
 ```
@@ -539,7 +542,7 @@ REF_TAG=passo2 sh tests/test_drivers.sh 0 1 fluxo   # outra referencia
   em `build/ref-<tag>`, aplica `tests/ref-<tag>.patch` se existir, compila e
   roda o `lua5.4 main.lua` de lá. Compara com `atmos main.atm` e com
   `lua5.4 main.lua` atuais.
-- **`make test-branches`** compara a branch `lua` com a `atmos` nos 11
+- **`make test-branches`** compara a branch `lua` com a `atmos` nos 12
   roteiros (`REF_TAG=lua REF_DIR=build/branch-lua`): idênticas, com o estado
   completo (`docs/registro/08-branch-lua-replay.md`). É o teste da fase de
   correções: cada correção nas duas branches, e elas continuam iguais.
@@ -558,7 +561,7 @@ Se a tag nova não tiver algum comando de teste do replay, crie
 ### 5.3 Sensibilidade, métricas e custo
 
 ```sh
-make test-mutacoes         # tools/mutacoes.py: 82/85 detectadas, 6 equivalentes, 3 pendentes
+make test-mutacoes         # tools/mutacoes.py: 86/89 detectadas, 7 equivalentes, 3 pendentes
 make metricas              # tools/metricas_passo2.py + tools/custo_drivers.py
 python3 tools/metricas_finais.py --custo --memoria   # tabelas finais de todos os passos (le build/test-drivers.log e build/mutacoes.log)
 python3 tools/custo_drivers.py 5           # ms/quadro dos 3 drivers
@@ -662,7 +665,7 @@ revisões do próprio port na seção 5). No fim, as correções são feitas nas
 
 ---
 
-## 9. Passos 3 a 8 e métricas finais concluídos; próximo: correções e escrita
+## 9. Passos 3 a 9 e métricas finais concluídos; próximo: correções e escrita
 
 **Passo 4a (feito):** a arma como task `Arma` (`arma.atm`), por
 equivalência com a lógica de `player.lua` (as tabelas `WEAPON_*` e as
@@ -732,6 +735,19 @@ entraram no hash (nos três lugares). Os emits novos são direcionados (custo:
 +13% com o alcance padrão, +3,4% direcionados). Registro:
 `docs/registro/10-interface-e-mundo.md`.
 
+**Passo 9 (feito):** o A4. A task `Zumbi` virou `Monstro(mo, game, C)`,
+com uma tabela por tipo em `monstro.atm` (`ZUMBI`, `SOLDADO`, `DEMONIO`;
+o Spectre usa a do Demon; `faixa(a, b)` monta as sequências) e `TIPOS`
+indexado pelo `MT_*`; `thinker.spawn_mobj` pergunta a `monstro.TIPOS`. A
+parte genérica não mudou (83 linhas); cada tipo custa 10 linhas (o mesmo
+desenho, 1). Soldados e demônios diferem nas ações (`enemy.lua`), em
+`A_Chase` (perto ou longe) e nos dados, não na forma. Roteiro `familia`
+(`-warp 1 5 -respawn`, E1M5 com os quatro tipos): a briga vem **antes** do
+save, porque depois do load por índice quase tudo cai no caso `estranho`.
+Achado: o `estranho` cala erros de cobertura da tabela (a mutação
+`spectre-com-tabela-do-soldado` é equivalente). Registro:
+`docs/registro/11-familia-de-monstros.md`.
+
 **Próximo:** a lista do que vem depois do passo 7 está em
 `docs/PLANO_ATMOS.md`, seção 6, "Depois do passo 7": A (migração por
 equivalência: menu, barra de status, automapa, família de monstros, task
@@ -748,7 +764,7 @@ estão em `docs/registro/07-metricas-finais.md`, geradas por
 `tools/metricas_finais.py` sobre a tag `passo6`, antes das correções.
 O pré-requisito das correções está feito: a branch `lua` tem o modo
 replay e o hash de estado, e `make test-branches` mostra as duas branches
-idênticas nos 11 roteiros (`docs/registro/08-branch-lua-replay.md`).
+idênticas nos 12 roteiros (`docs/registro/08-branch-lua-replay.md`).
 
 O passo 3, plano em `docs/PLANO_ATMOS.md`, seção 6, e registro em
 `docs/registro/03-specials.md`. Como ficou o código (`specials.lua` guarda

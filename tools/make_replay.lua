@@ -72,6 +72,16 @@ local arma = arg[4] == "arma"
 -- despedacado: comportamento "explodir"); espera para os corpos voltarem
 -- (-respawn: pesadelo, 12 s). "quadros" e ignorado.
 local monstro = arg[4] == "monstro"
+-- "familia": roteiro do passo 9, rodado com "-warp 1 5 -respawn". O E1M5 tem
+-- os quatro tipos com a task Monstro (Zombieman, Shotgun Guy, Demon,
+-- Spectre). iddqd e idkfa; o jogador vai (goto) a sala do Demon com o
+-- Shotgun Guy e os zumbis e briga com o lanca-foguetes (despedacados) e
+-- com a escopeta (o Demon morde, o Shotgun Guy atira); vai aos Spectres; save
+-- e load no meio da briga (slot 5), depois das mortes: o load aplica os
+-- registros por indice, e os monstros recebem estados de outros tipos
+-- (caso "estranho" da task); espera os corpos voltarem (-respawn).
+-- "quadros" e ignorado.
+local familia = arg[4] == "familia"
 -- "telas": roteiro do passo 7, rodado com "-warp 1 1". E1M1: visita os 3
 -- segredos (goto) e acelera no meio da contagem dos segredos; E1M2: a
 -- contagem vai ate o fim, acelera na espera e o mapa seguinte passa pelo
@@ -237,6 +247,44 @@ if telas then
   wait(1000)
   hold("space", 1200)
   wait(100)
+  lines[#lines + 1] = string.format("%d quit", f + 20)
+  local fh = assert(io.open(out_path, "w"))
+  fh:write(table.concat(lines, "\n"), "\n")
+  fh:close()
+  print(string.format("%s: %d eventos, ate o quadro %d", out_path, #lines, f + 20))
+  return
+end
+
+if familia then
+  local function hold(key, n)
+    at(f, key, "down")
+    at(f + n, key, "up")
+    f = f + n + 1
+  end
+  local function goto_xy(x, y)
+    lines[#lines + 1] = string.format("%d goto %d %d", f, x, y)
+    f = f + 1
+  end
+  local function down(n) for _ = 1, n do tap("down") end end
+  local function up(n) for _ = 1, n do tap("up") end end
+  wait(40)
+  type_text("iddqd"); wait(10); type_text("idkfa"); wait(20)
+  hold("5", 3); wait(40)                               -- lanca-foguetes
+  goto_xy(432, 784); wait(20)                          -- sala do Demon (576, 832)
+  play(700)
+  hold("3", 3); wait(40)                               -- escopeta
+  play(400)
+  goto_xy(144, 1056); wait(20)                         -- Spectres (288, 1104) e (0, 1376)
+  play(600)
+  -- Save no meio da briga, slot 5: main 0 -> 3 Save -> slot 0 -> 5
+  keys({ "escape" }); down(3); keys({ "return" }); wait(10); down(5); keys({ "return" })
+  wait(10)
+  -- Load: main 3 -> 2 Load -> slot 0 -> 5
+  keys({ "escape" }); up(1); keys({ "return" }); wait(10); down(5); keys({ "return" })
+  wait(20)
+  play(300)
+  wait(500)                                            -- os corpos voltam (-respawn)
+  play(300)
   lines[#lines + 1] = string.format("%d quit", f + 20)
   local fh = assert(io.open(out_path, "w"))
   fh:write(table.concat(lines, "\n"), "\n")

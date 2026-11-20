@@ -41,7 +41,8 @@ os bugs de ciclo de vida na lógica de jogos, com custo aceitável?
 | Métricas finais (seção 7) | concluído | [registro/07-metricas-finais.md](registro/07-metricas-finais.md) |
 | 7. Intermissão e finale (acrescentado) | concluído (tag `passo7`); as partes do Doom 2 sem cobertura | [registro/09-intermissao-e-finale.md](registro/09-intermissao-e-finale.md) |
 | 8. Mundo, barra, menu, automapa (A5, A2, A1, A3) | concluído (tag `passo8`); inclui o B1 (o rosto no hash) | [registro/10-interface-e-mundo.md](registro/10-interface-e-mundo.md) |
-| Depois do passo 8 (A4, B2, C, D, M) | planejado: família de monstros, mutações pendentes, correções, experimentos, escrita | seção 6, "Depois do passo 7" |
+| 9. Família de monstros (A4) | concluído (tag `passo9`): Zombieman, Shotgun Guy, Demon e Spectre com a task `Monstro` | [registro/11-familia-de-monstros.md](registro/11-familia-de-monstros.md) |
+| Depois do passo 9 (B2, C, D, M) | planejado: mutações pendentes, correções, experimentos, escrita | seção 6, "Depois do passo 7" |
 
 Desvios em relação a este plano, decididos durante o passo 2:
 
@@ -635,7 +636,7 @@ referência a cada correção; `docs/DIFERENCAS_DOOM.md`).
 | A1. Menu como task | fases fechado → navegando → confirmação (sim/não) → digitando; a caveira piscando como ramo paralelo | dirigido por **eventos de entrada**, o caso nativo do Atmos; `menu.active` é lido de fora | bom; o cuidado é a tecla "consumida" pelo menu antes de chegar ao resto (ordem dos ramos, P6) |
 | A2. Barra de status (o rosto) como task dentro do `Nivel` | os temporizadores do rosto (`face_count`, sorriso, "fúria") viram `espera`; acorda na etapa 11 do tic (o `ST_Ticker`, uma etapa do motor) | só o desenho lê; não vai para o save (`status.reset` no load); só **lê** o jogador | médio: a regra "a maior prioridade vence", reavaliada a cada tic, não vira sequência naturalmente |
 | A3. Automapa como task | modo seguir, zoom, marcas | quase todo estado de visualização, com pouca sequência no tempo | modesto; só se sobrar tempo |
-| A4. Família de monstros | o Shotgun Guy (`MT_SHOTGUY`) reaproveitando os comportamentos do `Zumbi` | o mesmo caso do passo 5 (as quatro exigências) | mede o **reuso** a custo marginal baixo (notas, seção 6); a régua prevê o mesmo custo por monstro |
+| A4. Família de monstros (feito, passo 9) | soldados (Zombieman, Shotgun Guy) e demônios (Demon, Spectre) com uma task `Monstro` e uma tabela por tipo | o mesmo caso do passo 5 (as quatro exigências) | mede o **reuso** a custo marginal baixo (notas, seção 6); a régua prevê o mesmo custo por monstro |
 | A5. Task `Mundo` | o tic do mundo (o `P_Ticker`: jogador, mobjs, specials, `leveltime`, com as pools dentro) numa task filha do `Nivel`, com automapa e barra fora | estrutura, sem mudar o jogo | prepara a pausa (C2); notas, seção 11 |
 
 **B. Oráculo e cobertura (só teste, não muda o jogo)**
@@ -683,16 +684,17 @@ monografia como trabalho futuro.
 
 **M. Métricas e escrita**
 
-- **M1.** Gerar de novo `docs/registro/07-metricas-finais.md` com os passos 7 e 8
+- **M1.** Gerar de novo `docs/registro/07-metricas-finais.md` com os passos 7 a 9
   (`python3 tools/metricas_finais.py --custo --memoria`, com
   `CUSTO_TAGS` incluindo `passo6` e `passo7`), antes da fase de correções.
 - **M2.** A escrita da monografia (seção 10 deste plano), em paralelo com a
   fase de correções.
 
 **Feito no passo 8:** A1, A2, A3, A5 e B1 (`docs/registro/10-interface-e-mundo.md`).
+**Feito no passo 9:** A4 (`docs/registro/11-familia-de-monstros.md`).
 
-**Ordem sugerida para o que falta:** M1 (rápido); D1 (responde ao viés da
-equivalência); A4 (mede o reuso); B2; na fase de correções, C1 e C2
+**Ordem sugerida para o que falta:** M1 (rápido, agora com os passos 7 a
+9); D1 (responde ao viés da equivalência); B2; na fase de correções, C1 e C2
 (pequenas), depois C3 (o 4b, caro) e C4; D2 conforme o tempo. A escrita (M2)
 corre em paralelo.
 
