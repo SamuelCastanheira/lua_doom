@@ -82,6 +82,21 @@ local monstro = arg[4] == "monstro"
 -- (caso "estranho" da task); espera os corpos voltarem (-respawn).
 -- "quadros" e ignorado.
 local familia = arg[4] == "familia"
+-- "ordem": roteiro do B2 (as mutacoes pendentes), rodado com "-warp 1 3".
+-- Dois cenarios em que a ordem dentro do tic decide o resultado:
+--  1. "use" no tic em que o movimento poe a linha ao alcance: o jogador e
+--     posto (goto) a D unidades da porta da linha 995 (D1, bem em frente ao
+--     inicio, olhando para o norte), anda e aperta "use" dois quadros depois.
+--     D de 72 a 64: o primeiro D em que a porta abre e o do tic em que o
+--     movimento chega ao alcance.
+--  2. porta e elevador vizinhos andando no mesmo tic, com o jogador na
+--     fronteira: a linha 231 (W1) abre a porta-alcapao do setor 167, a linha
+--     116 (WR) baixa o elevador do setor 165, e o jogador e posto na porta,
+--     com o corpo sobre o elevador, enquanto os dois andam. change_sector so
+--     reajusta quem tem o centro no setor que andou: quem anda primeiro
+--     decide a altura que o jogador ve.
+-- "quadros" e ignorado.
+local ordem = arg[4] == "ordem"
 -- "telas": roteiro do passo 7, rodado com "-warp 1 1". E1M1: visita os 3
 -- segredos (goto) e acelera no meio da contagem dos segredos; E1M2: a
 -- contagem vai ate o fim, acelera na espera e o mapa seguinte passa pelo
@@ -247,6 +262,43 @@ if telas then
   wait(1000)
   hold("space", 1200)
   wait(100)
+  lines[#lines + 1] = string.format("%d quit", f + 20)
+  local fh = assert(io.open(out_path, "w"))
+  fh:write(table.concat(lines, "\n"), "\n")
+  fh:close()
+  print(string.format("%s: %d eventos, ate o quadro %d", out_path, #lines, f + 20))
+  return
+end
+
+if ordem then
+  local function goto_xy(x, y)
+    lines[#lines + 1] = string.format("%d goto %d %d", f, x, y)
+    f = f + 1
+  end
+  wait(40)
+  type_text("iddqd"); wait(20)
+  -- 1. use no alcance: a linha 995 (D1, em y = -3200, de x -1568 a -1440),
+  -- a face sul da porta. "use" dois quadros depois de "andar": o terceiro
+  -- tic de movimento (ou o segundo/quarto, se o relogio do replay der 0 ou
+  -- 2 tics num quadro); a primeira tentativa em que a porta abre e a do
+  -- tic em que o movimento poe a linha ao alcance
+  for _, d in ipairs({ 72, 71, 70, 69, 68, 67, 66, 65, 64 }) do
+    goto_xy(-1504, -3200 - d); wait(10)
+    at(f, "up", "down"); at(f + 2, "space", "down")
+    at(f + 5, "space", "up"); at(f + 6, "up", "up")
+    wait(40)
+  end
+  wait(100)
+  -- 2. porta (setor 167) e elevador (setor 165) vizinhos. A porta e criada
+  -- antes do elevador (na pool movers, anda antes dele) e sobe 2 por tic
+  -- (128 -> 236); o elevador desce 1 por tic (176 -> 128). O jogador entra
+  -- quando cabe entre o chao do elevador (o mais alto dos dois) e o teto da
+  -- porta; enquanto os dois andam, o chao que ele ve e o do elevador, lido
+  -- quando a porta anda: antes ou depois do elevador andar no mesmo tic.
+  cmd("cross 231")                               -- a porta abre (128 -> 236)
+  cmd("cross 116"); wait(37)                     -- o elevador desce (176 -> 128)
+  goto_xy(-2707, -1317)                          -- centro na porta, corpo no elevador
+  wait(120)
   lines[#lines + 1] = string.format("%d quit", f + 20)
   local fh = assert(io.open(out_path, "w"))
   fh:write(table.concat(lines, "\n"), "\n")

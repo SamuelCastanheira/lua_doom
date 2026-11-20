@@ -521,7 +521,7 @@ automapa, `-`/`=` mudam o tamanho da tela.
 ### 5.2 Equivalência da lógica (driver Atmos × referência)
 
 ```sh
-make test-drivers          # semantica do Atmos (P1-P9) + 12 roteiros contra a tag passo1; saves comparados byte a byte
+make test-drivers          # semantica do Atmos (P1-P9) + 13 roteiros contra a tag passo1; saves comparados byte a byte
 sh tests/test_drivers.sh 0 1 fluxo         # roteiro com todas as transicoes
 sh tests/test_drivers.sh 4000 1            # pseudoaleatorio, 4000 quadros, semente 1
 sh tests/test_drivers.sh 6000 2 exits      # tambem termina niveis
@@ -533,6 +533,7 @@ sh tests/test_drivers.sh 0 1 pisos -warp 2 2      # passo 3d: pisos, escadas, do
 sh tests/test_drivers.sh 0 1 arma -warp 1 1       # passo 4: cada arma, trocas, sem municao, save e load no tiro, morte e renascer
 sh tests/test_drivers.sh 0 1 monstro -warp 1 2 -respawn  # passo 5: zumbis em todos os comportamentos, save e load, pesadelo
 sh tests/test_drivers.sh 0 1 familia -warp 1 5 -respawn # passo 9: os quatro tipos com task no E1M5, save e load
+sh tests/test_drivers.sh 0 1 ordem -warp 1 3      # B2: use no tic em que a linha entra no alcance; porta e elevador vizinhos
 sh tests/test_drivers.sh 0 1 telas -warp 1 1      # passo 7: intermissao acelerada e completa, E1M8, finale
 REF_TAG=passo2 sh tests/test_drivers.sh 0 1 fluxo   # outra referencia
 ```
@@ -542,7 +543,7 @@ REF_TAG=passo2 sh tests/test_drivers.sh 0 1 fluxo   # outra referencia
   em `build/ref-<tag>`, aplica `tests/ref-<tag>.patch` se existir, compila e
   roda o `lua5.4 main.lua` de lá. Compara com `atmos main.atm` e com
   `lua5.4 main.lua` atuais.
-- **`make test-branches`** compara a branch `lua` com a `atmos` nos 12
+- **`make test-branches`** compara a branch `lua` com a `atmos` nos 13
   roteiros (`REF_TAG=lua REF_DIR=build/branch-lua`): idênticas, com o estado
   completo (`docs/registro/08-branch-lua-replay.md`). É o teste da fase de
   correções: cada correção nas duas branches, e elas continuam iguais.
@@ -561,7 +562,7 @@ Se a tag nova não tiver algum comando de teste do replay, crie
 ### 5.3 Sensibilidade, métricas e custo
 
 ```sh
-make test-mutacoes         # tools/mutacoes.py: 86/89 detectadas, 7 equivalentes, 3 pendentes
+make test-mutacoes         # tools/mutacoes.py: 88/88 detectadas, 7 equivalentes, 0 pendentes
 make metricas              # tools/metricas_passo2.py + tools/custo_drivers.py
 python3 tools/metricas_finais.py --custo --memoria   # tabelas finais de todos os passos (le build/test-drivers.log e build/mutacoes.log)
 python3 tools/custo_drivers.py 5           # ms/quadro dos 3 drivers

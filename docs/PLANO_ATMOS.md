@@ -42,7 +42,8 @@ os bugs de ciclo de vida na lógica de jogos, com custo aceitável?
 | 7. Intermissão e finale (acrescentado) | concluído (tag `passo7`); as partes do Doom 2 sem cobertura | [registro/09-intermissao-e-finale.md](registro/09-intermissao-e-finale.md) |
 | 8. Mundo, barra, menu, automapa (A5, A2, A1, A3) | concluído (tag `passo8`); inclui o B1 (o rosto no hash) | [registro/10-interface-e-mundo.md](registro/10-interface-e-mundo.md) |
 | 9. Família de monstros (A4) | concluído (tag `passo9`): Zombieman, Shotgun Guy, Demon e Spectre com a task `Monstro` | [registro/11-familia-de-monstros.md](registro/11-familia-de-monstros.md) |
-| Depois do passo 9 (B2, C, D, M) | planejado: mutações pendentes, correções, experimentos, escrita | seção 6, "Depois do passo 7" |
+| B2. Mutações pendentes | concluído: roteiro `ordem`; 88/88 detectadas, nenhuma pendente | [registro/12-mutacoes-pendentes.md](registro/12-mutacoes-pendentes.md) |
+| Depois do B2 (C, D, M) | planejado: correções, experimentos, escrita | seção 6, "Depois do passo 7" |
 
 Desvios em relação a este plano, decididos durante o passo 2:
 
@@ -692,9 +693,10 @@ monografia como trabalho futuro.
 
 **Feito no passo 8:** A1, A2, A3, A5 e B1 (`docs/registro/10-interface-e-mundo.md`).
 **Feito no passo 9:** A4 (`docs/registro/11-familia-de-monstros.md`).
+**Feito depois:** B2 (`docs/registro/12-mutacoes-pendentes.md`).
 
 **Ordem sugerida para o que falta:** M1 (rápido, agora com os passos 7 a
-9); D1 (responde ao viés da equivalência); B2; na fase de correções, C1 e C2
+9); D1 (responde ao viés da equivalência); na fase de correções, C1 e C2
 (pequenas), depois C3 (o 4b, caro) e C4; D2 conforme o tempo. A escrita (M2)
 corre em paralelo.
 

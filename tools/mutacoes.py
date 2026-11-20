@@ -34,6 +34,7 @@ ROTEIROS = {
     "arma": ("replay_1arma.txt", "ref_1arma.log", ["-warp", "1", "1"]),
     "monstro": ("replay_1monstro.txt", "ref_1monstro.log", ["-warp", "1", "2", "-respawn"]),
     "familia": ("replay_1familia.txt", "ref_1familia.log", ["-warp", "1", "5", "-respawn"]),
+    "ordem": ("replay_1ordem.txt", "ref_1ordem.log", ["-warp", "1", "3"]),
     "telas": ("replay_1telas.txt", "ref_1telas.log", ["-warp", "1", "1"]),
     "exits": ("replay_2exits.txt", "ref_2exits.log", []),
     "semente1": ("replay_1.txt", "ref_1.log", []),
@@ -89,22 +90,9 @@ EQUIVALENTES = {
 # com o roteiro que deve passar a detecta-lo. Quando esse roteiro existir,
 # tire a mutacao daqui: ela tem de passar a "detectada".
 PENDENTES = {
-    "usar-antes-de-mover":
-        "nao e equivalente: use_lines usa a posicao e o angulo do jogador, e "
-        "usar antes de girar e andar muda o resultado quando o movimento do "
-        "tic poe uma linha ao alcance (ou a tira). Nenhum roteiro aperta use "
-        "exatamente no tic em que o jogador chega ao alcance de uma linha "
-        "(passo 4c). Seria preciso montar esse cenario",
-    "portas-fora-de-movers":
-        "so diverge com uma porta e um elevador (ou piso) vizinhos andando no "
-        "mesmo tic e um mobj na fronteira: o centro num setor, o corpo no "
-        "outro. thing_height_clip calcula o chao e o teto pelos dois setores, "
-        "entao a ordem decide se o mobj ve a altura velha ou nova do vizinho. "
-        "Por isso a pool movers e unica (ordem por construcao). Nenhum roteiro "
-        "passa por esse cenario; seria preciso construi-lo",
-    "portas-fora-de-movers-fluxo":
-        "o mesmo cenario de portas-fora-de-movers; o roteiro fluxo abre portas "
-        "e usa elevadores, mas nunca os dois vizinhos com um mobj na fronteira",
+    # Vazio desde o B2: as tres mutacoes que estavam aqui (usar-antes-de-mover,
+    # portas-fora-de-movers e a mesma no roteiro fluxo) ganharam o roteiro
+    # "ordem" (docs/registro/12-mutacoes-pendentes.md).
 }
 
 # Trechos do Nivel (main.atm) para as mutacoes de ordem das pools, extraidos
@@ -305,10 +293,7 @@ MUTACOES = [
     ("portas-fora-de-movers",
      "Portas numa pool propria depois dos outros movimentadores (ordem entre "
      "porta e elevador trocada)",
-     PORTAS_SEPARADAS, None, None, "portas"),
-    ("portas-fora-de-movers-fluxo",
-     "O mesmo, no roteiro fluxo (jogo com elevadores e portas)",
-     PORTAS_SEPARADAS, None, None, "fluxo"),
+     PORTAS_SEPARADAS, None, None, "ordem"),
     # --- passo 3c: elevadores como tasks (roteiro "elevadores": E1M3, E2M3)
     ("elevador-sem-espera-inicial",
      "Elevador anda no proprio spawn, antes da sua fase (sem o await inicial)",
@@ -460,7 +445,7 @@ MUTACOES = [
      "O jogador usa as linhas antes de se mover no tic",
      "        J.mover(w, p, game, t)            ;; girar, andar, altura da camera\n        J.pisar(w, p, game, t)            ;; dano e segredo do setor\n        J.usar(w, p, game)                ;; linhas\n",
      "        J.usar(w, p, game)                ;; linhas\n        J.mover(w, p, game, t)            ;; girar, andar, altura da camera\n        J.pisar(w, p, game, t)            ;; dano e segredo do setor\n",
-     "jogador.atm", "fluxo"),
+     "jogador.atm", "ordem"),
     # --- passo 5: o Zombieman como task (roteiro "monstro": E1M2, -respawn)
     ("zumbi-age-no-spawn",
      "O zumbi da um tic do thinker no proprio spawn (antes da sua vez)",

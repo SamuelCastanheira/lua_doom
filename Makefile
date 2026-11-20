@@ -180,6 +180,7 @@ test-drivers: all
 	@sh tests/test_drivers.sh 0 1 arma -warp 1 1
 	@sh tests/test_drivers.sh 0 1 monstro -warp 1 2 -respawn
 	@sh tests/test_drivers.sh 0 1 familia -warp 1 5 -respawn
+	@sh tests/test_drivers.sh 0 1 ordem -warp 1 3
 	@sh tests/test_drivers.sh 0 1 telas -warp 1 1
 
 # As duas branches: a branch lua (o jogo imperativo original, com o modo
@@ -201,6 +202,7 @@ test-branches: all
 	@REF_TAG=lua REF_DIR=$(BRANCH_LUA) sh tests/test_drivers.sh 0 1 arma -warp 1 1
 	@REF_TAG=lua REF_DIR=$(BRANCH_LUA) sh tests/test_drivers.sh 0 1 monstro -warp 1 2 -respawn
 	@REF_TAG=lua REF_DIR=$(BRANCH_LUA) sh tests/test_drivers.sh 0 1 familia -warp 1 5 -respawn
+	@REF_TAG=lua REF_DIR=$(BRANCH_LUA) sh tests/test_drivers.sh 0 1 ordem -warp 1 3
 	@REF_TAG=lua REF_DIR=$(BRANCH_LUA) sh tests/test_drivers.sh 0 1 telas -warp 1 1
 
 # Sensibilidade: erros plausiveis (main.atm, setores.atm, specials.lua, saveg.lua)
@@ -215,6 +217,7 @@ test-mutacoes: all
 	@sh tests/test_drivers.sh 0 1 arma -warp 1 1 >/dev/null
 	@sh tests/test_drivers.sh 0 1 monstro -warp 1 2 -respawn >/dev/null
 	@sh tests/test_drivers.sh 0 1 familia -warp 1 5 -respawn >/dev/null
+	@sh tests/test_drivers.sh 0 1 ordem -warp 1 3 >/dev/null
 	@sh tests/test_drivers.sh 0 1 telas -warp 1 1 >/dev/null
 	@sh tests/test_drivers.sh 6000 2 exits >/dev/null
 	@sh tests/test_drivers.sh 4000 1 >/dev/null

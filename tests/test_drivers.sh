@@ -15,7 +15,7 @@
 # (mobjs, setores, jogador, RNG, tela atual). A primeira linha divergente
 # aponta o quadro em que a ordem ou o tempo mudou.
 #
-#   sh tests/test_drivers.sh [quadros] [semente] [exits|fluxo|luzes|botoes|portas|elevadores|pisos|arma|monstro|familia|telas] [args do jogo...]
+#   sh tests/test_drivers.sh [quadros] [semente] [exits|fluxo|luzes|botoes|portas|elevadores|pisos|arma|monstro|familia|ordem|telas] [args do jogo...]
 #   exits: o roteiro tambem termina niveis -> intermissao e finale
 #   fluxo: roteiro fixo que passa por todas as transicoes (quadros ignorado)
 #   luzes: jogador parado no E4M1 e no E1M2 (rode com -warp 4 1; passo 3a)
@@ -26,6 +26,7 @@
 #   arma: cada arma atirando, trocas, sem municao, save e load, morte (rode com -warp 1 1; passo 4a)
 #   monstro: zumbis procurando, correndo, atirando, morrendo, save e load, -respawn (rode com -warp 1 2 -respawn; passo 5)
 #   familia: Zombieman, Shotgun Guy, Demon e Spectre, save e load, -respawn (rode com -warp 1 5 -respawn; passo 9)
+#   ordem: "use" no tic em que a linha entra no alcance; porta e elevador vizinhos no mesmo tic (rode com -warp 1 3; B2)
 #
 # REF_TAG=<tag> muda a referencia (padrao: passo1); REF_DIR=<pasta> aponta
 # para uma pasta pronta (por exemplo, a branch lua: build/branch-lua).
@@ -258,6 +259,14 @@ if [ "$EXITS" = "familia" ] && [ $status -eq 0 ]; then
   [ "$n" -ge 1 ] || { echo "COBERTURA INCOMPLETA: $n loads (esperado 1)"; status=1; }
   grep -q "^vista E1M5" "$OUT/ref.out" || { echo "COBERTURA INCOMPLETA: nao esta no E1M5"; status=1; }
   [ $status -eq 0 ] && echo "  cobertura da familia: save e load no meio da briga; E1M5 com -respawn"
+fi
+# No roteiro "ordem" (B2): os dois cenarios ficam no E1M3. Que cada um
+# acontece (a porta abre na tentativa certa; o jogador ve o chao do
+# elevador lido pela porta) foi conferido com prints (docs/registro/12-...);
+# o oraculo sao as mutacoes usar-antes-de-mover e portas-fora-de-movers.
+if [ "$EXITS" = "ordem" ] && [ $status -eq 0 ]; then
+  grep -q "^vista E1M3" "$OUT/ref.out" || { echo "COBERTURA INCOMPLETA: nao esta no E1M3"; status=1; }
+  [ $status -eq 0 ] && echo "  cobertura da ordem: E1M3 (use no alcance; porta e elevador vizinhos)"
 fi
 # No roteiro "telas" (passo 7): intermissoes acelerada (E1M1, no meio dos
 # segredos) e completa (E1M2), E1M8 e o finale (pular no comeco da arte). Os caminhos de dentro
