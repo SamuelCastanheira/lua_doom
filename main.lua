@@ -387,6 +387,7 @@ function game.slot_desc(self, slot)
 end
 
 function game.start_level(self)
+  self.level_gen = (self.level_gen or 0) + 1 -- replay: niveis montados (hash de estado)
   if self.automap then
     am_map.reset_level(self.automap)
   end
@@ -604,6 +605,55 @@ local function redraw()
   apply_palette()
 end
 
+-- Modo replay (video.lua, DOOM_REPLAY): resumo do estado gravado a cada
+-- quadro, no mesmo formato do G.state_string da branch atmos, para comparar
+-- as duas branches pelo hash (fase de correcoes, docs/DIFERENCAS_DOOM.md).
+-- Os campos marcados com DOOM_REPLAY_SIDES=1 so entram quando o teste liga.
+local function state_string()
+  local t = {
+    tostring(game.gamestate), tostring(game.leveltime), tostring(rng.index()),
+    tostring(game.episode), tostring(game.mapn), tostring(game.wiping),
+    tostring(menu.active), tostring(game.level_gen),
+  }
+  local extra = os.getenv("DOOM_REPLAY_SIDES") == "1"
+  local world = game.world
+  if world then
+    for i = 1, #world.mobjs do
+      local mo = world.mobjs[i]
+      t[#t + 1] = string.format("%d,%d,%d,%d,%s,%s,%s",
+        mo.x or 0, mo.y or 0, mo.z or 0, mo.angle or 0,
+        tostring(mo.health), tostring(mo.istate), tostring(mo.tics))
+    end
+    for i = 1, #world.sectors do
+      local s = world.sectors[i]
+      t[#t + 1] = string.format("%d,%d,%d", s.floorheight, s.ceilingheight, s.lightlevel)
+    end
+    for i = 1, extra and #world.sides or 0 do
+      local sd = world.sides[i]
+      t[#t + 1] = string.format("s%s,%s,%s,%s", tostring(sd.toptexture),
+        tostring(sd.midtexture), tostring(sd.bottomtexture), tostring(sd.textureoffset))
+    end
+    for i = 1, extra and #world.sectors or 0 do
+      local s = world.sectors[i]
+      t[#t + 1] = string.format("f%s,%s", tostring(s.floorpic), tostring(s.ceilingpic))
+    end
+  end
+  local p = game.player
+  if p then
+    t[#t + 1] = string.format("p%s,%s,%s,%s,%s", tostring(p.health), tostring(p.armorpoints),
+      tostring(p.readyweapon), tostring(p.psprite_state), tostring(p.psprite_sy))
+    if extra then
+      t[#t + 1] = string.format("a%s,%s,%s,%s,%s,%s,%s,%s,%s", tostring(p.psprite_body),
+        tostring(p.psprite_flash), tostring(p.flash_tics), tostring(p.psprite_tics),
+        tostring(p.psprite_step), tostring(p.pendingweapon), tostring(p.attackdown),
+        tostring(p.refire), tostring(p.extralight))
+    end
+  end
+  return table.concat(t, ";")
+end
+video.state_hook = state_string
+game.level_gen = game.level_gen or 0      -- como no passo1 (game.lua)
+
 local held = {}
 local accum = 0
 local last = video.ticks()
@@ -614,7 +664,45 @@ while game.running do
   local events = video.poll()
   for i = 1, #events do
     local ev = events[i]
-    if ev.mouse then
+    if ev.replay_exit then
+      -- comando de teste do modo replay (video.lua): saida do nivel
+      if video.replay and game.specials and game.gamestate == "view" then
+        game.specials.exit_requested = true
+        game.specials.secret_exit = ev.secret or nil
+      end
+    elseif ev.replay_die then
+      -- comando de teste do modo replay: o jogador morre
+      if video.replay and game.player and game.player.mo and game.gamestate == "view" then
+        game.damage_mobj(game.player.mo, nil, 10000, nil)
+      end
+    elseif ev.replay_use then
+      -- comando de teste do modo replay: "use" na linha N (indice do WAD)
+      local line = game.world and game.world.lines[ev.replay_use + 1]
+      if video.replay and line and game.player and game.player.mo and game.gamestate == "view" then
+        game.use_special(line, game.player.mo, 0)
+      end
+    elseif ev.replay_cross then
+      -- comando de teste do modo replay: cruza a linha N pela frente
+      local line = game.world and game.world.lines[ev.replay_cross + 1]
+      if video.replay and line and game.player and game.player.mo and game.gamestate == "view" then
+        game.cross_special(line, 0, game.player.mo)
+      end
+    elseif ev.replay_goto then
+      -- comando de teste do modo replay: poe o jogador em (x, y)
+      local mo = game.player and game.player.mo
+      if video.replay and mo and game.gamestate == "view" then
+        collision.unset_thing_position(game.world, mo)
+        mo.x = ev.replay_goto[1] * 65536
+        mo.y = ev.replay_goto[2] * 65536
+        mo.momx, mo.momy, mo.momz = 0, 0, 0
+        local ss = collision.point_in_subsector(game.world, mo.x, mo.y)
+        mo.floorz = ss.sector.floorheight
+        mo.ceilingz = ss.sector.ceilingheight
+        mo.z = mo.floorz
+        collision.set_thing_position(game.world, mo)
+        game.player.viewz = mo.z + game.player.viewheight
+      end
+    elseif ev.mouse then
       if ev.dx then
         game.mousex = game.mousex + ev.dx
         game.mousey = game.mousey - ev.dy

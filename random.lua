@@ -42,6 +42,10 @@ function M.clear()
   index = 0
 end
 
+-- Posicao atual na tabela (so leitura; usado no teste de equivalencia).
+function M.index()
+  return index
+end
 function M.p_random()
   index = band(index + 1, 255)
   return RND[index]
