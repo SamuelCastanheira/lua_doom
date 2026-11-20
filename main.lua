@@ -176,6 +176,9 @@ end
 function game.damage_mobj(target, source, damage, inflictor)
   enemy.damage_mobj(game, target, source, damage, inflictor)
 end
+collision.dano_esmagar = function(thing, damage)
+  game.damage_mobj(thing, nil, damage, nil)
+end
 
 local function copy_list(src, n)
   local out = {}

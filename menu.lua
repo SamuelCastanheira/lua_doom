@@ -300,6 +300,7 @@ local function do_action(self, action, choice)
     self.epi = choice
     goto_menu(self, "skill")
   elseif action == "skill" then
+    self.game.carry = nil               -- jogo novo: nada do jogo anterior (G_InitNew)
     self.game.skill = choice
     self.game.episode = self.epi + 1
     self.game.mapn = 1
