@@ -1,0 +1,182 @@
+;; Intermissao e finale como tasks Atmos (passo 7).
+;;
+;; Antes: wi_stuff.ticker e finale.ticker, chamados a cada tic, guardavam a
+;; fase da tela em campos (state; sp_state de 1 a 10; cnt_pause; cnt; stage) e
+;; despachavam por eles. Agora cada tela e uma sequencia escrita na ordem em
+;; que acontece. Ficam como campos so o que o desenho le (os numeros da
+;; contagem, state, snl_pointeron; no finale, stage e count).
+;;
+;; As tasks acordam com :game.tic, dentro das tasks de tela do main.atm.
+;; "Acelerar" (ataque, use, enter) continua sendo lido do teclado a cada tic,
+;; em Lua (wi_stuff: check_accelerate; finale: want_skip).
+
+val WI     = require "wi_stuff"
+val F      = require "finale"
+val compat = require "compat"
+
+;; ------------------------------------------------------------ intermissao
+
+;; Um tic da intermissao: o comeco e sempre igual (contador, musica,
+;; acelerar?, animacoes do mapa).
+val func tic (w, G) {
+    await :game.tic
+    WI.tic(w)
+    G.redesenhar()
+}
+
+val func som (w, nome) {
+    if w.game.start_sound {
+        w.game.start_sound(nome)
+    }
+}
+
+;; Pausa de um segundo entre as linhas da contagem. :fim | :acelerou
+val func pausa (w, G) {
+    var n = WI.TICRATE
+    loop {
+        tic(w, G)
+        until (w.accelerate != 0, :acelerou)
+        set n = n - 1
+        until (n == 0, :fim)
+    }
+}
+
+;; Conta um numero de 2 em 2 ate o alvo (mortes, itens, segredos), com o som
+;; da pistola a cada 4 tics. :fim | :acelerou
+val func contar (w, G, campo, alvo) {
+    loop {
+        tic(w, G)
+        until (w.accelerate != 0, :acelerou)
+        set w@campo = (w@campo) + 2
+        if compat.band(w.bcnt, 3) == 0 {
+            som(w, "pistol")
+        }
+        if (w@campo) >= alvo {
+            set w@campo = alvo
+            som(w, "barexp")
+        }
+        until ((w@campo) >= alvo, :fim)
+    }
+}
+
+;; Conta o tempo e o par de 3 em 3, juntos. :fim | :acelerou
+val func contar_tempo (w, G, ttime, ptime) {
+    loop {
+        tic(w, G)
+        until (w.accelerate != 0, :acelerou)
+        if compat.band(w.bcnt, 3) == 0 {
+            som(w, "pistol")
+        }
+        set w.cnt_time = w.cnt_time + 3
+        if w.cnt_time >= ttime {
+            set w.cnt_time = ttime
+        }
+        set w.cnt_par = w.cnt_par + 3
+        var fim = false
+        if w.cnt_par >= ptime {
+            set w.cnt_par = ptime
+            if w.cnt_time >= ttime {
+                som(w, "barexp")
+                set fim = true
+            }
+        }
+        until (fim, :fim)
+    }
+}
+
+;; As estatisticas, linha por linha. :fim | :acelerou
+val func estatisticas (w, G) {
+    val s = w.wbs
+    loop {
+        val r1 = pausa(w, G)
+        until (r1 == :acelerou, :acelerou)
+        set w.cnt_kills = 0
+        val r2 = contar(w, G, :cnt_kills, WI.pct(s.skills, s.maxkills))
+        until (r2 == :acelerou, :acelerou)
+        val r3 = pausa(w, G)
+        until (r3 == :acelerou, :acelerou)
+        set w.cnt_items = 0
+        val r4 = contar(w, G, :cnt_items, WI.pct(s.sitems, s.maxitems))
+        until (r4 == :acelerou, :acelerou)
+        val r5 = pausa(w, G)
+        until (r5 == :acelerou, :acelerou)
+        set w.cnt_secret = 0
+        val r6 = contar(w, G, :cnt_secret, WI.pct(s.ssecret, s.maxsecret))
+        until (r6 == :acelerou, :acelerou)
+        val r7 = pausa(w, G)
+        until (r7 == :acelerou, :acelerou)
+        set w.cnt_time = 0
+        set w.cnt_par = 0
+        val r8 = contar_tempo(w, G, math.floor(s.stime / WI.TICRATE), math.floor(s.partime / WI.TICRATE))
+        until (r8 == :acelerou, :acelerou)
+        val r9 = pausa(w, G)
+        until (r9 == :acelerou, :acelerou)
+        until (true, :fim)
+    }
+}
+
+;; A intermissao inteira (WI_Ticker): estatisticas; espera acelerar; o mapa
+;; com o proximo nivel (4 s, ou ate acelerar); 10 tics; fim.
+val task Contagem (w, G) {
+    set pub = w
+    if estatisticas(w, G) == :acelerou {
+        WI.acelerar_tudo(w)               ;; todos os numeros no valor final
+    }
+    loop {                                ;; espera acelerar
+        tic(w, G)
+        until (w.accelerate != 0)
+    }
+    som(w, "wpnup")
+    if !w.wbs.commercial {
+        WI.mostrar_proximo(w)
+        var n = WI.SHOWNEXTLOCDELAY * WI.TICRATE
+        loop {
+            tic(w, G)
+            set n = n - 1
+            until ((n == 0) || (w.accelerate != 0))
+            set w.snl_pointeron = (compat.band(n, 31) < 20)
+        }
+    }
+    WI.sem_estado(w)
+    loop in 10 {
+        tic(w, G)
+    }
+}
+
+;; ------------------------------------------------------------------ finale
+
+;; O finale do Doom 1: o texto aparece letra por letra (count, lido pelo
+;; desenho); depois a arte, ate o jogador pular. Devolve a acao final. O
+;; Doom 2 (texto, elenco) continua por finale.ticker.
+val task Texto (f, G) {
+    set pub = f
+    if f.commercial {
+        loop {
+            await :game.tic
+            F.ticker(f)
+            G.redesenhar()
+            until (f.done)
+        }
+    } else {
+        val total = (#f.text * F.TEXTSPEED) + F.TEXTWAIT
+        loop {                            ;; o texto
+            await :game.tic
+            set f.count = f.count + 1
+            G.redesenhar()
+            until (f.count > total)
+        }
+        F.para_arte(f)
+        val depois = if (f.pfub1 && f.pfub2) => 1130 => 10
+        loop {                            ;; a arte, ate pular
+            await :game.tic
+            set f.count = f.count + 1
+            G.redesenhar()
+            until (F.quer_pular(f) && (f.count > depois))
+        }
+        set f.done = true
+        set f.action = "title"
+    }
+    f.action
+}
+
+[Contagem=Contagem, Texto=Texto]

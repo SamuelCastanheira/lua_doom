@@ -72,6 +72,13 @@ local arma = arg[4] == "arma"
 -- despedacado: comportamento "explodir"); espera para os corpos voltarem
 -- (-respawn: pesadelo, 12 s). "quadros" e ignorado.
 local monstro = arg[4] == "monstro"
+-- "telas": roteiro do passo 7, rodado com "-warp 1 1". E1M1: visita os 3
+-- segredos (goto) e acelera no meio da contagem dos segredos; E1M2: a
+-- contagem vai ate o fim, acelera na espera e o mapa seguinte passa pelo
+-- tempo; E1M8: sai e, no finale, segura "use" na passagem do texto para a
+-- arte.
+-- "quadros" e ignorado.
+local telas = arg[4] == "telas"
 
 local function rand(n)
   seed = (seed * 1103515245 + 12345) % 2147483648
@@ -183,6 +190,53 @@ if elevadores then
   keys({ "escape" }); up(1); keys({ "return" }); wait(10); up(1); keys({ "return" })
   wait(100)
   cross(114); wait(200)                                -- nao reativa
+  lines[#lines + 1] = string.format("%d quit", f + 20)
+  local fh = assert(io.open(out_path, "w"))
+  fh:write(table.concat(lines, "\n"), "\n")
+  fh:close()
+  print(string.format("%s: %d eventos, ate o quadro %d", out_path, #lines, f + 20))
+  return
+end
+
+if telas then
+  local function hold(key, n)
+    at(f, key, "down")
+    at(f + n, key, "up")
+    f = f + n + 1
+  end
+  local function goto_xy(x, y)
+    lines[#lines + 1] = string.format("%d goto %d %d", f, x, y)
+    f = f + 1
+  end
+  wait(40)
+  -- E1M1: os 3 segredos (goto em cada setor secreto), para a contagem de
+  -- segredos durar 50 tics (100%, de 2 em 2); acelera no meio dela
+  goto_xy(2928, -3840); wait(10)
+  goto_xy(3264, -3856); wait(10)
+  goto_xy(3552, -3872); wait(10)
+  goto_xy(1056, -3616); wait(20)
+  cmd("exit")
+  wait(170)                                            -- no meio dos segredos
+  hold("space", 3)
+  wait(60)
+  hold("space", 3)                                     -- sai da espera
+  wait(250)
+  -- E1M2: a contagem vai ate o fim; acelera na espera; o mapa seguinte passa
+  -- pelo tempo (4 s)
+  play(300)
+  cmd("exit")
+  wait(600)
+  hold("space", 3)
+  wait(300)
+  -- E1M8 e o finale: segura "use" na passagem do texto para a arte (pular
+  -- so vale depois de 10 tics de arte)
+  type_text("idclev18"); wait(60)
+  cmd("exit")
+  wait(150)
+  hold("space", 3); wait(60); hold("space", 3); wait(300)
+  wait(1000)
+  hold("space", 1200)
+  wait(100)
   lines[#lines + 1] = string.format("%d quit", f + 20)
   local fh = assert(io.open(out_path, "w"))
   fh:write(table.concat(lines, "\n"), "\n")

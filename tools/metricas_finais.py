@@ -39,6 +39,7 @@ LOG_MUTACOES = os.environ.get("LOG_MUTACOES", "build/mutacoes.log")
 # recado, interrupcao)
 ENTIDADES = [
     ("3a luzes", "Luzes (3a)", "metricas_passo3.py", "nenhuma"),
+    ("7", "Intermissão e finale (7)", "metricas_passo7.py", "nenhuma (só o desenho lê)"),
     ("3d pisos e tetos", "Pisos e tetos (3d)", "metricas_passo3.py", "save (piso)"),
     ("3e botoes", "Botões (3e)", "metricas_passo3.py", "save"),
     ("3b portas", "Portas (3b)", "metricas_passo3.py", "save, recado, interrupção"),
@@ -102,7 +103,8 @@ def expressividade():
         linhas = b.get(bloco) or b.get("") or []
         la, ld = numeros(linhas, "linhas de codigo (total)")
         ea, ed = None, None
-        for pref in ("estado por entidade", "campos do jogador", "campos do mobj"):
+        for pref in ("estado por entidade", "campos do jogador", "campos do mobj",
+                     "campos de fase escritos"):
             ea, ed = numeros(linhas, pref)
             if ea:
                 break

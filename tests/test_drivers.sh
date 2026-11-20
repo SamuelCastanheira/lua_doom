@@ -15,7 +15,7 @@
 # (mobjs, setores, jogador, RNG, tela atual). A primeira linha divergente
 # aponta o quadro em que a ordem ou o tempo mudou.
 #
-#   sh tests/test_drivers.sh [quadros] [semente] [exits|fluxo|luzes|botoes|portas|elevadores|pisos|arma|monstro] [args do jogo...]
+#   sh tests/test_drivers.sh [quadros] [semente] [exits|fluxo|luzes|botoes|portas|elevadores|pisos|arma|monstro|telas] [args do jogo...]
 #   exits: o roteiro tambem termina niveis -> intermissao e finale
 #   fluxo: roteiro fixo que passa por todas as transicoes (quadros ignorado)
 #   luzes: jogador parado no E4M1 e no E1M2 (rode com -warp 4 1; passo 3a)
@@ -246,5 +246,15 @@ if [ "$EXITS" = "monstro" ] && [ $status -eq 0 ]; then
   n=$(grep -c "^pedido jogo.carregar" "$OUT/atm.out" || true)
   [ "$n" -ge 1 ] || { echo "COBERTURA INCOMPLETA: $n loads (esperado 1)"; status=1; }
   [ $status -eq 0 ] && echo "  cobertura do monstro: save e load no meio da briga; E1M2 com -respawn"
+fi
+# No roteiro "telas" (passo 7): intermissoes acelerada (E1M1, no meio dos
+# segredos) e completa (E1M2), E1M8 e o finale (pular no comeco da arte). Os caminhos de dentro
+# da intermissao foram conferidos com prints (registro do passo 7).
+if [ "$EXITS" = "telas" ] && [ $status -eq 0 ]; then
+  for m in E1M2 E1M3 E1M8; do
+    grep -q "^vista $m" "$OUT/ref.out" || { echo "COBERTURA INCOMPLETA: nao chegou ao $m"; status=1; }
+  done
+  grep -q "^finale" "$OUT/ref.out" || { echo "COBERTURA INCOMPLETA: nao chegou ao finale"; status=1; }
+  [ $status -eq 0 ] && echo "  cobertura das telas: intermissao acelerada e completa; E1M2, E1M3, E1M8; finale"
 fi
 exit $status

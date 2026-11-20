@@ -24,8 +24,8 @@
 --                                    tic_view_meio()    -> "segue" | "morte"
 --                                    (emit :game.specials -> specials_resto())
 --                                    tic_view_depois()  -> nil | "saida"
---                                    tic_intermission() -> true quando acaba
---                                    tic_finale()       -> nil | acao final
+--                                    intermissao e finale: tasks de telas.atm
+--                                    (passo 7), com :game.tic
 --   3. frame()            redesenha, toca som, apresenta
 -- Depois das fases 1 e 2, o main.atm emite os pedidos de transicao
 -- (G.take_requests) como eventos.
@@ -944,41 +944,21 @@ function M.new(argv)
     return nil
   end
 
-  -- Fase 2c: tic da tela de intermissao (contagem de kills/itens/segredos).
-  -- Devolve true quando a contagem termina.
-  function G.tic_intermission()
-    if not (game.gamestate == "intermission" and game.wi) then
-      return false
-    end
-    wi_mod.ticker(game.wi)
-    if game.wi.done then
-      game.wi = nil
-      dirty = true
-      return true -- antes: game.advance(game)
-    end
+  -- Fase 2c: intermissao e finale (passo 7). A sequencia de cada tela e uma
+  -- task de telas.atm, que acorda com :game.tic; a cada tic ela pede o
+  -- redesenho, e no fim a tela e solta.
+  function G.redesenhar()
     dirty = true
-    return false
   end
 
-  -- Fase 2c: tic do texto/arte final de episodio. Devolve a acao final
-  -- ("title" ou "worlddone") quando o texto termina.
-  function G.tic_finale()
-    if not (game.gamestate == "finale" and game.finale) then
-      return nil
-    end
-    finale_mod.ticker(game.finale)
-    if game.finale and game.finale.done then
-      -- antes: game.finish_finale(game)
-      local action = "title"
-      if game.finale.action ~= "" then
-        action = game.finale.action
-      end
-      game.finale = nil
-      dirty = true
-      return action
-    end
+  function G.fim_intermissao()
+    game.wi = nil
     dirty = true
-    return nil
+  end
+
+  function G.fim_finale()
+    game.finale = nil
+    dirty = true
   end
 
   -- Fase 3: redesenho, som e apresentacao do quadro.
@@ -1128,6 +1108,21 @@ function M.new(argv)
       for i = 1, (os.getenv("DOOM_REPLAY_SIDES") == "1") and #world.sectors or 0 do
         local s = world.sectors[i]
         t[#t + 1] = string.format("f%s,%s", tostring(s.floorpic), tostring(s.ceilingpic))
+      end
+    end
+    -- intermissao e finale (passo 7): o que as telas escrevem e o desenho le;
+    -- tambem so com DOOM_REPLAY_SIDES=1
+    if os.getenv("DOOM_REPLAY_SIDES") == "1" then
+      local wi = game.wi
+      if wi then
+        t[#t + 1] = string.format("w%s,%s,%s,%s,%s,%s,%s,%s,%s", tostring(wi.state),
+          tostring(wi.cnt_kills), tostring(wi.cnt_items), tostring(wi.cnt_secret),
+          tostring(wi.cnt_time), tostring(wi.cnt_par), tostring(wi.snl_pointeron),
+          tostring(wi.bcnt), tostring(wi.accelerate))
+      end
+      local fi = game.finale
+      if fi then
+        t[#t + 1] = string.format("e%s,%s", tostring(fi.stage), tostring(fi.count))
       end
     end
     local p = game.player

@@ -32,6 +32,7 @@
 val env  = require "atmos.env.doom"
 val game = require "game"
 val G    = game.new(game.atmos_args(arg))
+val telas = require "telas"          ;; passo 7: intermissao e finale
 val jogador = require "jogador"      ;; passo 4c: task Jogador (e a Arma, filha)
 
 ;; Emite, em ordem, os pedidos que o Lua registrou na fase que acabou.
@@ -157,9 +158,8 @@ task Intermissao (nxt) {
         loop on :game.frame { G.pintar_intermissao() }
     }
     G.enter(:intermission)
-    loop on :game.tic {
-        until (G.tic_intermission())
-    }
+    await telas.Contagem(G.game.wi, G)    ;; passo 7: a sequencia da tela
+    G.fim_intermissao()
 }
 
 ;; Texto/arte final. Devolve a acao: "title" ou "worlddone" (Doom 2).
@@ -169,10 +169,9 @@ task Finale (anuncia) {
         loop on :game.frame { G.pintar_finale() }
     }
     G.enter(:finale)
-    loop on :game.tic {
-        val acao = G.tic_finale()
-        until (acao, acao)
-    }
+    val acao = await telas.Texto(G.game.finale, G)   ;; passo 7
+    G.fim_finale()
+    if acao != "" => acao => :title
 }
 
 ;; Depois do finale: "worlddone" segue para o mapa pendente.

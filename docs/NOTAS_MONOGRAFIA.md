@@ -617,6 +617,17 @@ val func atirar (p, game) {
 Cada "sim" puxa um pedaço da fase de volta para os dados, e a arma tem
 todos. Por isso ela está na ponta oposta das luzes.
 
+**Confirmação do lado bom (passo 7).** A intermissão e o finale foram
+escolhidos depois da régua, como teste da previsão: só o próprio desenho lê
+a fase, nada vai para o save, o Lua não escreve nelas e a única interrupção
+é entrada do jogador. O resultado bateu: o mesmo tamanho de código
+(185 → 184 linhas), os campos de fase de 5 para 2 (os dois que o desenho
+lê), as comparações com a fase de 17 para 0 e nenhum contador guardado em
+campo. A contagem lê como a descrição da tela ("pausa, conta as mortes,
+pausa, conta os itens..."). Com isso, a régua tem exemplos do próprio Doom
+nos dois extremos: luzes, intermissão e finale de um lado; arma e monstro
+do outro (`docs/registro/09-intermissao-e-finale.md`).
+
 ### Por que o código da arma cresceu
 
 O `weapon_think` antigo era **uma** função com um despacho, que testava a
@@ -850,3 +861,156 @@ O resultado justo é condicional: "numa migração equivalente, o ganho depende
 de quanto o estado é observado, gravado, alterado e interrompido de fora". E
 vale registrar na monografia o que só a migração equivalente permitiu medir:
 o ciclo de vida, o determinismo e o custo.
+
+---
+
+## 11. Saves em pontos fixos e pausa com `toggle`
+
+Reflexão do autor (2026-11-20), depois dos passos 1 a 7, com o resumo da
+discussão.
+
+### A reflexão
+
+Na maioria dos jogos, não é comum salvar "a qualquer momento": os saves são
+automáticos (ao atingir uma condição espacial ou de sequência) ou só em
+"zonas seguras". Isso vem do game design ou da complexidade de um save
+"instantâneo"? Se for o segundo caso, a desvantagem da concorrência
+estruturada com o save (a continuação de uma task não pode ser gravada;
+seções 1 e 8) deixaria de existir? E, já que o menu deste port não pausa o
+jogo: se fosse preciso pausar, um `toggle` nas tasks bastaria? Seria mais
+simples do que em C++ ou em linguagens sem concorrência estruturada?
+
+### Saves em pontos fixos: os dois motivos
+
+- **Design:** tensão e ritmo (perder progresso dá peso ao erro), evitar o
+  "salvar e carregar até dar certo", e a herança dos consoles (memória
+  limitada; regras de certificação que exigiam salvar em pontos
+  conhecidos).
+- **Técnica:** gravar um instantâneo arbitrário obriga a serializar tudo o
+  que está no meio de alguma coisa (projéteis no ar, inimigos no meio de um
+  ataque, roteiros de cena no meio da execução). Jogos com roteiros em
+  corrotinas esbarram na mesma limitação do Atmos, e a saída comum é salvar
+  só em **pontos de quietude**, onde se sabe em que estado cada roteiro
+  está ("não é possível salvar agora" durante cenas e combates). Os jogos
+  que salvam em qualquer lugar costumam reduzir o progresso a dados (o
+  estágio da missão é um número), que é a régua da fase aplicada.
+
+**A desvantagem diminui muito, mas não some:**
+
+- num ponto de quietude, as tasks estão em posições conhecidas; o save grava
+  pouco ("ponto de controle 3, estágio 2") e o load **recria** as tasks a
+  partir disso, o que é natural no Atmos (`spawn` com parâmetros). A
+  exigência "o save grava a entidade" quase desaparece para o que está em
+  movimento;
+- os fatos duráveis (inventário, inimigos mortos, portas abertas) continuam
+  sendo dados, mas seriam dados em qualquer modelo;
+- as outras exigências da régua (leitores de fora, recado, interrupção) não
+  dependem do save;
+- no Doom, salvar em qualquer lugar faz parte do jogo, e a equivalência
+  obriga a mantê-lo. A monografia pode dizer que essa exigência é própria
+  de jogos com save instantâneo.
+
+**Ideia para trabalho futuro:** como o jogo é determinístico (provado pelos
+replays), um save poderia ser "ponto de controle + as entradas desde
+então", e o load reexecutaria as entradas em velocidade máxima. Isso elimina
+a serialização de continuações, ao custo do tempo de carregamento.
+
+### A pausa
+
+**O Doom original pausa.** No `linuxdoom-1.10`, o `P_Ticker` retorna logo no
+começo com o menu aberto no single player (`!netgame && menuactive &&
+!demoplayback`), e a tecla Pause alterna `paused`. Jogador, thinkers,
+specials e `leveltime` param; a barra de status, o automapa e o HUD
+continuam (os seus tickers rodam fora do `P_Ticker`). **Este port não
+pausa** (com o menu aberto, só zera o comando do jogador) e não tem tecla de
+pausa: registrado em `docs/DIFERENCAS_DOOM.md`, para a fase de correções.
+
+**Um `toggle` numa subárvore bastaria.** O tic do mundo iria para uma task
+`Mundo` dentro do `Nivel` (as tasks e as partes Lua chamadas pelo laço do
+`Nivel`), com a barra e o automapa fora dela; pausar seria
+`toggle mundo(false)`. O resto vem de graça:
+
+- as tasks contam tics, não relógio: nenhum contador precisa de correção na
+  volta;
+- os eventos perdidos durante a pausa não se acumulam;
+- o que fica fora da subárvore continua andando, como no Doom.
+
+**Mais simples que em C++? Depende de com o que se compara.**
+
+- **Contra o próprio Doom:** não. Ele já pausa com uma linha
+  (`if (paused) return;`), porque toda a lógica passa por um laço central
+  de thinkers. Uma lógica centralizada e contada em tics deixa a pausa
+  trivial em qualquer linguagem.
+- **Contra motores com a lógica espalhada** (callbacks, temporizadores em
+  tempo real, corrotinas sem hierarquia, um `Update` por objeto): aí o
+  Atmos ganha. Esses motores precisam de escala de tempo (como o
+  `Time.timeScale = 0` da Unity, com a interface em tempo "sem escala"),
+  flags de "pausável" por objeto e cuidado para os temporizadores não
+  dispararem na volta. Na concorrência estruturada a hierarquia já existe, e
+  pausar uma parte dela é uma operação, sem contabilidade de tempo.
+
+**Contraste com o elevador (passo 3c).** Lá o `toggle` não era equivalente,
+porque o elevador parado do Doom continuava descontando o contador. Na
+pausa, o Doom para tudo de verdade, então o `toggle` corresponde exatamente
+ao original: uma correção pequena e boa para mostrar na monografia.
+
+### Complemento: a task `Mundo` não substitui o fluxo
+
+Pergunta do autor: a task `Mundo` seria uma substituição do fluxo atual?
+**Não.** O fluxo de telas continua (`Fluxo → Titulo / Jogo → Nivel → Saida
+→ Intermissao / Finale`). O `Mundo` ficaria **dentro do `Nivel`** e seria só
+a parte do tic que o Doom chama de `P_Ticker`, a simulação do mundo. O
+`Nivel` continua cuidando do ciclo de vida do nível (montar ou carregar;
+perceber saída, morte e troca; desenhar).
+
+```
+Fluxo                         (igual)
+ └─ Jogo                      (igual)
+     └─ Nivel                 montar/carregar, fim (saída, morte, troca), desenho
+         ├─ tic, em ordem:
+         │    automapa (AM_Ticker)          ← fora do Mundo: continua na pausa
+         │    Mundo  ←── toggle aqui
+         │    │  comando, Jogador (e Arma), efeitos, mobjs (zumbis),
+         │    │  specials (pools luzes, movers, botoes), texturas, leveltime
+         │    │  → devolve "saida" | "morte" | nada
+         │    barra de status (ST_Ticker)   ← fora do Mundo: continua na pausa
+         └─ desenho (:game.frame)
+```
+
+É a mesma divisão do Doom: o `G_Ticker` chama o `P_Ticker` (o mundo, que
+para na pausa) e depois `ST_Ticker`, `AM_Ticker` e `HU_Ticker` (que
+continuam).
+
+**As pools teriam de morar dentro do `Mundo`.** Hoje elas são declaradas no
+`Nivel`, antes de montar o nível, porque o `build_level` e o load criam
+tasks nelas. O `Mundo` teria de nascer antes de montar o nível e conter as
+pools, para um único `toggle` alcançar tudo. Com as pools no `Nivel`, seriam
+vários `toggle` (um por pool, mais o `Jogador`).
+
+**Com o desenho atual, nem o `toggle` seria necessário.** Todas as tasks do
+mundo só acordam com eventos que o próprio laço do `Nivel` emite
+(`:game.jogador`, `:game.specials`, o `:mobj.tic` direcionado). Então "não
+emitir" já é pausar: elas ficam paradas no `await`, e a pausa cabe num `if`
+no laço do `Nivel`:
+
+```
+loop on :game.tic {
+    G.tic_automapa()
+    if !G.pausado() {
+        ;; o tic do mundo, como hoje: jogador, mobjs, specials, leveltime
+    }
+    G.tic_status()
+}
+```
+
+**Conclusão para a monografia.** O projeto acabou **centralizando o relógio
+no `Nivel`**, como o Doom centraliza no `P_Ticker`, e por isso a pausa é
+trivial (uma linha) nos dois modelos. O `toggle` vale a pena quando as tasks
+acordam sozinhas, com eventos que ninguém controla centralmente: por
+exemplo, se cada monstro esperasse `:game.tic` direto, ou se houvesse tasks
+com relógio próprio. Aí um `toggle` numa subárvore pausa tudo sem precisar
+saber quem escuta o quê, e é nesse cenário que ele supera os motores de
+lógica espalhada. A versão com a task `Mundo` e o `toggle` expressa melhor a
+intenção ("este pedaço do jogo para"); a versão com o `if` é mais curta. Na
+fase de correções, dá para fazer a primeira e registrar a segunda como a
+alternativa equivalente.

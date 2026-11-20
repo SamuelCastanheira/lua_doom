@@ -39,6 +39,7 @@ os bugs de ciclo de vida na lógica de jogos, com custo aceitável?
 | 5. Um monstro | concluído (tag `passo5`) | [registro/05-monstro.md](registro/05-monstro.md) |
 | 6. Wipe e quadro por evento (opcional) | concluído (tag `passo6`) | [registro/06-wipe-e-quadro.md](registro/06-wipe-e-quadro.md) |
 | Métricas finais (seção 7) | concluído | [registro/07-metricas-finais.md](registro/07-metricas-finais.md) |
+| 7. Intermissão e finale (acrescentado) | concluído (tag `passo7`) | [registro/09-intermissao-e-finale.md](registro/09-intermissao-e-finale.md) |
 
 Desvios em relação a este plano, decididos durante o passo 2:
 

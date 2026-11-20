@@ -1,5 +1,5 @@
 diff --git a/game.lua b/game.lua
-index 3451edb..c580726 100644
+index 3451edb..eb05bd2 100644
 --- a/game.lua
 +++ b/game.lua
 @@ -655,6 +655,46 @@ function M.new(argv)
@@ -49,7 +49,7 @@ index 3451edb..c580726 100644
      if ev.mouse then
        if ev.dx then
          game.mousex = game.mousex + ev.dx
-@@ -891,11 +931,34 @@ function M.new(argv)
+@@ -891,11 +931,49 @@ function M.new(argv)
          local s = world.sectors[i]
          t[#t + 1] = string.format("%d,%d,%d", s.floorheight, s.ceilingheight, s.lightlevel)
        end
@@ -67,6 +67,21 @@ index 3451edb..c580726 100644
 +      for i = 1, (os.getenv("DOOM_REPLAY_SIDES") == "1") and #world.sectors or 0 do
 +        local s = world.sectors[i]
 +        t[#t + 1] = string.format("f%s,%s", tostring(s.floorpic), tostring(s.ceilingpic))
++      end
++    end
++    -- intermissao e finale (passo 7): o que as telas escrevem e o desenho le;
++    -- tambem so com DOOM_REPLAY_SIDES=1
++    if os.getenv("DOOM_REPLAY_SIDES") == "1" then
++      local wi = game.wi
++      if wi then
++        t[#t + 1] = string.format("w%s,%s,%s,%s,%s,%s,%s,%s,%s", tostring(wi.state),
++          tostring(wi.cnt_kills), tostring(wi.cnt_items), tostring(wi.cnt_secret),
++          tostring(wi.cnt_time), tostring(wi.cnt_par), tostring(wi.snl_pointeron),
++          tostring(wi.bcnt), tostring(wi.accelerate))
++      end
++      local fi = game.finale
++      if fi then
++        t[#t + 1] = string.format("e%s,%s", tostring(fi.stage), tostring(fi.count))
 +      end
      end
      local p = game.player

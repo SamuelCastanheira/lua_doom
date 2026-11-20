@@ -76,6 +76,7 @@ desce até o piso) e 141 (esmagador silencioso).
 |---|---|---|
 | Demos | tela de título (`main.atm`, task `Titulo`) | o Doom alterna TITLEPIC → créditos → demos gravadas (`DEMO1`..`DEMO3`) e grava/reproduz demos (`-record`, `-playdemo`). Para o TCC: o demo é o "replay" do próprio Doom |
 | Multiplayer | – | cooperativo e deathmatch ausentes |
+| Menu não pausa; sem tecla de pausa | `game.lua` (`tic_view_antes`: com o menu aberto, só zera o comando) | o `P_Ticker` não roda o mundo com o menu aberto no single player (`!netgame && menuactive && !demoplayback`), e a tecla Pause alterna `paused` (`BTS_PAUSE` no `G_Ticker`); a barra, o automapa e o HUD continuam. Aqui, com o menu aberto, monstros, specials e `leveltime` continuam, e não há pausa. Visto em 2026-11-20, numa conversa sobre pausar com `toggle` |
 | Arma | `player.lua` (`WEAPON_PATCH`, `WEAPON_READY`, `WEAPON_ATK`) | tabelas próprias, não a máquina de estados do `p_pspr.c`; é o passo 4b (`PLANO_ATMOS.md`) |
 | Transição de tela (wipe) | `wipe.lua` | usa `math.random`, não a tabela fixa (`M_Random`); só é determinística porque o replay fixa a semente |
 

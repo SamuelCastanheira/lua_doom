@@ -347,6 +347,22 @@ local function start_cast(self)
   play_music(self.game, "evil", true)
 end
 
+-- Passo 7: o finale do Doom 1 (o texto, depois a arte) e a task Texto
+-- (telas.atm). O Doom 2 (elenco) continua por M.ticker.
+M.TEXTSPEED = TEXTSPEED
+M.TEXTWAIT = TEXTWAIT
+M.quer_pular = want_skip
+
+-- Fim do texto: a arte (com wipe; no episodio 3, a musica do coelho).
+function M.para_arte(self)
+  self.stage = STAGE_ART
+  self.count = 0
+  self.game.force_wipe = true
+  if self.game.episode == 3 then
+    play_music(self.game, "bunny", true)
+  end
+end
+
 function M.ticker(self)
   if self.commercial and self.stage == STAGE_TEXT and self.count > 50 and want_skip(self) then
     if self.game.mapn == 30 then

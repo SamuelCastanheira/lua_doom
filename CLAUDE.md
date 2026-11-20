@@ -26,14 +26,15 @@ Atmos) e escreve em **português**. Responda em português.
 
 | Ref | O que é |
 |---|---|
-| branch `lua` (`09d8078`) | renderer em C, lógica em Lua com thinkers, laço `while` no `main.lua` (original); desde `09d8078`, com o modo replay e o hash de estado (só instrumentação de teste). Worktree em `build/branch-lua` |
+| branch `lua` (`855183a`) | renderer em C, lógica em Lua com thinkers, laço `while` no `main.lua` (original); desde `09d8078`, com o modo replay e o hash de estado (só instrumentação de teste; o hash das telas em `855183a`). Worktree em `build/branch-lua` |
 | branch `atmos` | trabalho atual |
 | tag `passo1` (`75c5e67`) | `game.lua` em fases, ambiente `atmos.env.doom`, `main.atm` só observando as telas; `main.lua` ainda é o laço imperativo. **É a referência de equivalência atual.** |
 | tag `passo2` | fluxo de telas inteiro em tasks Atmos; `main.lua` virou lançador |
 | tag `passo3` | specials de setor (luzes, botões, portas, elevadores, pisos, tetos) em tasks (`setores.atm`); comportamento ainda igual ao `passo1` |
 | tag `passo4` | a arma (`arma.atm`) e o jogador (`jogador.atm`) em tasks |
 | tag `passo5` | o Zombieman em task (`monstro.atm`); laço dos mobjs no `Nivel` |
-| tag `passo6` | o wipe como fase do relógio; cada tela desenha a si mesma. **Estado final da migração** |
+| tag `passo6` | o wipe como fase do relógio; cada tela desenha a si mesma |
+| tag `passo7` | a intermissão e o finale em tasks (`telas.atm`). **Estado atual da migração** |
 | tag `luaV.1` | marco antigo do usuário (sem relação com a migração) |
 | commit `522b06f` | renderer 100% Lua (referência pixel a pixel do renderer em C, usada por `make compare`) |
 
@@ -49,6 +50,7 @@ Atmos) e escreve em **português**. Responda em português.
 | 4. Arma e jogador | concluído (`passo4`): 4a (arma) e 4c (jogador como task); 4b fica para a fase de correções |
 | 5. Um monstro | concluído (`passo5`): o Zombieman como task `Zumbi` |
 | 6. Wipe e quadro (opcional) | concluído (`passo6`): o wipe como fase do relógio; cada tela desenha a si mesma |
+| 7. Intermissão e finale | concluído (`passo7`): tasks `Contagem` e `Texto` (`telas.atm`) |
 
 ---
 
@@ -101,8 +103,8 @@ Um quadro tem três fases, sempre nesta ordem:
                           emit :game.specials  (Nivel; G.specials_resto
                                                 roda o scroll, ainda Lua)
                         G.tic_view_depois()  -> nil | "saida"
-                        G.tic_intermission() -> true quando acaba
-                        G.tic_finale()       -> nil | "title" | "worlddone"
+                        intermissao e finale: tasks Contagem e Texto
+                        (telas.atm, passo 7), que acordam com :game.tic
 3. G.quadro_antes()          (emit :game.frame: a tela viva desenha a si mesma)
    G.quadro_depois()         wipe, menu, paleta (emit :tela.transicao se o wipe comecou)
    G.quadro_fim()            som, present
@@ -508,7 +510,7 @@ automapa, `-`/`=` mudam o tamanho da tela.
 ### 5.2 Equivalência da lógica (driver Atmos × referência)
 
 ```sh
-make test-drivers          # semantica do Atmos (P1-P9) + 10 roteiros contra a tag passo1; saves comparados byte a byte
+make test-drivers          # semantica do Atmos (P1-P9) + 11 roteiros contra a tag passo1; saves comparados byte a byte
 sh tests/test_drivers.sh 0 1 fluxo         # roteiro com todas as transicoes
 sh tests/test_drivers.sh 4000 1            # pseudoaleatorio, 4000 quadros, semente 1
 sh tests/test_drivers.sh 6000 2 exits      # tambem termina niveis
@@ -519,6 +521,7 @@ sh tests/test_drivers.sh 0 1 elevadores -warp 1 3 # passo 3c: elevadores em cada
 sh tests/test_drivers.sh 0 1 pisos -warp 2 2      # passo 3d: pisos, escadas, donut, esmagadores (jogador embaixo), save e load
 sh tests/test_drivers.sh 0 1 arma -warp 1 1       # passo 4: cada arma, trocas, sem municao, save e load no tiro, morte e renascer
 sh tests/test_drivers.sh 0 1 monstro -warp 1 2 -respawn  # passo 5: zumbis em todos os comportamentos, save e load, pesadelo
+sh tests/test_drivers.sh 0 1 telas -warp 1 1      # passo 7: intermissao acelerada e completa, E1M8, finale
 REF_TAG=passo2 sh tests/test_drivers.sh 0 1 fluxo   # outra referencia
 ```
 
@@ -527,7 +530,7 @@ REF_TAG=passo2 sh tests/test_drivers.sh 0 1 fluxo   # outra referencia
   em `build/ref-<tag>`, aplica `tests/ref-<tag>.patch` se existir, compila e
   roda o `lua5.4 main.lua` de lá. Compara com `atmos main.atm` e com
   `lua5.4 main.lua` atuais.
-- **`make test-branches`** compara a branch `lua` com a `atmos` nos 10
+- **`make test-branches`** compara a branch `lua` com a `atmos` nos 11
   roteiros (`REF_TAG=lua REF_DIR=build/branch-lua`): idênticas, com o estado
   completo (`docs/registro/08-branch-lua-replay.md`). É o teste da fase de
   correções: cada correção nas duas branches, e elas continuam iguais.
@@ -546,7 +549,7 @@ Se a tag nova não tiver algum comando de teste do replay, crie
 ### 5.3 Sensibilidade, métricas e custo
 
 ```sh
-make test-mutacoes         # tools/mutacoes.py: 65/68 detectadas, 6 equivalentes, 3 pendentes
+make test-mutacoes         # tools/mutacoes.py: 72/75 detectadas, 6 equivalentes, 3 pendentes
 make metricas              # tools/metricas_passo2.py + tools/custo_drivers.py
 python3 tools/metricas_finais.py --custo --memoria   # tabelas finais de todos os passos (le build/test-drivers.log e build/mutacoes.log)
 python3 tools/custo_drivers.py 5           # ms/quadro dos 3 drivers
@@ -650,7 +653,7 @@ revisões do próprio port na seção 5). No fim, as correções são feitas nas
 
 ---
 
-## 9. Passos 3 a 6 e métricas finais concluídos; próximo: correções e escrita
+## 9. Passos 3 a 7 e métricas finais concluídos; próximo: correções e escrita
 
 **Passo 4a (feito):** a arma como task `Arma` (`arma.atm`), por
 equivalência com a lógica de `player.lua` (as tabelas `WEAPON_*` e as
@@ -699,6 +702,16 @@ tic. O quadro emite `:game.frame` entre `G.quadro_antes` e
 desenha a si mesma; `paint_state` (o despacho por `gamestate`) e `redraw`
 sumiram. Registro: `docs/registro/06-wipe-e-quadro.md`.
 
+**Passo 7 (feito):** a intermissão e o finale do Doom 1 como tasks
+`Contagem` e `Texto` (`telas.atm`); cada tela é uma sequência escrita na
+ordem em que acontece. Pela régua, o lado bom: código do mesmo tamanho
+(185 → 184), campos de fase de 5 para 2 (só `state` e `stage`, que o
+desenho lê), 17 comparações com a fase a menos. "Acelerar" e "pular"
+continuam lidos do teclado em Lua. As telas entraram no hash de estado (nos
+três lugares: `atmos`, `tests/ref-passo1.patch`, branch `lua`): sem isso,
+três mutações sobreviviam. Roteiro `telas` (E1M1 com os segredos, E1M2,
+E1M8 e o finale). Registro: `docs/registro/09-intermissao-e-finale.md`.
+
 **Próximo:** pela decisão registrada em `docs/DIFERENCAS_DOOM.md`, as
 diferenças e revisões só são corrigidas depois de todos os passos, nas
 branches `atmos` e `lua`. As métricas finais (seção 7 do `PLANO_ATMOS.md`)
@@ -706,7 +719,7 @@ estão em `docs/registro/07-metricas-finais.md`, geradas por
 `tools/metricas_finais.py` sobre a tag `passo6`, antes das correções.
 O pré-requisito das correções está feito: a branch `lua` tem o modo
 replay e o hash de estado, e `make test-branches` mostra as duas branches
-idênticas nos 10 roteiros (`docs/registro/08-branch-lua-replay.md`).
+idênticas nos 11 roteiros (`docs/registro/08-branch-lua-replay.md`).
 
 O passo 3, plano em `docs/PLANO_ATMOS.md`, seção 6, e registro em
 `docs/registro/03-specials.md`. Como ficou o código (`specials.lua` guarda
