@@ -712,7 +712,15 @@ três lugares: `atmos`, `tests/ref-passo1.patch`, branch `lua`): sem isso,
 três mutações sobreviviam. Roteiro `telas` (E1M1 com os segredos, E1M2,
 E1M8 e o finale). Registro: `docs/registro/09-intermissao-e-finale.md`.
 
-**Próximo:** pela decisão registrada em `docs/DIFERENCAS_DOOM.md`, as
+**Próximo:** a lista do que vem depois do passo 7 está em
+`docs/PLANO_ATMOS.md`, seção 6, "Depois do passo 7": A (migração por
+equivalência: menu, barra de status, automapa, família de monstros, task
+`Mundo`), B (oráculo: o rosto da barra no hash, as 3 mutações pendentes), C
+(a fase de correções, com prioridades), D (experimentos: funcionalidade nova
+das duas formas, save por ponto de controle) e M (métricas finais de novo
+com o passo 7; escrita). Ordem sugerida: M1 e B1, depois A1 e A2.
+
+Pela decisão registrada em `docs/DIFERENCAS_DOOM.md`, as
 diferenças e revisões só são corrigidas depois de todos os passos, nas
 branches `atmos` e `lua`. As métricas finais (seção 7 do `PLANO_ATMOS.md`)
 estão em `docs/registro/07-metricas-finais.md`, geradas por

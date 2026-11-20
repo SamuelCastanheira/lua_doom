@@ -39,7 +39,8 @@ os bugs de ciclo de vida na lógica de jogos, com custo aceitável?
 | 5. Um monstro | concluído (tag `passo5`) | [registro/05-monstro.md](registro/05-monstro.md) |
 | 6. Wipe e quadro por evento (opcional) | concluído (tag `passo6`) | [registro/06-wipe-e-quadro.md](registro/06-wipe-e-quadro.md) |
 | Métricas finais (seção 7) | concluído | [registro/07-metricas-finais.md](registro/07-metricas-finais.md) |
-| 7. Intermissão e finale (acrescentado) | concluído (tag `passo7`) | [registro/09-intermissao-e-finale.md](registro/09-intermissao-e-finale.md) |
+| 7. Intermissão e finale (acrescentado) | concluído (tag `passo7`); as partes do Doom 2 sem cobertura | [registro/09-intermissao-e-finale.md](registro/09-intermissao-e-finale.md) |
+| Depois do passo 7 (A a D, M) | planejado: menu, barra, oráculo, correções, experimentos, escrita | seção 6, "Depois do passo 7" |
 
 Desvios em relação a este plano, decididos durante o passo 2:
 
@@ -590,6 +591,101 @@ Só se houver tempo depois do passo 5; é apresentação, não lógica de jogo
 - **Quadro por evento:** cada task de tela desenha a si mesma em
   `:game.frame`, e o despacho por `gamestate` no `redraw` some.
 - O renderer 3D em C continua como está: não tem dimensão de tempo.
+
+### Passo 7 (acrescentado): intermissão e finale
+
+Acrescentado depois da régua da fase (`docs/NOTAS_MONOGRAFIA.md`, seção 8),
+como teste do seu lado bom: telas cuja fase só o próprio desenho lê, que não
+vão para o save, em que o Lua não escreve e cuja única interrupção é entrada
+do jogador. **Concluído** (tag `passo7`, registro
+`docs/registro/09-intermissao-e-finale.md`): tasks `Contagem` e `Texto`
+(`telas.atm`); código do mesmo tamanho (185 → 184 linhas), campos de fase
+de 5 para 2, comparações com a fase de 17 para 0.
+
+O que ficou de fora do passo 7, e por quê:
+
+- **As partes do Doom 2:** o elenco do finale (`stage` 2) continua no
+  `finale.ticker`, chamado pela task, e o caminho "comercial" da
+  intermissão (sem o mapa do episódio) está escrito na `Contagem`, mas
+  nenhum dos dois é testável com o `doom.wad`. Fica sem cobertura até haver
+  um `doom2.wad`.
+- **"Acelerar" e "pular" continuam lidos do teclado em Lua** a cada tic
+  (`check_accelerate`, `want_skip`): é o que o Doom faz, e um evento mudaria
+  o tic em que a tela reage.
+- **As métricas finais** (`docs/registro/07-metricas-finais.md`) foram
+  geradas sobre a tag `passo6`. O `tools/metricas_finais.py` já inclui o
+  passo 7 na tabela de expressividade, mas o documento ainda não foi gerado
+  de novo com ele (nem o custo acumulado com a coluna `passo7`). Ver o item
+  M1 abaixo.
+
+### Depois do passo 7: o que as reflexões permitem implementar
+
+Itens tirados das discussões registradas em `docs/NOTAS_MONOGRAFIA.md`
+(seções 8 a 11) e das propostas feitas ao fim do passo 6. Estão separados
+pela regra do projeto: o que mantém o comportamento (migração por
+equivalência, contra a tag `passo1` e a branch `lua`) e o que muda o
+comportamento (só na fase de correções, nas duas branches, com nova
+referência a cada correção; `docs/DIFERENCAS_DOOM.md`).
+
+**A. Migração por equivalência (não muda o jogo)**
+
+| Item | O que é | Por que (régua da fase) | Expectativa |
+|---|---|---|---|
+| A1. Menu como task | fases fechado → navegando → confirmação (sim/não) → digitando; a caveira piscando como ramo paralelo | dirigido por **eventos de entrada**, o caso nativo do Atmos; `menu.active` é lido de fora | bom; o cuidado é a tecla "consumida" pelo menu antes de chegar ao resto (ordem dos ramos, P6) |
+| A2. Barra de status (o rosto) como task dentro do `Nivel` | os temporizadores do rosto (`face_count`, sorriso, "fúria") viram `espera`; acorda na etapa 11 do tic (o `ST_Ticker`, uma etapa do motor) | só o desenho lê; não vai para o save (`status.reset` no load); só **lê** o jogador | médio: a regra "a maior prioridade vence", reavaliada a cada tic, não vira sequência naturalmente |
+| A3. Automapa como task | modo seguir, zoom, marcas | quase todo estado de visualização, com pouca sequência no tempo | modesto; só se sobrar tempo |
+| A4. Família de monstros | o Shotgun Guy (`MT_SHOTGUY`) reaproveitando os comportamentos do `Zumbi` | o mesmo caso do passo 5 (as quatro exigências) | mede o **reuso** a custo marginal baixo (notas, seção 6); a régua prevê o mesmo custo por monstro |
+| A5. Task `Mundo` | o tic do mundo (o `P_Ticker`: jogador, mobjs, specials, `leveltime`, com as pools dentro) numa task filha do `Nivel`, com automapa e barra fora | estrutura, sem mudar o jogo | prepara a pausa (C2); notas, seção 11 |
+
+**B. Oráculo e cobertura (só teste, não muda o jogo)**
+
+| Item | O que é |
+|---|---|
+| B1. O rosto da barra no hash de estado | com `DOOM_REPLAY_SIDES=1`, nos três lugares (`atmos`, `tests/ref-passo1.patch`, branch `lua`), como as telas no passo 7. Um efeito de um tic na barra pode cair num tic que não vira quadro (notas, seção 7; `docs/DIFERENCAS_DOOM.md`, seção 5) |
+| B2. As 3 mutações pendentes | roteiros para os cenários que faltam: porta e elevador vizinhos andando no mesmo tic com um mobj na fronteira (`portas-fora-de-movers`, duas mutações); "use" apertado no tic em que o movimento põe a linha ao alcance (`usar-antes-de-mover`) |
+
+**C. Fase de correções (muda o jogo; nas branches `atmos` e `lua`)**
+
+Cada correção: um commit em cada branch, `make test-branches` (as duas
+continuam iguais), a divergência esperada contra a referência antiga
+documentada e uma tag nova de referência. Prioridade sugerida:
+
+1. **Revisões do próprio port** (`docs/DIFERENCAS_DOOM.md`, seção 5): o
+   `carry` vazando para um jogo novo (no Atmos, `defer` no início de
+   `task Jogo`); o load aplicando os mobjs por índice; o jogador esmagado
+   que não morre.
+2. **C2. O menu pausa o mundo**, como no `P_Ticker` do Doom, e a tecla Pause:
+   com a task `Mundo` (A5), `toggle mundo(false)`; registrar também a
+   alternativa equivalente com um `if` no laço do `Nivel` (notas, seção 11).
+   Contraste para a monografia: no elevador (3c) o `toggle` não era
+   equivalente; na pausa, é exatamente o comportamento do Doom.
+3. **O 4b:** a arma com os estados de `info.STATES` e as ações do
+   `p_pspr.c`.
+4. **O resto do DIFERENCAS:** specials (porta reabrir ao esmagar,
+   esmagamento com sangue e restos, desaceleração, linha 40, linhas 57 e 74,
+   elevadores e esmagadores em estase, escada, botões, limites), save
+   (tetos, luzes, pisos inteiros, descrição), som (posicional, canais, sons
+   de piso e teto) e demos.
+
+**D. Experimentos para a monografia (fora do jogo equivalente)**
+
+| Item | O que é | Por que |
+|---|---|---|
+| D1. Funcionalidade nova das duas formas | escrever algo novo em Lua e em Atmos **sem** a exigência de equivalência (sem formato de save nem ordem de tic fixos) | o viés da equivalência contra o Atmos (notas, seção 10): sem isto, a conclusão só pode ser condicional |
+| D2. Save por ponto de controle + entradas | o save guarda o ponto de controle e as entradas desde então; o load reexecuta as entradas | o jogo é determinístico (provado); elimina a serialização de continuações (notas, seção 11). Trabalho futuro, ou protótipo se houver tempo |
+
+**M. Métricas e escrita**
+
+- **M1.** Gerar de novo `docs/registro/07-metricas-finais.md` com o passo 7
+  (`python3 tools/metricas_finais.py --custo --memoria`, com
+  `CUSTO_TAGS` incluindo `passo6`), antes da fase de correções.
+- **M2.** A escrita da monografia (seção 10 deste plano), em paralelo com a
+  fase de correções.
+
+**Ordem sugerida:** M1 e B1 (rápidos); A1 e A2 (o menu e a barra, se o
+orientador quiser mais exemplos da régua); D1 (se o resultado condicional
+não bastar); A5 e a fase de correções (C); A3, A4 e D2 conforme o tempo. A
+escrita (M2) corre em paralelo a partir de agora.
 
 ---
 
