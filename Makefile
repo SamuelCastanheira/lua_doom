@@ -121,7 +121,7 @@ TARGETS := $(addsuffix .$(EXT),$(MODULES))
 MODE_STAMP := build/.mode-stamp
 $(shell mkdir -p build; [ "$$(cat $(MODE_STAMP) 2>/dev/null)" = "$(PLATFORM)-$(MODE)" ] || echo "$(PLATFORM)-$(MODE)" > $(MODE_STAMP))
 
-.PHONY: all debug release run run-atmos test-drivers test-mutacoes metricas test compare baseline check-baseline clean distclean help
+.PHONY: all debug release run run-atmos test-drivers test-branches test-mutacoes metricas test compare baseline check-baseline clean distclean help
 .DEFAULT_GOAL := all
 
 all: $(TARGETS)
@@ -179,6 +179,25 @@ test-drivers: all
 	@sh tests/test_drivers.sh 0 1 pisos -warp 2 2
 	@sh tests/test_drivers.sh 0 1 arma -warp 1 1
 	@sh tests/test_drivers.sh 0 1 monstro -warp 1 2 -respawn
+
+# As duas branches: a branch lua (o jogo imperativo original, com o modo
+# replay e o hash de estado) contra a atmos, nos mesmos roteiros. Base da fase
+# de correcoes (docs/DIFERENCAS_DOOM.md): cada correcao e feita nas duas, e
+# elas tem de continuar iguais. O worktree build/branch-lua fica na branch lua
+# (commits nele vao para a branch).
+BRANCH_LUA = build/branch-lua
+test-branches: all
+	@[ -d $(BRANCH_LUA) ] || git worktree add $(BRANCH_LUA) lua
+	@REF_TAG=lua REF_DIR=$(BRANCH_LUA) sh tests/test_drivers.sh 0 1 fluxo
+	@REF_TAG=lua REF_DIR=$(BRANCH_LUA) sh tests/test_drivers.sh 4000 1
+	@REF_TAG=lua REF_DIR=$(BRANCH_LUA) sh tests/test_drivers.sh 6000 2 exits
+	@REF_TAG=lua REF_DIR=$(BRANCH_LUA) sh tests/test_drivers.sh 1200 1 luzes -warp 4 1
+	@REF_TAG=lua REF_DIR=$(BRANCH_LUA) sh tests/test_drivers.sh 0 1 botoes -warp 1 1
+	@REF_TAG=lua REF_DIR=$(BRANCH_LUA) sh tests/test_drivers.sh 0 1 portas -warp 1 1
+	@REF_TAG=lua REF_DIR=$(BRANCH_LUA) sh tests/test_drivers.sh 0 1 elevadores -warp 1 3
+	@REF_TAG=lua REF_DIR=$(BRANCH_LUA) sh tests/test_drivers.sh 0 1 pisos -warp 2 2
+	@REF_TAG=lua REF_DIR=$(BRANCH_LUA) sh tests/test_drivers.sh 0 1 arma -warp 1 1
+	@REF_TAG=lua REF_DIR=$(BRANCH_LUA) sh tests/test_drivers.sh 0 1 monstro -warp 1 2 -respawn
 
 # Sensibilidade: erros plausiveis (main.atm, setores.atm, specials.lua, saveg.lua)
 # precisam ser detectados. Cada mutacao usa o seu roteiro.

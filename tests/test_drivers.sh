@@ -26,7 +26,8 @@
 #   arma: cada arma atirando, trocas, sem municao, save e load, morte (rode com -warp 1 1; passo 4a)
 #   monstro: zumbis procurando, correndo, atirando, morrendo, save e load, -respawn (rode com -warp 1 2 -respawn; passo 5)
 #
-# REF_TAG=<tag> muda a referencia (padrao: passo1).
+# REF_TAG=<tag> muda a referencia (padrao: passo1); REF_DIR=<pasta> aponta
+# para uma pasta pronta (por exemplo, a branch lua: build/branch-lua).
 set -e
 cd "$(dirname "$0")/.."
 ROOT=$(pwd)
@@ -42,7 +43,9 @@ REF_TAG=${REF_TAG:-passo1}
 # O hash de estado tambem cobre os lados (texturas e deslocamento) so com
 # esta variavel; tools/custo_drivers.py roda sem ela.
 export DOOM_REPLAY_SIDES=1
-REF_DIR=build/ref-$REF_TAG
+# REF_DIR=<pasta> usa uma pasta ja pronta como referencia (por exemplo, o
+# worktree da branch lua: REF_TAG=lua REF_DIR=build/branch-lua).
+REF_DIR=${REF_DIR:-build/ref-$REF_TAG}
 OUT=build/drivers
 mkdir -p "$OUT"
 

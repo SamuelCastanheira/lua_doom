@@ -26,7 +26,7 @@ Atmos) e escreve em **português**. Responda em português.
 
 | Ref | O que é |
 |---|---|
-| branch `lua` (`c230d9a`) | renderer em C, lógica em Lua com thinkers, laço `while` no `main.lua` (original) |
+| branch `lua` (`09d8078`) | renderer em C, lógica em Lua com thinkers, laço `while` no `main.lua` (original); desde `09d8078`, com o modo replay e o hash de estado (só instrumentação de teste). Worktree em `build/branch-lua` |
 | branch `atmos` | trabalho atual |
 | tag `passo1` (`75c5e67`) | `game.lua` em fases, ambiente `atmos.env.doom`, `main.atm` só observando as telas; `main.lua` ainda é o laço imperativo. **É a referência de equivalência atual.** |
 | tag `passo2` | fluxo de telas inteiro em tasks Atmos; `main.lua` virou lançador |
@@ -527,9 +527,10 @@ REF_TAG=passo2 sh tests/test_drivers.sh 0 1 fluxo   # outra referencia
   em `build/ref-<tag>`, aplica `tests/ref-<tag>.patch` se existir, compila e
   roda o `lua5.4 main.lua` de lá. Compara com `atmos main.atm` e com
   `lua5.4 main.lua` atuais.
-- **Não existe `REF=lua`.** A branch `lua` não tem modo replay nem hash de
-  estado; ela foi comparada com o `passo1` só pelo framebuffer (registro do
-  passo 1, seção 3.1).
+- **`make test-branches`** compara a branch `lua` com a `atmos` nos 10
+  roteiros (`REF_TAG=lua REF_DIR=build/branch-lua`): idênticas, com o estado
+  completo (`docs/registro/08-branch-lua-replay.md`). É o teste da fase de
+  correções: cada correção nas duas branches, e elas continuam iguais.
 - O roteiro `fluxo` confere a cobertura: pedidos e telas esperados. Se você
   mudar o menu ou os tempos, ajuste `tools/make_replay.lua` até aparecer
   `cobertura do fluxo: completa`.
@@ -703,8 +704,9 @@ diferenças e revisões só são corrigidas depois de todos os passos, nas
 branches `atmos` e `lua`. As métricas finais (seção 7 do `PLANO_ATMOS.md`)
 estão em `docs/registro/07-metricas-finais.md`, geradas por
 `tools/metricas_finais.py` sobre a tag `passo6`, antes das correções.
-Pré-requisito das correções: levar o modo replay e o hash de estado para a
-branch `lua`.
+O pré-requisito das correções está feito: a branch `lua` tem o modo
+replay e o hash de estado, e `make test-branches` mostra as duas branches
+idênticas nos 10 roteiros (`docs/registro/08-branch-lua-replay.md`).
 
 O passo 3, plano em `docs/PLANO_ATMOS.md`, seção 6, e registro em
 `docs/registro/03-specials.md`. Como ficou o código (`specials.lua` guarda

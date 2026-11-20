@@ -22,9 +22,9 @@ Até lá, cada passo só acrescenta itens aqui. Na hora de corrigir:
 - um commit por correção em cada branch, com o mesmo comportamento nas duas;
 - uma tag de referência nova depois de cada correção (ou grupo), e a
   divergência esperada documentada;
-- a branch `lua` não tem modo replay: a igualdade entre as duas depois da
-  correção precisa de um método próprio (por exemplo, levar o modo replay e
-  o hash de estado para a `lua` antes de começar).
+- a igualdade entre as duas depois de cada correção é conferida por
+  `make test-branches` (a branch `lua` ganhou o modo replay e o hash de
+  estado no commit `09d8078`; `docs/registro/08-branch-lua-replay.md`).
 
 ---
 

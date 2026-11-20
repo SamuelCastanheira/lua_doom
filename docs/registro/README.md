@@ -14,6 +14,7 @@ do que mudou, do porquê e do que deu errado no caminho.
 | 5 | `passo5` | [05-monstro.md](05-monstro.md) | o Zombieman em task; laço dos mobjs no `Nivel`, com emit direcionado |
 | 6 | `passo6` | [06-wipe-e-quadro.md](06-wipe-e-quadro.md) | o wipe como fase do relógio; cada tela desenha a si mesma |
 | – | – | [07-metricas-finais.md](07-metricas-finais.md) | métricas consolidadas de todos os passos (seção 7 do plano) |
+| – | branch `lua` `09d8078` | [08-branch-lua-replay.md](08-branch-lua-replay.md) | modo replay na branch `lua`; as duas branches comparadas direto (`make test-branches`) |
 
 ## Cadeia de equivalência
 
@@ -21,6 +22,7 @@ do que mudou, do porquê e do que deu errado no caminho.
 branch lua ──(framebuffer, 3 × 5.000 quadros)──> passo1 main.lua
 passo1 main.lua ──(framebuffer + estado)──> passo1 main.atm
 passo1 main.lua ──(framebuffer + estado, roteiro "fluxo" + 2)──> passo2 main.atm
+branch lua ──(framebuffer + estado + saves, 10 roteiros)──> atmos (passo6)
 ```
 
 Cada elo é verificado no modo replay (`DOOM_REPLAY`): sem janela, tempo
