@@ -32,7 +32,8 @@
 val env  = require "atmos.env.doom"
 val game = require "game"
 val G    = game.new(game.atmos_args(arg))
-val telas = require "telas"          ;; passo 7: intermissao e finale
+val telas = require "telas"
+val barra = require "barra"          ;; passo 8b: o rosto da barra de status          ;; passo 7: intermissao e finale
 val jogador = require "jogador"      ;; passo 4c: task Jogador (e a Arma, filha)
 
 ;; Emite, em ordem, os pedidos que o Lua registrou na fase que acabou.
@@ -148,6 +149,7 @@ task Nivel (save) {
     }
     G.enter(:view)
     emit :mundo.pronto
+    spawn barra.Rosto(G.game.status, G.game.player)   ;; passo 8b, fora do mundo
     spawn {                               ;; passo 6: a vista desenha a si mesma
         loop on :game.frame { G.pintar_vista() }
     }
@@ -158,7 +160,8 @@ task Nivel (save) {
                 (antes == :segue) => {
                     emit :mundo.tic           ;; passo 8a: o tic do mundo
                     if !r.fim {
-                        G.tic_status()        ;; a barra, fora do mundo
+                        emit :barra.tic       ;; passo 8b: o rosto (task Rosto)
+                        G.redesenhar()
                     }
                     r.fim
                 }

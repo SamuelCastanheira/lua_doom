@@ -1,0 +1,90 @@
+;; A barra de status: o rosto como task Atmos (passo 8b).
+;;
+;; Antes: status.ticker (tag passo7), chamado a cada tic na etapa da barra,
+;; guardava em campos a prioridade do rosto (face_priority), o tempo que ele
+;; ainda fica (face_count), o contador da "furia" (last_attackdown) e a vida
+;; do tic anterior (old_health). So o desenho le algo do rosto, e so
+;; face_index. Agora esses quatro sao variaveis da task, e face_index continua
+;; campo.
+;;
+;; A regra do rosto nao e uma sequencia: a cada tic, a expressao de maior
+;; prioridade vence (morte > sorriso por arma nova > dor com atacante > dor >
+;; furia > modo deus > olhar parado), e a escolhida fica por um tempo. Por isso
+;; a task ainda reavalia tudo a cada tic, como o ticker (docs/registro/
+;; 10-interface-e-mundo.md, secao 8b).
+;;
+;; A task fica no Nivel, fora do Mundo (a barra continua na pausa, como o
+;; ST_Ticker do Doom), e acorda com :barra.tic, que o Nivel emite na etapa da
+;; barra, quando o tic do mundo seguiu.
+
+val S = require "status"
+
+val task Rosto (st, p) {
+    val R = S.ROSTO
+    set pub = st
+    var prioridade = 0                    ;; antes: face_priority
+    var conta = 0                         ;; antes: face_count
+    var furia = -1                        ;; antes: last_attackdown
+    var vida_antes = -1                   ;; antes: old_health
+    loop {
+        await :barra.tic
+        val sorteio = S.sortear(st)
+        if (prioridade < 10) && ((p.health || 0) <= 0) {        ;; morto
+            set prioridade = 9
+            set st.face_index = R.DEAD
+            set conta = 1
+        }
+        if (prioridade < 9) && ((p.bonuscount || 0) != 0) && S.arma_nova(st, p) {
+            set prioridade = 8                                    ;; sorriso
+            set conta = R.EVILGRINCOUNT
+            set st.face_index = S.dor(st, p) + R.EVILGRINOFFSET
+        }
+        val atacado = p.attacker && p.mo && (p.attacker != p.mo)
+        if (prioridade < 8) && ((p.damagecount || 0) != 0) && atacado {
+            set prioridade = 7                                    ;; dor, com atacante
+            set conta = R.TURNCOUNT
+            set st.face_index = S.rosto_dano(st, p, vida_antes)
+        }
+        if (prioridade < 7) && ((p.damagecount || 0) != 0) {    ;; dor
+            set conta = R.TURNCOUNT
+            if ((p.health || 0) - vida_antes) > R.MUCHPAIN {
+                set prioridade = 7
+                set st.face_index = S.dor(st, p) + R.OUCHOFFSET
+            } else {
+                set prioridade = 6
+                set st.face_index = S.dor(st, p) + R.RAMPAGEOFFSET
+            }
+        }
+        if prioridade < 6 {                                       ;; furia: gatilho preso
+            if p.attackdown {
+                if furia == -1 {
+                    set furia = R.RAMPAGEDELAY
+                } else {
+                    set furia = furia - 1
+                    if furia == 0 {
+                        set prioridade = 5
+                        set st.face_index = S.dor(st, p) + R.RAMPAGEOFFSET
+                        set conta = 1
+                        set furia = 1
+                    }
+                }
+            } else {
+                set furia = -1
+            }
+        }
+        if (prioridade < 5) && S.deus(p) {                       ;; modo deus
+            set prioridade = 4
+            set st.face_index = R.GOD
+            set conta = 1
+        }
+        if conta == 0 {                                           ;; olhar parado
+            set st.face_index = S.olhar(st, p, sorteio)
+            set conta = R.STRAIGHTFACECOUNT
+            set prioridade = 0
+        }
+        set conta = conta - 1
+        set vida_antes = p.health
+    }
+}
+
+[Rosto=Rosto]

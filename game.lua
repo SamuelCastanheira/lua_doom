@@ -23,7 +23,7 @@
 --                                    (emit :mundo.tic -> task Mundo, passo 8a:
 --                                     tic_comando, :game.jogador, tic_view_meio,
 --                                     mobjs, :game.specials, tic_mundo_fim)
---                                    tic_status()       a barra de status
+--                                    (emit :barra.tic -> task Rosto, passo 8b)
 --                                    intermissao e finale: tasks de telas.atm
 --                                    (passo 7), com :game.tic
 --   3. frame()            redesenha, toca som, apresenta
@@ -853,10 +853,10 @@ function M.new(argv)
   --                         entre elas, G.specials_resto() (o que ainda e
   --                         Lua), na ordem do antigo specials_mod.tick
   --   G.tic_mundo_fim()     texturas animadas, saida, leveltime
-  --   G.tic_status()        a barra de status (fora do mundo)
+  --   emit :barra.tic       a barra de status, fora do mundo (task Rosto, 8b)
   -- Desde o passo 8a, do G.tic_comando ao G.tic_mundo_fim e a task Mundo
   -- (main.atm), acordada pelo Nivel com :mundo.tic; o automapa (em
-  -- tic_view_antes) e a barra (tic_status) ficam fora dela, como o
+  -- tic_view_antes) e a barra (:barra.tic) ficam fora dela, como o
   -- AM_Ticker e o ST_Ticker do Doom ficam fora do P_Ticker. Era uma funcao so
   -- (G.tic_view, tag passo2); os emits ficam no meio para que as tasks
   -- acordem no mesmo ponto do tic em que os thinkers rodavam (CLAUDE.md 4.2).
@@ -950,14 +950,9 @@ function M.new(argv)
     return nil
   end
 
-  -- Barra de status (fora do mundo, como o ST_Ticker do Doom), so quando o
-  -- tic do mundo seguiu (nem saida nem morte).
-  function G.tic_status()
-    if game.status then
-      status_mod.ticker(game.status, game.player)
-    end
-    dirty = true
-  end
+  -- A barra de status (fora do mundo, como o ST_Ticker do Doom): desde o
+  -- passo 8b, o rosto e a task Rosto (barra.atm), acordada pelo Nivel com
+  -- :barra.tic quando o tic do mundo seguiu (nem saida nem morte).
 
   -- Fase 2c: intermissao e finale (passo 7). A sequencia de cada tela e uma
   -- task de telas.atm, que acorda com :game.tic; a cada tic ela pede o
@@ -1138,6 +1133,10 @@ function M.new(argv)
       local fi = game.finale
       if fi then
         t[#t + 1] = string.format("e%s,%s", tostring(fi.stage), tostring(fi.count))
+      end
+      -- o rosto da barra (passo 8b): o que a task Rosto escreve e o desenho le
+      if game.status then
+        t[#t + 1] = string.format("r%s", tostring(game.status.face_index))
       end
     end
     local p = game.player
