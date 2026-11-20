@@ -653,8 +653,7 @@ documentada e uma tag nova de referência. Prioridade sugerida:
 
 1. **Revisões do próprio port** (`docs/DIFERENCAS_DOOM.md`, seção 5): o
    `carry` vazando para um jogo novo (no Atmos, `defer` no início de
-   `task Jogo`); o load aplicando os mobjs por índice; o jogador esmagado
-   que não morre.
+   `task Jogo`); o jogador esmagado que não morre.
 2. **C2. O menu pausa o mundo**, como no `P_Ticker` do Doom, e a tecla Pause:
    com a task `Mundo` (A5), `toggle mundo(false)`; registrar também a
    alternativa equivalente com um `if` no laço do `Nivel` (notas, seção 11).
@@ -664,9 +663,16 @@ documentada e uma tag nova de referência. Prioridade sugerida:
    `p_pspr.c`.
 4. **O resto do DIFERENCAS:** specials (porta reabrir ao esmagar,
    esmagamento com sangue e restos, desaceleração, linha 40, linhas 57 e 74,
-   elevadores e esmagadores em estase, escada, botões, limites), save
-   (tetos, luzes, pisos inteiros, descrição), som (posicional, canais, sons
-   de piso e teto) e demos.
+   elevadores e esmagadores em estase, escada, botões, limites, sons de piso
+   e teto) e a descrição do save.
+
+**Fora do escopo** (decisão do autor, 2026-11-20, por não serem relevantes
+para o TCC): o save no formato do Doom (recriar os mobjs a partir do save,
+o que corrigiria o load por índice; gravar tetos, luzes e pisos inteiros), o
+som posicional (estéreo, distância, canais por mobj) e as demos (gravar e
+reproduzir, alternando na tela de título). Continuam registrados em
+`docs/DIFERENCAS_DOOM.md`, como diferenças conhecidas, e podem aparecer na
+monografia como trabalho futuro.
 
 **D. Experimentos para a monografia (fora do jogo equivalente)**
 
@@ -677,16 +683,18 @@ documentada e uma tag nova de referência. Prioridade sugerida:
 
 **M. Métricas e escrita**
 
-- **M1.** Gerar de novo `docs/registro/07-metricas-finais.md` com o passo 7
+- **M1.** Gerar de novo `docs/registro/07-metricas-finais.md` com os passos 7 e 8
   (`python3 tools/metricas_finais.py --custo --memoria`, com
-  `CUSTO_TAGS` incluindo `passo6`), antes da fase de correções.
+  `CUSTO_TAGS` incluindo `passo6` e `passo7`), antes da fase de correções.
 - **M2.** A escrita da monografia (seção 10 deste plano), em paralelo com a
   fase de correções.
 
-**Ordem sugerida:** M1 e B1 (rápidos); A1 e A2 (o menu e a barra, se o
-orientador quiser mais exemplos da régua); D1 (se o resultado condicional
-não bastar); A5 e a fase de correções (C); A3, A4 e D2 conforme o tempo. A
-escrita (M2) corre em paralelo a partir de agora.
+**Feito no passo 8:** A1, A2, A3, A5 e B1 (`docs/registro/10-interface-e-mundo.md`).
+
+**Ordem sugerida para o que falta:** M1 (rápido); D1 (responde ao viés da
+equivalência); A4 (mede o reuso); B2; na fase de correções, C1 e C2
+(pequenas), depois C3 (o 4b, caro) e C4; D2 conforme o tempo. A escrita (M2)
+corre em paralelo.
 
 ---
 

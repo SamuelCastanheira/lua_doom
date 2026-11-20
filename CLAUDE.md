@@ -736,7 +736,8 @@ entraram no hash (nos três lugares). Os emits novos são direcionados (custo:
 `docs/PLANO_ATMOS.md`, seção 6, "Depois do passo 7": A (migração por
 equivalência: menu, barra de status, automapa, família de monstros, task
 `Mundo`), B (oráculo: o rosto da barra no hash, as 3 mutações pendentes), C
-(a fase de correções, com prioridades), D (experimentos: funcionalidade nova
+(a fase de correções, com prioridades; fora do escopo, por decisão do
+autor: save no formato do Doom, som posicional e demos), D (experimentos: funcionalidade nova
 das duas formas, save por ponto de controle) e M (métricas finais de novo
 com o passo 7; escrita). Ordem sugerida: M1 e B1, depois A1 e A2.
 

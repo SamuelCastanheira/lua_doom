@@ -22,6 +22,11 @@ Até lá, cada passo só acrescenta itens aqui. Na hora de corrigir:
 - um commit por correção em cada branch, com o mesmo comportamento nas duas;
 - uma tag de referência nova depois de cada correção (ou grupo), e a
   divergência esperada documentada;
+- **fora do escopo das correções** (decisão do autor, 2026-11-20): o save
+  no formato do Doom (recriar os mobjs a partir do save, o que corrigiria o
+  load por índice da seção 5; gravar tetos, luzes e pisos inteiros), o som
+  posicional (estéreo, distância, canais por mobj) e as demos. Ficam
+  registrados como diferenças conhecidas;
 - a igualdade entre as duas depois de cada correção é conferida por
   `make test-branches` (a branch `lua` ganhou o modo replay e o hash de
   estado no commit `09d8078`; `docs/registro/08-branch-lua-replay.md`).
