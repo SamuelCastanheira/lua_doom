@@ -43,7 +43,8 @@ os bugs de ciclo de vida na lógica de jogos, com custo aceitável?
 | 8. Mundo, barra, menu, automapa (A5, A2, A1, A3) | concluído (tag `passo8`); inclui o B1 (o rosto no hash) | [registro/10-interface-e-mundo.md](registro/10-interface-e-mundo.md) |
 | 9. Família de monstros (A4) | concluído (tag `passo9`): Zombieman, Shotgun Guy, Demon e Spectre com a task `Monstro` | [registro/11-familia-de-monstros.md](registro/11-familia-de-monstros.md) |
 | B2. Mutações pendentes | concluído: roteiro `ordem`; 88/88 detectadas, nenhuma pendente | [registro/12-mutacoes-pendentes.md](registro/12-mutacoes-pendentes.md) |
-| Depois do B2 (C, D, M) | planejado: correções, experimentos, escrita | seção 6, "Depois do passo 7" |
+| C1. Revisões do port | concluído (tag `c1` na branch `lua`, a referência nova): o `carry`, o jogador esmagado | [registro/13-correcoes-c1.md](registro/13-correcoes-c1.md) |
+| Depois do C1 (C2–C4, D, M) | planejado: correções, experimentos, escrita | seção 6, "Depois do passo 7" |
 
 Desvios em relação a este plano, decididos durante o passo 2:
 
@@ -653,9 +654,9 @@ Cada correção: um commit em cada branch, `make test-branches` (as duas
 continuam iguais), a divergência esperada contra a referência antiga
 documentada e uma tag nova de referência. Prioridade sugerida:
 
-1. **Revisões do próprio port** (`docs/DIFERENCAS_DOOM.md`, seção 5): o
-   `carry` vazando para um jogo novo (no Atmos, `defer` no início de
-   `task Jogo`); o jogador esmagado que não morre.
+1. **Revisões do próprio port (C1, feito, tag `c1`):** o `carry` vazando
+   para um jogo novo (no Atmos, `defer` no início de `task Jogo`); o
+   jogador esmagado que não morre (`docs/registro/13-correcoes-c1.md`).
 2. **C2. O menu pausa o mundo**, como no `P_Ticker` do Doom, e a tecla Pause:
    com a task `Mundo` (A5), `toggle mundo(false)`; registrar também a
    alternativa equivalente com um `if` no laço do `Nivel` (notas, seção 11).
@@ -693,11 +694,12 @@ monografia como trabalho futuro.
 
 **Feito no passo 8:** A1, A2, A3, A5 e B1 (`docs/registro/10-interface-e-mundo.md`).
 **Feito no passo 9:** A4 (`docs/registro/11-familia-de-monstros.md`).
-**Feito depois:** B2 (`docs/registro/12-mutacoes-pendentes.md`).
+**Feito depois:** B2 (`docs/registro/12-mutacoes-pendentes.md`) e C1
+(`docs/registro/13-correcoes-c1.md`).
 
 **Ordem sugerida para o que falta:** M1 (rápido, agora com os passos 7 a
-9); D1 (responde ao viés da equivalência); na fase de correções, C1 e C2
-(pequenas), depois C3 (o 4b, caro) e C4; D2 conforme o tempo. A escrita (M2)
+9); D1 (responde ao viés da equivalência); na fase de correções, C2
+(pequena), depois C3 (o 4b, caro) e C4; D2 conforme o tempo. A escrita (M2)
 corre em paralelo.
 
 ---

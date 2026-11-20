@@ -564,6 +564,10 @@ task acordada com 100 tasks, 2,3 µs com 500 e 2,6 µs com 1.000.
 
 ### 8.1 Bug preservado: o `carry` vaza para um novo jogo
 
+> **Corrigido no C1** (tag `c1`, `docs/registro/13-correcoes-c1.md`). O C1
+> achou o mesmo bug também no roteiro `fluxo` (New Game durante o finale do
+> E2M8), invisível aqui porque a referência tinha o mesmo defeito.
+
 Na versão imperativa, `begin_exit` guarda em `game.carry` o que o jogador
 leva para o próximo nível (vida, armas, munição), e `start_level` aplica e
 apaga o `carry`. Se o jogador escolhe **New Game** no menu durante a

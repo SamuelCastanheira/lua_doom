@@ -1245,6 +1245,12 @@ function M.thing_height_clip(world, thing)
   return thing.ceilingz - thing.floorz >= (thing.height or 0)
 end
 
+-- Dano do esmagamento: P_DamageMobj(thing, NULL, NULL, 10), como no
+-- PIT_ChangeSector do Doom (dor, armadura, modo deus, morte). O jogo liga o
+-- gancho (game.damage_mobj); sem ele (testes unitarios), a vida e subtraida
+-- direto, como antes da correcao.
+M.dano_esmagar = nil
+
 function M.change_sector(world, sector, crush)
   local nofit = false
   local mobjs = world.mobjs or {}
@@ -1257,7 +1263,9 @@ function M.change_sector(world, sector, crush)
           thing.height = 0
         elseif has(thing.flags, MF_SHOOTABLE) then
           nofit = true
-          if crush then
+          if crush and M.dano_esmagar then
+            M.dano_esmagar(thing, 10)
+          elseif crush then
             thing.health = thing.health - 10
             if thing.player then
               thing.player.health = thing.health

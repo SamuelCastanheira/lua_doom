@@ -6,7 +6,7 @@
 #   make debug        -O0 -g com AddressSanitizer/UBSan (Linux/macOS)
 #   make run          compila e roda: $(LUA) main.lua $(ARGS)
 #   make run-atmos    idem pelo driver Atmos: atmos main.atm -- $(ARGS)
-#   make test-drivers prova que main.atm da o mesmo jogo que a tag passo1
+#   make test-drivers prova que main.atm da o mesmo jogo que a referencia (tag c1; antes, passo1)
 #   make test-mutacoes confere que o teste de equivalencia detecta erros
 #   make metricas     metricas de codigo e custo do fluxo de telas
 #   make test         roda os testes em tests/
@@ -165,7 +165,7 @@ run-atmos: all
 	$(ASAN_PRELOAD) $(ATMOS) main.atm -- $(ARGS)
 # (make run tambem roda o main.atm: main.lua e um lancador desde o passo 2)
 
-# Equivalencia com a referencia imperativa (tag passo1) em modo replay.
+# Equivalencia com a referencia imperativa (tag c1: a branch lua com as correcoes do C1; antes, a tag passo1) em modo replay.
 # "fluxo" passa por todas as transicoes de tela e confere a cobertura.
 test-drivers: all
 	@$(ATMOS) tests/atmos_semantica.atm
@@ -181,6 +181,7 @@ test-drivers: all
 	@sh tests/test_drivers.sh 0 1 monstro -warp 1 2 -respawn
 	@sh tests/test_drivers.sh 0 1 familia -warp 1 5 -respawn
 	@sh tests/test_drivers.sh 0 1 ordem -warp 1 3
+	@sh tests/test_drivers.sh 0 1 correcoes -warp 1 1
 	@sh tests/test_drivers.sh 0 1 telas -warp 1 1
 
 # As duas branches: a branch lua (o jogo imperativo original, com o modo
@@ -203,6 +204,7 @@ test-branches: all
 	@REF_TAG=lua REF_DIR=$(BRANCH_LUA) sh tests/test_drivers.sh 0 1 monstro -warp 1 2 -respawn
 	@REF_TAG=lua REF_DIR=$(BRANCH_LUA) sh tests/test_drivers.sh 0 1 familia -warp 1 5 -respawn
 	@REF_TAG=lua REF_DIR=$(BRANCH_LUA) sh tests/test_drivers.sh 0 1 ordem -warp 1 3
+	@REF_TAG=lua REF_DIR=$(BRANCH_LUA) sh tests/test_drivers.sh 0 1 correcoes -warp 1 1
 	@REF_TAG=lua REF_DIR=$(BRANCH_LUA) sh tests/test_drivers.sh 0 1 telas -warp 1 1
 
 # Sensibilidade: erros plausiveis (main.atm, setores.atm, specials.lua, saveg.lua)
@@ -218,6 +220,7 @@ test-mutacoes: all
 	@sh tests/test_drivers.sh 0 1 monstro -warp 1 2 -respawn >/dev/null
 	@sh tests/test_drivers.sh 0 1 familia -warp 1 5 -respawn >/dev/null
 	@sh tests/test_drivers.sh 0 1 ordem -warp 1 3 >/dev/null
+	@sh tests/test_drivers.sh 0 1 correcoes -warp 1 1 >/dev/null
 	@sh tests/test_drivers.sh 0 1 telas -warp 1 1 >/dev/null
 	@sh tests/test_drivers.sh 6000 2 exits >/dev/null
 	@sh tests/test_drivers.sh 4000 1 >/dev/null

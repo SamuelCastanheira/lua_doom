@@ -38,8 +38,7 @@ Até lá, cada passo só acrescenta itens aqui. Na hora de corrigir:
 | Falta ou difere | Onde | No Doom original | Aqui |
 |---|---|---|---|
 | Porta não reabre ao esmagar | `setores.atm` (task `Porta`; antes `tick_door`) | `T_VerticalDoor`: porta fechando que bate em algo volta a abrir (exceto as rápidas que só fecham) | fica tentando fechar a cada tic |
-| Esmagamento sem sangue nem restos | `collision.change_sector` | `P_ChangeSector` / `PIT_ChangeSector`: cadáveres viram restos (`S_GIBS`), itens largados são removidos, sangue com `P_Random` a cada 4 tics | só tira 10 de vida; não consome `P_Random` |
-| Jogador esmagado não morre | `collision.change_sector` | o dano passa por `P_DamageMobj`: cara de dor na barra (`damagecount`) e morte com vida 0 | a vida é subtraída direto: sem cara de dor; com vida 0 o jogador continua de pé (`playerstate` não vira `PST_DEAD`) e não tem como renascer. Visto no roteiro `pisos` (passo 3d) |
+| Esmagamento sem sangue nem restos | `collision.change_sector` | `P_ChangeSector` / `PIT_ChangeSector`: cadáveres viram restos (`S_GIBS`), itens largados são removidos, sangue com `P_Random` a cada 4 tics | esmaga a cada tic (o dano passa por `damage_mobj` desde o C1), sem sangue; não consome `P_Random` no esmagamento |
 | Desaceleração ao esmagar | task `Teto` (antes `tick_ceiling`) | `T_MoveCeiling`: ao esmagar, desacelera (`CEILSPEED/8`) o esmagador comum (73, 25, 49), o silencioso (141) e o que só desce (44, 72); o rápido (77, 6) não desacelera | desacelera o comum, o rápido e o silencioso; o que só desce (44, 72) não desacelera |
 | Esmagador que só desce | `do_crusher` | `EV_DoCeiling` cria o `lowerAndCrush` (44, 72) com `crush = false` | `crush = true` (também no 41/43, que o original não esmaga) |
 | Teto que sobe não sobe | task `Teto` (antes `tick_ceiling`) | `raiseToHighest` (linha 40) sobe até o teto vizinho mais alto (`topheight = P_FindHighestCeilingSurrounding`) | `do_crusher` calcula esse destino em `dest`, mas o tick usa `topheight`, que é a altura atual: o teto não se move e a task termina no primeiro tic (mutação `teto-vai-ate-o-mais-alto` no passo 3d) |
@@ -92,7 +91,6 @@ fase de correção.
 
 | Revisão | Onde | O que fazer |
 |---|---|---|
-| `carry` vaza para um jogo novo | `G.new_game` (registro do passo 2, seção 8.1) | um jogo novo iniciado na intermissão começa com as armas do anterior; correção proposta: `game.carry = nil` em `G.new_game` (ou `defer` no início de `task Jogo`) |
 | Rosto da barra fora do hash de estado | `G.state_string` (ferramenta de teste) | um efeito de um tic na barra pode cair num tic que não vira quadro (tics aos pares no replay, passo 3d); pôr `face_index` no hash. Muda os logs da referência: fazer junto com uma tag nova |
 | Load aplica os mobjs por índice | `saveg.apply` | os registros gravados vão para os mobjs que o nível acabou de criar, na ordem da lista; se ela mudou desde o save (itens apanhados, projéteis), um mobj recebe o estado de outro tipo (visto no passo 5: um zumbi com o estado 825; no passo 9, no E1M5, monstros dos quatro tipos com task recebem estados de outro tipo depois do load, e a task segue a tabela pelo caso `estranho`). O Doom recria os mobjs a partir do save (`P_UnArchiveThinkers`); corrigir isso muda o formato do save |
 
@@ -119,4 +117,6 @@ fase de correção.
 
 | Item | Como | Commit / referência |
 |---|---|---|
+| `carry` vaza para um jogo novo (seção 5) | `atmos`: `defer { G.game.carry = nil }` no início de `task Jogo`; `lua`: `game.carry = nil` no New Game (`docs/registro/13-correcoes-c1.md`) | C1, tag `c1` |
+| Jogador esmagado não morre (specials) | o esmagamento passa por `game.damage_mobj` (gancho `collision.dano_esmagar`), nas duas branches: dor, armadura, modo deus, morte. A cadência (a cada 4 tics) e o sangue ficam no item "Esmagamento sem sangue nem restos" | C1, tag `c1` |
 | Mutações pendentes de cobertura (seção 5) | roteiro `ordem` (E1M3): "use" no tic em que a linha entra no alcance; porta e elevador vizinhos no mesmo tic, com o jogador na fronteira (`docs/registro/12-mutacoes-pendentes.md`). Só teste: o jogo não mudou | B2 (sem tag nova) |

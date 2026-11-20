@@ -243,6 +243,9 @@ task Saida () {
 
 ;; Um jogo: niveis em sequencia ate o fim do episodio.
 task Jogo (pedido) {
+    defer {
+        set G.game.carry = nil          ;; o carry e do Jogo: nao sobrevive a ele
+    }                                   ;; (nem quando :jogo.novo o aborta)
     var save = nil
     if pedido.tag == "jogo.carregar" {
         set save = pedido.data

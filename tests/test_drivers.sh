@@ -15,7 +15,7 @@
 # (mobjs, setores, jogador, RNG, tela atual). A primeira linha divergente
 # aponta o quadro em que a ordem ou o tempo mudou.
 #
-#   sh tests/test_drivers.sh [quadros] [semente] [exits|fluxo|luzes|botoes|portas|elevadores|pisos|arma|monstro|familia|ordem|telas] [args do jogo...]
+#   sh tests/test_drivers.sh [quadros] [semente] [exits|fluxo|luzes|botoes|portas|elevadores|pisos|arma|monstro|familia|ordem|correcoes|telas] [args do jogo...]
 #   exits: o roteiro tambem termina niveis -> intermissao e finale
 #   fluxo: roteiro fixo que passa por todas as transicoes (quadros ignorado)
 #   luzes: jogador parado no E4M1 e no E1M2 (rode com -warp 4 1; passo 3a)
@@ -27,8 +27,10 @@
 #   monstro: zumbis procurando, correndo, atirando, morrendo, save e load, -respawn (rode com -warp 1 2 -respawn; passo 5)
 #   familia: Zombieman, Shotgun Guy, Demon e Spectre, save e load, -respawn (rode com -warp 1 5 -respawn; passo 9)
 #   ordem: "use" no tic em que a linha entra no alcance; porta e elevador vizinhos no mesmo tic (rode com -warp 1 3; B2)
+#   correcoes: cenarios da fase de correcoes; C1: New Game na intermissao depois do idkfa (rode com -warp 1 1)
 #
-# REF_TAG=<tag> muda a referencia (padrao: passo1); REF_DIR=<pasta> aponta
+# REF_TAG=<tag> muda a referencia (padrao: c1, a branch lua com as correcoes
+# do C1; antes, passo1); REF_DIR=<pasta> aponta
 # para uma pasta pronta (por exemplo, a branch lua: build/branch-lua).
 set -e
 cd "$(dirname "$0")/.."
@@ -41,7 +43,7 @@ while [ $# -gt 0 ] && [ $n -lt 3 ]; do
   shift
   n=$((n + 1))
 done
-REF_TAG=${REF_TAG:-passo1}
+REF_TAG=${REF_TAG:-c1}
 # O hash de estado tambem cobre os lados (texturas e deslocamento) so com
 # esta variavel; tools/custo_drivers.py roda sem ela.
 export DOOM_REPLAY_SIDES=1
@@ -267,6 +269,13 @@ fi
 if [ "$EXITS" = "ordem" ] && [ $status -eq 0 ]; then
   grep -q "^vista E1M3" "$OUT/ref.out" || { echo "COBERTURA INCOMPLETA: nao esta no E1M3"; status=1; }
   [ $status -eq 0 ] && echo "  cobertura da ordem: E1M3 (use no alcance; porta e elevador vizinhos)"
+fi
+# No roteiro "correcoes" (fase C): o New Game na intermissao (C1).
+if [ "$EXITS" = "correcoes" ] && [ $status -eq 0 ]; then
+  n=$(grep -c "^pedido jogo.novo" "$OUT/atm.out" || true)
+  [ "$n" -ge 1 ] || { echo "COBERTURA INCOMPLETA: $n jogos novos (esperado 1)"; status=1; }
+  grep -q "^intermissao" "$OUT/ref.out" || { echo "COBERTURA INCOMPLETA: sem intermissao"; status=1; }
+  [ $status -eq 0 ] && echo "  cobertura das correcoes: New Game na intermissao (C1)"
 fi
 # No roteiro "telas" (passo 7): intermissoes acelerada (E1M1, no meio dos
 # segredos) e completa (E1M2), E1M8 e o finale (pular no comeco da arte). Os caminhos de dentro

@@ -97,6 +97,12 @@ local familia = arg[4] == "familia"
 --     decide a altura que o jogador ve.
 -- "quadros" e ignorado.
 local ordem = arg[4] == "ordem"
+-- "correcoes": roteiro da fase de correcoes (C), rodado com "-warp 1 1".
+-- C1: idkfa (todas as armas), saida e New Game na intermissao; no E1M1 do
+-- jogo novo, tenta trocar para a escopeta e atira (antes da correcao, o
+-- jogo novo comecava com as armas do anterior: o carry vazava).
+-- "quadros" e ignorado.
+local correcoes = arg[4] == "correcoes"
 -- "telas": roteiro do passo 7, rodado com "-warp 1 1". E1M1: visita os 3
 -- segredos (goto) e acelera no meio da contagem dos segredos; E1M2: a
 -- contagem vai ate o fim, acelera na espera e o mapa seguinte passa pelo
@@ -262,6 +268,28 @@ if telas then
   wait(1000)
   hold("space", 1200)
   wait(100)
+  lines[#lines + 1] = string.format("%d quit", f + 20)
+  local fh = assert(io.open(out_path, "w"))
+  fh:write(table.concat(lines, "\n"), "\n")
+  fh:close()
+  print(string.format("%s: %d eventos, ate o quadro %d", out_path, #lines, f + 20))
+  return
+end
+
+if correcoes then
+  local function hold(key, n)
+    at(f, key, "down")
+    at(f + n, key, "up")
+    f = f + n + 1
+  end
+  wait(40)
+  type_text("idkfa"); wait(20)
+  cmd("exit"); wait(150)                               -- intermissao do E1M1
+  -- New Game na intermissao: main (item 0) -> episodio 1 -> skill 2
+  keys({ "escape", "return", "return", "return" })     -- jogo.novo E1M1
+  wait(60)
+  hold("3", 3); wait(40)                               -- escopeta (se tiver)
+  hold("ctrl", 30); wait(40)
   lines[#lines + 1] = string.format("%d quit", f + 20)
   local fh = assert(io.open(out_path, "w"))
   fh:write(table.concat(lines, "\n"), "\n")
@@ -457,15 +485,16 @@ if pisos then
   wait(300)
   cross(1495); wait(200)                               -- sobe ate a textura
   -- esmagador (73): o teto desce 1 unidade por tic e encosta no jogador
-  -- (56 de altura) depois de 40 tics; o jogador fica embaixo ate a vida
-  -- chegar a 0 (neste port ele nao morre: continua de pe com 0 de vida, ver
-  -- docs/DIFERENCAS_DOOM.md; o iddqd do E2M4 devolve os 100). A barra de
-  -- status so reage ao esmagamento com a vida em 0 (este port tira a vida
-  -- direto, sem damagecount), e e isso que detecta a mutacao
+  -- (56 de altura) depois de 40 tics; o jogador, sem o modo deus (o
+  -- segundo iddqd o desliga), fica embaixo e morre (C1: o dano passa por
+  -- damage_mobj, com cara de dor e morte; antes da correcao ele ficava de
+  -- pe com 0 de vida). O idclev do E2M4 comeca o nivel seguinte. A barra de
+  -- status reage ao esmagamento, e e isso que detecta a mutacao
   -- specials-no-fim-do-tic. Tem de ser aqui: mais adiante no roteiro os tics
   -- vem aos pares por quadro (arredondamento de 1000/35 no relogio do
-  -- replay), toda entrada cai no inicio de um par, e a vida 0 no E3M5 caia
-  -- sempre no primeiro tic do par, que nao e desenhado
+  -- replay), toda entrada cai no inicio de um par, e um efeito de um tic no
+  -- E3M5 caia sempre no primeiro tic do par, que nao e desenhado
+  type_text("iddqd"); wait(10)                         -- desliga o modo deus
   cross(728); goto_xy(672, -352)
   wait(700)                                            -- devagar, sobe, desce
   -- E2M4: esmagador rapido e escada

@@ -166,9 +166,9 @@ def mutacoes():
     passo, mapa = None, {}
     ini = src.index("MUTACOES = [")
     for line in src[ini:].splitlines():
-        m = re.match(r"\s*# --- passo (\d)", line)
+        m = re.match(r"\s*# --- (?:passo (\d)|(C\d))", line)
         if m:
-            passo = m.group(1)
+            passo = m.group(1) or m.group(2)
             continue
         m = re.match(r'\s*\("([a-z0-9-]+)",\s*$', line)
         if m and passo:

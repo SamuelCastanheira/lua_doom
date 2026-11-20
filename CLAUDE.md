@@ -37,6 +37,7 @@ Atmos) e escreve em **português**. Responda em português.
 | tag `passo7` | a intermissão e o finale em tasks (`telas.atm`) |
 | tag `passo8` | a task `Mundo`, o rosto da barra (`barra.atm`), o menu e o automapa (`interface.atm`) |
 | tag `passo9` | a família de monstros: Zombieman, Shotgun Guy, Demon e Spectre com a task `Monstro` (`monstro.atm`). **Estado atual da migração** |
+| tag `c1` (branch `lua`) | a branch `lua` com as correções do C1 (o `carry`, o jogador esmagado). **Referência de equivalência atual** (`REF_TAG` padrão) |
 | tag `luaV.1` | marco antigo do usuário (sem relação com a migração) |
 | commit `522b06f` | renderer 100% Lua (referência pixel a pixel do renderer em C, usada por `make compare`) |
 
@@ -521,7 +522,7 @@ automapa, `-`/`=` mudam o tamanho da tela.
 ### 5.2 Equivalência da lógica (driver Atmos × referência)
 
 ```sh
-make test-drivers          # semantica do Atmos (P1-P9) + 13 roteiros contra a tag passo1; saves comparados byte a byte
+make test-drivers          # semantica do Atmos (P1-P9) + 14 roteiros contra a tag c1; saves comparados byte a byte
 sh tests/test_drivers.sh 0 1 fluxo         # roteiro com todas as transicoes
 sh tests/test_drivers.sh 4000 1            # pseudoaleatorio, 4000 quadros, semente 1
 sh tests/test_drivers.sh 6000 2 exits      # tambem termina niveis
@@ -534,16 +535,17 @@ sh tests/test_drivers.sh 0 1 arma -warp 1 1       # passo 4: cada arma, trocas, 
 sh tests/test_drivers.sh 0 1 monstro -warp 1 2 -respawn  # passo 5: zumbis em todos os comportamentos, save e load, pesadelo
 sh tests/test_drivers.sh 0 1 familia -warp 1 5 -respawn # passo 9: os quatro tipos com task no E1M5, save e load
 sh tests/test_drivers.sh 0 1 ordem -warp 1 3      # B2: use no tic em que a linha entra no alcance; porta e elevador vizinhos
+sh tests/test_drivers.sh 0 1 correcoes -warp 1 1  # fase C: New Game na intermissao (C1); cenarios das proximas correcoes
 sh tests/test_drivers.sh 0 1 telas -warp 1 1      # passo 7: intermissao acelerada e completa, E1M8, finale
-REF_TAG=passo2 sh tests/test_drivers.sh 0 1 fluxo   # outra referencia
+REF_TAG=passo1 sh tests/test_drivers.sh 0 1 fluxo   # outra referencia (passo1: antes das correcoes)
 ```
 
 - Argumentos: `quadros semente [exits|fluxo] [args do jogo]`.
-- A referência é **`REF_TAG`** (padrão `passo1`). O script cria um worktree
+- A referência é **`REF_TAG`** (padrão `c1`, desde o C1; antes, `passo1`). O script cria um worktree
   em `build/ref-<tag>`, aplica `tests/ref-<tag>.patch` se existir, compila e
   roda o `lua5.4 main.lua` de lá. Compara com `atmos main.atm` e com
   `lua5.4 main.lua` atuais.
-- **`make test-branches`** compara a branch `lua` com a `atmos` nos 13
+- **`make test-branches`** compara a branch `lua` com a `atmos` nos 14
   roteiros (`REF_TAG=lua REF_DIR=build/branch-lua`): idênticas, com o estado
   completo (`docs/registro/08-branch-lua-replay.md`). É o teste da fase de
   correções: cada correção nas duas branches, e elas continuam iguais.
@@ -562,7 +564,7 @@ Se a tag nova não tiver algum comando de teste do replay, crie
 ### 5.3 Sensibilidade, métricas e custo
 
 ```sh
-make test-mutacoes         # tools/mutacoes.py: 88/88 detectadas, 7 equivalentes, 0 pendentes
+make test-mutacoes         # tools/mutacoes.py: 90/90 detectadas, 7 equivalentes, 0 pendentes
 make metricas              # tools/metricas_passo2.py + tools/custo_drivers.py
 python3 tools/metricas_finais.py --custo --memoria   # tabelas finais de todos os passos (le build/test-drivers.log e build/mutacoes.log)
 python3 tools/custo_drivers.py 5           # ms/quadro dos 3 drivers
@@ -643,13 +645,15 @@ usuário). Durante os passos, só acrescente itens ao
 revisões do próprio port na seção 5). No fim, as correções são feitas nas
 **duas** branches, `atmos` e `lua`, com nova referência a cada correção.
 
-- **Bug preservado:** o `carry` de um nível vaza para um novo jogo iniciado
-  na intermissão (o novo jogo começa com as armas do anterior). Correção
-  proposta: `game.carry = nil` em `G.new_game`, num commit separado, com nova
-  referência. Detalhes no registro do passo 2, seção 8.1. Alternativa que
-  expressa a causa (o `carry` pertence ao escopo `Jogo`):
-  `defer { G.game.carry = nil }` no início de `task Jogo`, que roda também
-  quando o `Jogo` é abortado por `:jogo.novo`.
+- **Corrigido no C1** (tag `c1`): o `carry` vazava para um novo jogo
+  iniciado na intermissão (atmos: `defer { G.game.carry = nil }` no início
+  de `task Jogo`; lua: `game.carry = nil` no New Game do `menu.lua`), e o
+  jogador esmagado não morria (o esmagamento passa por `game.damage_mobj`,
+  pelo gancho `collision.dano_esmagar`). Registro:
+  `docs/registro/13-correcoes-c1.md`. **Cada correção nova:** um commit em
+  cada branch, uma tag nova na branch `lua` (`c2`…), `REF_TAG` padrão em
+  `tests/test_drivers.sh` trocado para ela, o cenário no roteiro
+  `correcoes` e as divergências contra a referência anterior registradas.
 - `game.gamestate` continua existindo (tela exibida, lida por redesenho,
   paleta, mouse, cheats, menu e automapa), mas só `G.enter` o escreve.
 - O wipe (a imagem) continua em Lua (`wipe.lua`); desde o passo 6 a
