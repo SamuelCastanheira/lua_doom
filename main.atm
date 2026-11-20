@@ -82,19 +82,22 @@ task Titulo () {
     await <:jogo.novo || :jogo.carregar>
 }
 
-;; Uma instancia de nivel: do carregamento ate morrer, sair ou trocar
-;; (idclev). Morrer e renascer cria outra instancia (G_DoReborn).
-;;
-;; Specials de setor (passo 3): a cada tic, entre tic_view_antes e
-;; tic_view_depois, o Nivel emite :game.specials. Quem acorda, na ordem em
-;; que esta declarado abaixo (propriedade P7), reproduz a ordem do antigo
-;; specials_mod.tick: luzes -> scroll -> portas/elevadores/pisos -> botoes.
-;; As partes ainda em Lua rodam em G.specials_resto; a cada subpasso, uma
-;; parte sai dele e ganha a sua pool aqui, antes ou depois do resto.
-task Nivel (save) {
+;; Specials de setor (passo 3): a cada tic, o Mundo emite :game.specials.
+;; Quem acorda, na ordem em que esta declarado abaixo (propriedade P7),
+;; reproduz a ordem do antigo specials_mod.tick: luzes -> scroll ->
+;; portas/elevadores/pisos/tetos -> botoes.
+task Mundo (r) {
+    ;; O mundo do nivel (passo 8a): o que o Doom chama de P_Ticker. Contem as
+    ;; pools dos specials e dos monstros e o Jogador; acorda com :mundo.tic,
+    ;; emitido pelo Nivel, e devolve em r.fim o resultado do tic (nil,
+    ;; "morte" ou "saida"). O automapa e a barra de status ficam fora, no
+    ;; Nivel, como o AM_Ticker e o ST_Ticker do Doom: e o que permitiria pausar
+    ;; o mundo com um toggle (docs/NOTAS_MONOGRAFIA.md, secao 11).
+    ;;
     ;; Specials de setor, na ordem do antigo specials_mod.tick (P7). As pools
     ;; existem antes de montar o nivel: build_level cria as luzes e o load
-    ;; (saveg.apply) recria os botoes.
+    ;; (saveg.apply) recria os botoes. O spawn do Mundo roda ate o primeiro
+    ;; await, entao elas ficam prontas antes de o Nivel montar o nivel.
     pin luzes = tasks()                   ;; 3a: luzes (setores.atm)
     spawn {                               ;; ainda em Lua: linhas com scroll
         loop on :game.specials {
@@ -110,34 +113,54 @@ task Nivel (save) {
     defer {
         G.set_pools(nil)
     }
+    await :mundo.pronto                   ;; o Nivel montou o nivel
+    ;; O jogador (passo 4c), com a arma como filha: acorda com :game.jogador.
+    ;; O jogador e o do nivel; o load ja restaurou o estado dele e a arma.
+    spawn jogador.Jogador(G.game.player, G.game)
+    loop {
+        await :mundo.tic
+        G.tic_comando()
+        emit :game.jogador                ;; passo 4c: task Jogador
+        val meio = G.tic_view_meio()      ;; "segue" | "morte"
+        set r.fim = ifs {
+            (meio == :morte) => :morte
+            else => {
+                mobjs()                   ;; passo 5: os mobjs, em ordem
+                emit :game.specials
+                G.tic_mundo_fim()         ;; nil | "saida"
+            }
+        }
+    }
+}
+
+;; Uma instancia de nivel: do carregamento ate morrer, sair ou trocar
+;; (idclev). Morrer e renascer cria outra instancia (G_DoReborn).
+;;
+;; A cada tic: o automapa, o mundo (task Mundo, passo 8a) e, se o mundo
+;; seguiu, a barra de status.
+task Nivel (save) {
+    val r = [fim=nil]
+    spawn Mundo(r)                        ;; pools prontas antes de montar
     if save {
         G.load_level(save)
     } else {
         G.start_level()
     }
     G.enter(:view)
-    ;; O jogador (passo 4c), com a arma como filha: acorda com :game.jogador.
-    ;; Nasce depois de montar o nivel (o jogador e o do nivel; o load ja
-    ;; restaurou o estado dele e a fase da arma).
-    spawn jogador.Jogador(G.game.player, G.game)
+    emit :mundo.pronto
     spawn {                               ;; passo 6: a vista desenha a si mesma
         loop on :game.frame { G.pintar_vista() }
     }
     par :any {
         loop on :game.tic {
-            val antes = G.tic_view_antes()    ;; "segue" | "parado"
+            val antes = G.tic_view_antes()    ;; "segue" | "parado" (automapa)
             val fim = ifs {
                 (antes == :segue) => {
-                    emit :game.jogador        ;; passo 4c: task Jogador
-                    val meio = G.tic_view_meio()  ;; "segue" | "morte"
-                    ifs {
-                        (meio == :morte) => :morte
-                        else => {
-                            mobjs()           ;; passo 5: os mobjs, em ordem
-                            emit :game.specials
-                            G.tic_view_depois()   ;; nil | "saida"
-                        }
+                    emit :mundo.tic           ;; passo 8a: o tic do mundo
+                    if !r.fim {
+                        G.tic_status()        ;; a barra, fora do mundo
                     }
+                    r.fim
                 }
                 else => nil
             }

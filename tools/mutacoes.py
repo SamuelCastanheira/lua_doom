@@ -183,10 +183,14 @@ MUTACOES = [
      "        loop on :tic {\n            val fim = G.tic_wipe()\n            G.tic_menu()\n            pedidos()\n            emit :game.tic\n            pedidos()\n            until (fim)\n        }\n"),
     # --- passo 3, subpasso 0: o ponto do :game.specials (roteiro "pisos")
     ("specials-no-fim-do-tic",
-     "Specials de setor rodam depois de texturas, saida e leveltime (fora do ponto do tic)",
-     "                            emit :game.specials\n                            G.tic_view_depois()   ;; nil | \"saida\"\n",
-     "                            val d = G.tic_view_depois()\n                            emit :game.specials\n                            d\n",
-     "main.atm", "pisos"),     # so diverge quando um esmagador fere o jogador (3d)
+     "Specials de setor rodam depois de texturas, saida, leveltime e barra de status (fora do ponto do tic)",
+     [("main.atm",
+       "                mobjs()                   ;; passo 5: os mobjs, em ordem\n                emit :game.specials\n                G.tic_mundo_fim()         ;; nil | \"saida\"\n",
+       "                mobjs()                   ;; passo 5: os mobjs, em ordem\n                val d = G.tic_mundo_fim()\n                if !d {\n                    G.tic_status()\n                }\n                emit :game.specials\n                d\n"),
+      ("main.atm",
+       "                    if !r.fim {\n                        G.tic_status()        ;; a barra, fora do mundo\n                    }\n",
+       "")],
+     None, None, "pisos"),
     # --- passo 3a: luzes como tasks (roteiro "luzes": E4M1 e E1M2)
     ("pisca-sem-espera-inicial",
      "Luz que pisca age no proprio tic em que nasce (sem a espera inicial)",
@@ -383,8 +387,8 @@ MUTACOES = [
     # --- passo 4a: arma como task (roteiro "arma": E1M1); a primeira e do 4c
     ("jogador-depois-dos-mobjs",
      "Jogador (e a arma) acordam depois dos mobjs (fora do ponto do tic)",
-     "                    emit :game.jogador        ;; passo 4c: task Jogador\n                    val meio = G.tic_view_meio()  ;; \"segue\" | \"morte\"\n",
-     "                    val meio = G.tic_view_meio()  ;; \"segue\" | \"morte\"\n                    emit :game.jogador\n",
+     "        emit :game.jogador                ;; passo 4c: task Jogador\n        val meio = G.tic_view_meio()      ;; \"segue\" | \"morte\"\n",
+     "        val meio = G.tic_view_meio()      ;; \"segue\" | \"morte\"\n        emit :game.jogador\n",
      "main.atm", "arma"),
     ("clarao-depois-da-fase",
      "O clarao conta depois da fase: o clarao ligado no tic perde um tic",
@@ -536,6 +540,12 @@ MUTACOES = [
      "        val depois = if (f.pfub1 && f.pfub2) => 1130 => 10\n",
      "        val depois = 0\n",
      "telas.atm", "telas"),
+    # --- passo 8: menu, barra de status, automapa e a task Mundo
+    ("status-antes-do-mundo",
+     "A barra de status roda antes do mundo no tic (le a vida do tic anterior)",
+     "                    emit :mundo.tic           ;; passo 8a: o tic do mundo\n                    if !r.fim {\n                        G.tic_status()        ;; a barra, fora do mundo\n                    }\n",
+     "                    G.tic_status()\n                    emit :mundo.tic\n",
+     "main.atm", "arma"),
     # --- passo 2 (continuacao): fluxo de telas (roteiro "fluxo")
     ("novo-nao-descarta",
      "New Game no meio do jogo e ignorado (o Jogo atual continua)",

@@ -19,11 +19,11 @@
 --   1. handle_input(ev)   para cada evento do video.poll()
 --   2. ate 4 tics:        se wiping: tic_wipe()
 --                         senao:     tic_menu(), depois a tela atual:
---                                    tic_view_antes()   -> "segue" | "parado"
---                                    (emit :game.jogador -> task Jogador)
---                                    tic_view_meio()    -> "segue" | "morte"
---                                    (emit :game.specials -> specials_resto())
---                                    tic_view_depois()  -> nil | "saida"
+--                                    tic_view_antes()   -> "segue" | "parado" (automapa)
+--                                    (emit :mundo.tic -> task Mundo, passo 8a:
+--                                     tic_comando, :game.jogador, tic_view_meio,
+--                                     mobjs, :game.specials, tic_mundo_fim)
+--                                    tic_status()       a barra de status
 --                                    intermissao e finale: tasks de telas.atm
 --                                    (passo 7), com :game.tic
 --   3. frame()            redesenha, toca som, apresenta
@@ -852,13 +852,17 @@ function M.new(argv)
   --   emit :game.specials   specials de setor: tasks nas pools do Nivel e,
   --                         entre elas, G.specials_resto() (o que ainda e
   --                         Lua), na ordem do antigo specials_mod.tick
-  --   G.tic_view_depois()   texturas animadas, saida, leveltime, status
-  -- Era uma funcao so (G.tic_view, tag passo2); o emit fica no meio para que
-  -- as tasks de setor acordem no mesmo ponto do tic em que os thinkers
-  -- rodavam (regra da ordem do tic, CLAUDE.md 4.2).
+  --   G.tic_mundo_fim()     texturas animadas, saida, leveltime
+  --   G.tic_status()        a barra de status (fora do mundo)
+  -- Desde o passo 8a, do G.tic_comando ao G.tic_mundo_fim e a task Mundo
+  -- (main.atm), acordada pelo Nivel com :mundo.tic; o automapa (em
+  -- tic_view_antes) e a barra (tic_status) ficam fora dela, como o
+  -- AM_Ticker e o ST_Ticker do Doom ficam fora do P_Ticker. Era uma funcao so
+  -- (G.tic_view, tag passo2); os emits ficam no meio para que as tasks
+  -- acordem no mesmo ponto do tic em que os thinkers rodavam (CLAUDE.md 4.2).
   --
   -- tic_view_antes devolve:
-  --   "segue"   o tic continua (jogador, tic_view_meio, specials, depois)
+  --   "segue"   o tic continua (o mundo, depois a barra)
   --   "parado"  fora da vista (sem jogador ou mundo): nada mais roda
   -- tic_view_meio devolve "segue" ou
   --   "morte"   o jogador vai renascer (antes: start_level aqui dentro)
@@ -870,6 +874,11 @@ function M.new(argv)
     if game.automap then
       am_map.ticker(game.automap, game)
     end
+    return "segue"
+  end
+
+  -- Comeco do tic do mundo (passo 8a, task Mundo): o comando do jogador.
+  function G.tic_comando()
     if menu.active then
       game.player.cmd = player_mod.empty_cmd()
       game.mousex = 0
@@ -884,7 +893,6 @@ function M.new(argv)
       game.mousex = 0
       game.mousey = 0
     end
-    return "segue"
   end
 
   -- Fase 2a, depois do emit :game.jogador (a task Jogador faz o tic do
@@ -931,17 +939,24 @@ function M.new(argv)
   end
 
   -- Devolve "saida" (switch de saida; antes: begin_exit aqui dentro) ou nil.
-  function G.tic_view_depois()
+  -- Fim do tic do mundo (passo 8a): texturas animadas, saida, leveltime.
+  -- Devolve "saida" ou nil.
+  function G.tic_mundo_fim()
     res:update_anims(game.leveltime or 0)
     if game.specials and game.specials.exit_requested then
       return "saida"
     end
     game.leveltime = (game.leveltime or 0) + 1
+    return nil
+  end
+
+  -- Barra de status (fora do mundo, como o ST_Ticker do Doom), so quando o
+  -- tic do mundo seguiu (nem saida nem morte).
+  function G.tic_status()
     if game.status then
       status_mod.ticker(game.status, game.player)
     end
     dirty = true
-    return nil
   end
 
   -- Fase 2c: intermissao e finale (passo 7). A sequencia de cada tela e uma
