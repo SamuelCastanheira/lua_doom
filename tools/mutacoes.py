@@ -134,6 +134,7 @@ PORTAS_SEPARADAS = [
 # Mutacao em varios arquivos: "trecho original" e uma lista de
 # (arquivo, original, mutado), e "trecho mutado" e arquivo ficam None.
 MUTACOES = [
+    # --- passo 2: fluxo de telas em tasks (roteiro "fluxo")
     ("sem-cancel-catchup",
      "Nivel nao interrompe a recuperacao de tics ao sair do nivel",
      "                env.cancel_catchup()      ;; nao recupera mais tics neste quadro\n",
@@ -178,6 +179,7 @@ MUTACOES = [
      "Durante a transicao de tela, menu e tela continuam andando",
      "        loop on :tic {                    ;; so a transicao anda\n            until (G.tic_wipe())          ;; true quando termina\n        }\n",
      "        loop on :tic {\n            val fim = G.tic_wipe()\n            G.tic_menu()\n            pedidos()\n            emit :game.tic\n            pedidos()\n            until (fim)\n        }\n"),
+    # --- passo 3, subpasso 0: o ponto do :game.specials (roteiro "pisos")
     ("specials-no-fim-do-tic",
      "Specials de setor rodam depois de texturas, saida e leveltime (fora do ponto do tic)",
      "                            emit :game.specials\n                            G.tic_view_depois()   ;; nil | \"saida\"\n",
@@ -376,7 +378,7 @@ MUTACOES = [
      "          sp.start_floor(game.specials, th)      -- idem (passo 3d)\n",
      "",
      "saveg.lua", "pisos"),
-    # --- passo 4a: arma como task (roteiro "arma": E1M1)
+    # --- passo 4a: arma como task (roteiro "arma": E1M1); a primeira e do 4c
     ("jogador-depois-dos-mobjs",
      "Jogador (e a arma) acordam depois dos mobjs (fora do ponto do tic)",
      "                    emit :game.jogador        ;; passo 4c: task Jogador\n                    val meio = G.tic_view_meio()  ;; \"segue\" | \"morte\"\n",
@@ -496,6 +498,7 @@ MUTACOES = [
      "A intermissao nao desenha a si mesma",
      "    spawn {\n        loop on :game.frame { G.pintar_intermissao() }\n    }\n",
      ""),
+    # --- passo 2 (continuacao): fluxo de telas (roteiro "fluxo")
     ("novo-nao-descarta",
      "New Game no meio do jogo e ignorado (o Jogo atual continua)",
      "            await <:jogo.novo || :jogo.carregar>   ;; descarta o jogo atual\n",

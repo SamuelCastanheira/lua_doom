@@ -31,6 +31,9 @@ Atmos) e escreve em **português**. Responda em português.
 | tag `passo1` (`75c5e67`) | `game.lua` em fases, ambiente `atmos.env.doom`, `main.atm` só observando as telas; `main.lua` ainda é o laço imperativo. **É a referência de equivalência atual.** |
 | tag `passo2` | fluxo de telas inteiro em tasks Atmos; `main.lua` virou lançador |
 | tag `passo3` | specials de setor (luzes, botões, portas, elevadores, pisos, tetos) em tasks (`setores.atm`); comportamento ainda igual ao `passo1` |
+| tag `passo4` | a arma (`arma.atm`) e o jogador (`jogador.atm`) em tasks |
+| tag `passo5` | o Zombieman em task (`monstro.atm`); laço dos mobjs no `Nivel` |
+| tag `passo6` | o wipe como fase do relógio; cada tela desenha a si mesma. **Estado final da migração** |
 | tag `luaV.1` | marco antigo do usuário (sem relação com a migração) |
 | commit `522b06f` | renderer 100% Lua (referência pixel a pixel do renderer em C, usada por `make compare`) |
 
@@ -46,7 +49,6 @@ Atmos) e escreve em **português**. Responda em português.
 | 4. Arma e jogador | concluído (`passo4`): 4a (arma) e 4c (jogador como task); 4b fica para a fase de correções |
 | 5. Um monstro | concluído (`passo5`): o Zombieman como task `Zumbi` |
 | 6. Wipe e quadro (opcional) | concluído (`passo6`): o wipe como fase do relógio; cada tela desenha a si mesma |
-| 5. Um monstro como task | planejado |
 
 ---
 
@@ -543,8 +545,9 @@ Se a tag nova não tiver algum comando de teste do replay, crie
 ### 5.3 Sensibilidade, métricas e custo
 
 ```sh
-make test-mutacoes         # tools/mutacoes.py: 54/57 detectadas, 6 equivalentes, 3 pendentes
+make test-mutacoes         # tools/mutacoes.py: 65/68 detectadas, 6 equivalentes, 3 pendentes
 make metricas              # tools/metricas_passo2.py + tools/custo_drivers.py
+python3 tools/metricas_finais.py --custo --memoria   # tabelas finais de todos os passos (le build/test-drivers.log e build/mutacoes.log)
 python3 tools/custo_drivers.py 5           # ms/quadro dos 3 drivers
 N=500 atmos tools/bench_tasks.atm          # custo por task acordada
 ```
@@ -646,7 +649,7 @@ revisões do próprio port na seção 5). No fim, as correções são feitas nas
 
 ---
 
-## 9. Passos 3 a 6 concluídos; próximo: métricas e escrita
+## 9. Passos 3 a 6 e métricas finais concluídos; próximo: correções e escrita
 
 **Passo 4a (feito):** a arma como task `Arma` (`arma.atm`), por
 equivalência com a lógica de `player.lua` (as tabelas `WEAPON_*` e as
@@ -697,8 +700,11 @@ sumiram. Registro: `docs/registro/06-wipe-e-quadro.md`.
 
 **Próximo:** pela decisão registrada em `docs/DIFERENCAS_DOOM.md`, as
 diferenças e revisões só são corrigidas depois de todos os passos, nas
-branches `atmos` e `lua`. Seguem as métricas finais (seção 7 do
-`PLANO_ATMOS.md`) e a escrita.
+branches `atmos` e `lua`. As métricas finais (seção 7 do `PLANO_ATMOS.md`)
+estão em `docs/registro/07-metricas-finais.md`, geradas por
+`tools/metricas_finais.py` sobre a tag `passo6`, antes das correções.
+Pré-requisito das correções: levar o modo replay e o hash de estado para a
+branch `lua`.
 
 O passo 3, plano em `docs/PLANO_ATMOS.md`, seção 6, e registro em
 `docs/registro/03-specials.md`. Como ficou o código (`specials.lua` guarda
@@ -803,11 +809,12 @@ Ao mudar o `tests/ref-passo1.patch`, apague o worktree antigo
 à mão: o script só aplica o patch quando ele aplica limpo.
 
 **Registro:** `docs/registro/03-specials.md` foi atualizado **em cada commit
-do passo 3** (tabela de subpassos no topo e uma seção por subpasso). Faça o
-mesmo com o registro do passo 4.
+do passo 3** (tabela de subpassos no topo e uma seção por subpasso), e o
+mesmo nos passos seguintes (`04-arma.md`, `05-monstro.md`,
+`06-wipe-e-quadro.md`).
 
-Receita usada em cada subpasso (vale para os passos 4 e 5, trocando o que
-é de specials pelo equivalente):
+Receita usada em cada subpasso (valeu também para os passos 4 a 6, trocando
+o que é de specials pelo equivalente):
 1. tire a parte migrada de `specials_mod.tick` (ou seja, de
    `G.specials_resto`) e declare a pool dela em `Nivel`, **antes** da task
    do resto (luzes, scroll) ou **depois** dela (botões), conforme a ordem

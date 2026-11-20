@@ -13,6 +13,7 @@ do que mudou, do porquê e do que deu errado no caminho.
 | 4 | `passo4` | [04-arma.md](04-arma.md) | a arma (4a) e o jogador (4c) em tasks |
 | 5 | `passo5` | [05-monstro.md](05-monstro.md) | o Zombieman em task; laço dos mobjs no `Nivel`, com emit direcionado |
 | 6 | `passo6` | [06-wipe-e-quadro.md](06-wipe-e-quadro.md) | o wipe como fase do relógio; cada tela desenha a si mesma |
+| – | – | [07-metricas-finais.md](07-metricas-finais.md) | métricas consolidadas de todos os passos (seção 7 do plano) |
 
 ## Cadeia de equivalência
 
