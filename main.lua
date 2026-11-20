@@ -652,6 +652,10 @@ local function state_string()
     if fi then
       t[#t + 1] = string.format("e%s,%s", tostring(fi.stage), tostring(fi.count))
     end
+    -- o rosto da barra (passo 8b): o que a task Rosto escreve e o desenho le
+    if game.status then
+      t[#t + 1] = string.format("r%s", tostring(game.status.face_index))
+    end
   end
   local p = game.player
   if p then
