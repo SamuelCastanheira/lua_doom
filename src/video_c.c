@@ -547,6 +547,20 @@ static int l_music_volume(lua_State *L) {
     return 0;
 }
 
+static int l_music_pause(lua_State *L) {
+    int on = lua_toboolean(L, 1);
+
+    if (music) {
+        if (on) {
+            Mix_PauseMusic();
+        } else {
+            Mix_ResumeMusic();
+        }
+    }
+
+    return 0;
+}
+
 static int l_music_close(lua_State *L) {
     (void)L;
 
@@ -580,6 +594,7 @@ static const luaL_Reg regs[] = {
   {"music_status", l_music_status},
   {"music_play", l_music_play},
   {"music_volume", l_music_volume},
+  {"music_pause", l_music_pause},
   {"music_close", l_music_close},
   {NULL, NULL},
 };
