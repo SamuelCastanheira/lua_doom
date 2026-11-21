@@ -22,8 +22,8 @@ do C4. Este registro cresce a cada grupo.
 | C4b. Tetos | linha 40, esmagador que só desce, desaceleração, linhas 57 e 74, reativação, limite | `66f3b67` / `278a16c` | concluído |
 | C4c. Esmagamento | a cada 4 tics, com sangue; corpos viram restos; itens largados somem | `029e48e` / `54c5bf8` | concluído |
 | C4d. Elevadores | volta ao bater subindo; parado de verdade (estase) e reativação; limite | `9efd93d` / `9339673` | concluído |
-| C4e. Pisos | troca do special; escada; sons de piso e teto | (este) | concluído |
-| C4f. Botões | não duplica; som ao voltar; limite | – | a fazer |
+| C4e. Pisos | troca do special; escada; sons de piso e teto | `eb75953` / `21f9219` | concluído |
+| C4f. Botões | não duplica; som ao voltar; limite | (este) | concluído |
 | C4g. Save | a descrição digitada | – | a fazer |
 
 ---
@@ -607,3 +607,70 @@ regras concordam; a correção vale para mapas em que elas diferem.
 idênticos.
 
 **Os sons** não aparecem no replay; foram conferidos pela leitura.
+
+---
+
+## C4f: botões (sem duplicar, com som, com limite)
+
+### Resumo
+
+| Diferença | Antes | Depois (como no Doom) |
+|---|---|---|
+| Botão duplicado | apertar de novo antes de voltar criava outro botão, que devolvia a textura trocada 35 tics depois | `P_StartButton` não cria um segundo botão para a mesma linha (a textura ainda troca, como no `P_ChangeSwitchTexture`) |
+| Som ao voltar | silencioso | `swtchn` quando o botão devolve a textura (`P_UpdateSpecials`) |
+| Limite | sem limite | 16 botões ativos (`MAXBUTTONS`); mais é erro (`P_StartButton: no button slots left!`) |
+
+### Solução
+
+Na `atmos`, `start_button` (usado pelo `change_switch` e pelo load) olha a
+pool `botoes`: um botão com timer e a mesma linha impede outro; e a task
+`Botao` ganhou o `sp` (para o som) e uma linha no fim:
+
+```
+val task Botao (sp, linha, attr, textura, timer) {
+    set pub = [linha=linha, attr=attr, textura=textura, timer=timer]
+    loop {
+        await :game.specials
+        set pub.timer = pub.timer - 1
+        until (pub.timer <= 0)
+    }
+    val lado = linha.sides@1
+    if lado {
+        set lado@attr = textura
+    }
+    S.play(sp, "swtchn")                  ;; C4f: o botao volta com som
+}
+```
+
+Na `lua`, o mesmo `start_button` sobre a lista `self.buttons`, e o som no
+tick dos botões.
+
+### Diagrama
+
+```mermaid
+sequenceDiagram
+    participant J as jogador (use)
+    participant L as linha 136
+    participant B1 as botao 1
+    participant B2 as botao 2 (antes)
+    J->>L: use (tic 137): textura 88 -> 107
+    L->>B1: start_button (35 tics)
+    J->>L: use de novo (tic 147): textura 107 -> 88
+    Note over L,B2: antes: start_button criava o botao 2
+    L-->>B2: (antes) timer 35, textura 107
+    Note over L: depois: ja ha botao para a linha, nada
+    B1->>L: tic 170: textura 88 (a original), swtchn
+    B2-->>L: (antes) tic 182: textura 107 de novo
+```
+
+### Validação
+
+**Roteiro `botoes`** (sem mudança): o segundo "use" na linha 136 do E1M1,
+10 tics depois do primeiro, já existia ("2º uso com o botão ativo"). Prints
+numa cópia de `G.state_string` (as texturas do lado da linha e os botões
+ativos na pool): no tic 137 a textura vai a 107 com um botão; no 147 o
+segundo "use" a devolve a 88 e continua um botão só; no 170 o botão vence.
+Antes, um segundo botão a trocaria de novo para 107 no tic 182.
+
+**Contra a branch `lua`:** `botoes` (861 quadros) e `correcoes` (3.480)
+idênticos.

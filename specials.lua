@@ -1178,8 +1178,28 @@ end
 -- Botao (passo 3e): task Botao de setores.atm na pool "botoes", na ordem de
 -- criacao (a mesma da antiga lista self.buttons). Usado por change_switch e
 -- pelo load (saveg.apply), que passa o timer gravado.
+-- C4f: como o P_StartButton: um botao ativo para a mesma linha impede outro
+-- (antes, o segundo devolvia a textura trocada depois), e mais de
+-- MAXBUTTONS ativos e erro, como no Doom.
+local MAXBUTTONS = 16
+
 function M.start_button(self, line, attr, texture, timer)
-  return spawn_task(self, "botoes", "Botao", line, attr, texture, timer)
+  local pool = self.pools and self.pools.botoes
+  if pool then
+    local ativos = 0
+    for _, t in pairs(pool) do
+      if type(t) == "table" and t.pub and t.pub.timer and t.pub.timer > 0 then
+        if t.pub.linha == line then
+          return nil
+        end
+        ativos = ativos + 1
+      end
+    end
+    if ativos >= MAXBUTTONS then
+      error("P_StartButton: no button slots left!")
+    end
+  end
+  return spawn_task(self, "botoes", "Botao", self, line, attr, texture, timer)
 end
 
 function M.change_switch(self, line, use_again)

@@ -100,7 +100,7 @@ val task Fogo (setor, maxl, minl) {
 ;; tics, devolve a textura original ao lado da linha. O contador fica em pub
 ;; porque o save precisa dele (saveg.lua le pub.timer); sem o save, seria so
 ;; espera(timer). O load recria a task com o timer gravado.
-val task Botao (linha, attr, textura, timer) {
+val task Botao (sp, linha, attr, textura, timer) {
     set pub = [linha=linha, attr=attr, textura=textura, timer=timer]
     loop {
         await :game.specials
@@ -111,6 +111,7 @@ val task Botao (linha, attr, textura, timer) {
     if lado {
         set lado@attr = textura
     }
+    S.play(sp, "swtchn")                  ;; C4f: o botao volta com som
 }
 
 ;; ---------------------------------------------------------- movimentadores
