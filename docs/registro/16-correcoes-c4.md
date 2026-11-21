@@ -18,8 +18,8 @@ do C4. Este registro cresce a cada grupo.
 
 | Grupo | O que corrige | Commits (`atmos` / `lua`) | Situação |
 |---|---|---|---|
-| C4a. Portas | a porta que bate em algo fechando volta a abrir; as rápidas batem ao fechar | (este) | concluído |
-| C4b. Tetos | linha 40, esmagador que só desce, desaceleração, linhas 57 e 74, reativação, limite | – | a fazer |
+| C4a. Portas | a porta que bate em algo fechando volta a abrir; as rápidas batem ao fechar | `6424c62` / `040d82b` | concluído |
+| C4b. Tetos | linha 40, esmagador que só desce, desaceleração, linhas 57 e 74, reativação, limite | (este) | concluído |
 | C4c. Esmagamento | a cada 4 tics, com sangue; corpos viram restos; itens largados somem | – | a fazer |
 | C4d. Elevadores | volta ao bater subindo; parado de verdade (estase) e reativação; limite | – | a fazer |
 | C4e. Pisos | troca do special; escada; sons de piso e teto | – | a fazer |
@@ -133,3 +133,151 @@ idênticos.
 
 **Os sons** (`doropn` ao reabrir, `bdcls` das rápidas) não aparecem no
 replay, que roda sem som; foram conferidos pela leitura do código.
+
+---
+
+## C4b: tetos e esmagadores
+
+### Resumo
+
+Cinco diferenças do `EV_DoCeiling` e do `T_MoveCeiling`, todas do mesmo
+sistema:
+
+| Diferença | Antes | Depois (como no Doom) |
+|---|---|---|
+| Teto que sobe (linha 40, `raiseToHighest`) | `do_crusher` calculava o teto vizinho mais alto em `dest`, mas o tick usava `topheight` (a altura atual): o teto não se movia | `topheight` é o teto vizinho mais alto; o teto sobe e acaba |
+| Esmagador que só desce (44, 72, `lowerAndCrush`) e teto que desce até o chão (41, 43, `lowerToFloor`) | `crush = true` | `crush = false`: não tiram vida; o que só desce, ao bater em algo, desce devagar e continua tentando |
+| Desaceleração ao bater | o comum, o rápido e o silencioso | o comum, o silencioso e o que só desce (`CEILSPEED/8`); o rápido não desacelera |
+| Linhas 57 e 74 | paravam elevadores (`stop_plat`) | param os tetos da tag (`EV_CeilingCrushStop`) |
+| Reativar um esmagador parado | não existia | as linhas de esmagador (6, 25, 49, 73, 77, 141) reativam os parados da tag antes de criar os novos (`P_ActivateInStasisCeiling`) |
+
+E o limite do Doom: a lista de tetos ativos (`activeceilings`) tem 30
+lugares; um teto criado com ela cheia anda, mas não pode ser parado nem
+reativado (o Doom não dá erro aqui; dá nos elevadores e nos botões).
+
+Também do `T_MoveCeiling`: subindo, o Doom chama `T_MovePlane` com `crush =
+false`; o port passava `teto.crush` nos dois sentidos.
+
+### Antes
+
+- `atmos` (`setores.atm`, task `Teto`, `1ab5725`): o destino era
+  `teto.dest` só para `LOWERTOFLOOR` e `topheight`/`bottomheight` para os
+  outros; `if vai_e_volta && (r == S.RESULT_CRUSHED) { set vel = devagar }`.
+  O comentário da task dizia: "Os tetos não são gravados no save e ninguém
+  escreve no registro de fora (as linhas 57 e 74 deste port param
+  elevadores, não esmagadores)". Por isso a fase ficava só no código.
+- `lua` (`specials.lua`, `tick_ceiling`, tag `c3`): o mesmo, no tick.
+
+### Solução
+
+**O parar e o reativar, e o `toggle`.** No Doom, `EV_CeilingCrushStop`
+guarda a direção (`olddirection`), põe a direção em 0 e **tira a função do
+thinker** (`thinker.function.acv = NULL`): o teto deixa de pensar. O
+`P_ActivateInStasisCeiling` devolve a direção e a função. Na branch
+`atmos`, isso é exatamente o `toggle` de uma task:
+
+```lua
+-- specials.lua (atmos)
+function M.stop_ceiling(self, line)
+  local ok = false
+  for i = 1, MAXCEILINGS do
+    local teto = self.tetos_ativos[i]
+    if teto and teto.sector.tag == line.tag and not teto.parado then
+      teto.parado = true
+      if teto.task then
+        toggle(teto.task, false)
+      end
+      ok = true
+    end
+  end
+  return ok
+end
+```
+
+A task `Teto` não precisou de nenhuma linha para isso: desligada, ela não
+acorda com o `:game.specials`; ligada de novo, continua no mesmo `await`,
+com a direção e a velocidade que tinha nas variáveis locais. O
+`olddirection` do Doom some, porque a continuação da task guarda a fase.
+O registro ganhou só `parado` (o "direction != 0" com que o Doom decide quem
+parar e quem reativar) e `task` (para o `toggle`).
+
+É o contraste anunciado no passo 3c: lá, parar o elevador com `toggle`
+**não** era equivalente, porque o elevador parado deste port continuava
+descontando o contador. Aqui o teto parado do Doom não pensa, e o `toggle`
+corresponde ao original. Na branch `lua`, o mesmo é um `if ceil.parado then
+return end` no começo de `tick_ceiling`.
+
+**A desaceleração** ficou num valor calculado uma vez na task:
+
+```
+val desacelera = (t == C.CRUSHANDRAISE) || (t == C.SILENTCRUSH) || (t == C.LOWERANDCRUSH)
+...
+val destino = if dir == 1 => teto.topheight => teto.bottomheight
+val esmaga = (dir == -1) && teto.crush    ;; subindo, nunca esmaga
+```
+
+### Diagramas
+
+**Máquina de estados da task `Teto`, antes (`1ab5725`):**
+
+```mermaid
+stateDiagram-v2
+    [*] --> Descendo: esmagadores, lowerToFloor, lowerAndCrush
+    [*] --> Subindo: raiseToHighest (destino = altura atual)
+    Descendo --> Descendo: bateu em algo (vai e volta, rapido incluido) devagar
+    Descendo --> Subindo: chegou embaixo (vai e volta)
+    Subindo --> Descendo: chegou em cima (vai e volta)
+    Descendo --> [*]: chegou embaixo (os outros)
+    Subindo --> [*]: chegou em cima (raiseToHighest, no primeiro tic)
+```
+
+**Depois (C4b):**
+
+```mermaid
+stateDiagram-v2
+    [*] --> Descendo: esmagadores, lowerToFloor, lowerAndCrush
+    [*] --> Subindo: raiseToHighest (ate o teto vizinho mais alto)
+    Descendo --> Descendo: bateu em algo (comum, silencioso, lowerAndCrush) devagar
+    Descendo --> Subindo: chegou embaixo (vai e volta)
+    Subindo --> Descendo: chegou em cima (vai e volta)
+    Descendo --> [*]: chegou embaixo (lowerToFloor, lowerAndCrush)
+    Subindo --> [*]: chegou em cima (raiseToHighest)
+    Descendo --> Parado: linha 57 ou 74 (toggle false)
+    Subindo --> Parado: linha 57 ou 74 (toggle false)
+    Parado --> Descendo: linha de esmagador (toggle true), se descia
+    Parado --> Subindo: linha de esmagador (toggle true), se subia
+```
+
+**Fluxo do parar e reativar, nas duas branches:**
+
+```mermaid
+flowchart LR
+    subgraph atmos
+        L1["linha 57/74 (jogador)"] --> SC["stop_ceiling"]
+        SC -->|"parado = true"| TG1["toggle(teto.task, false)"]
+        TG1 --> T1["task Teto: nao acorda<br/>com :game.specials"]
+        L2["linha de esmagador"] --> AC["activate_in_stasis_ceiling"]
+        AC -->|"parado = false"| TG2["toggle(teto.task, true)"]
+        TG2 --> T2["task Teto: continua no mesmo await"]
+    end
+    subgraph lua
+        L3["linha 57/74"] --> SC2["stop_ceiling: parado = true"]
+        SC2 --> TK["tick_ceiling: if parado then return"]
+        L4["linha de esmagador"] --> AC2["parado = false"]
+    end
+```
+
+### Validação
+
+**Roteiros.**
+
+- `pisos` (sem mudança no roteiro): no E3M5, a linha 40 agora sobe o teto da
+  tag 6 de 64 a 128 (antes, ele ficava em 64), e o teto da linha 44 (tag 14)
+  desce com o jogador embaixo sem lhe tirar vida e, depois de bater nele,
+  desce a 1/8 da velocidade (prints numa cópia de `G.state_string`).
+- `correcoes`, no E2M2 (novo): o esmagador da tag 16 (linha 728, tipo 73)
+  desce; a linha 687 (tipo 74) o para em 74; a 728 de novo o reativa, e ele
+  continua (chega embaixo, em 72, e sobe).
+
+**Contra a branch `lua`:** `correcoes` (2.998 quadros) e `pisos` (2.618)
+idênticos.

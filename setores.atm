@@ -311,14 +311,20 @@ val task Piso (sp, piso) {
 }
 
 ;; Teto e esmagador (EV_DoCeiling, T_MoveCeiling). Passo 3d. Os tetos nao
-;; sao gravados no save e ninguem escreve no registro de fora (as linhas 57
-;; e 74 deste port param elevadores, nao esmagadores; ver
-;; docs/DIFERENCAS_DOOM.md). Por isso a fase fica so no codigo: direcao e
-;; velocidade sao variaveis locais, e o registro so marca o setor.
+;; sao gravados no save e ninguem escreve no registro de fora. Por isso a
+;; fase fica so no codigo: direcao e velocidade sao variaveis locais, e o
+;; registro so marca o setor.
 ;;
 ;; Teto simples: anda ate o destino e acaba. Esmagador que vai e volta
 ;; (CRUSHANDRAISE, FASTCRUSH, SILENTCRUSH): desce, sobe, desce... para
-;; sempre; ao esmagar algo, desce devagar ate o fim da descida.
+;; sempre. Ao bater em algo descendo, o comum, o silencioso e o que so desce
+;; (LOWERANDCRUSH) passam a descer devagar (C4b; o rapido nao desacelera).
+;;
+;; C4b: as linhas 57 e 74 param o teto (EV_CeilingCrushStop): o Lua desliga
+;; a task com toggle (o thinker do Doom deixa de ser chamado) e a liga de
+;; novo quando uma linha de esmagador o reativa (P_ActivateInStasisCeiling).
+;; A task continua de onde parou, com a direcao e a velocidade que tinha:
+;; o toggle guarda a fase sem nenhum campo a mais (o olddirection do Doom).
 val task Teto (sp, teto) {
     val C = S.CEIL
     set pub = teto
@@ -326,26 +332,23 @@ val task Teto (sp, teto) {
     defer {
         set teto.sector.specialdata = nil
         set teto.dead = true
+        S.remover_teto(sp, teto)          ;; C4b: sai dos tetos ativos
     }
     val t = teto.ctype
     val vai_e_volta = (t == C.CRUSHANDRAISE) || (t == C.FASTCRUSH) || (t == C.SILENTCRUSH)
+    val desacelera = (t == C.CRUSHANDRAISE) || (t == C.SILENTCRUSH) || (t == C.LOWERANDCRUSH)
     val normal = if t == C.FASTCRUSH => (S.CEILSPEED * 2) => S.CEILSPEED
-    val devagar = math.max(math.floor(S.CEILSPEED / 8), 1)
+    val devagar = math.floor(S.CEILSPEED / 8)
     var dir = teto.direction
     var vel = teto.speed
     loop {
-        ;; o destino de cada tipo e o do tick antigo (tick_ceiling): so o
-        ;; LOWERTOFLOOR usa teto.dest; os outros, topheight ou bottomheight
-        val destino = ifs {
-            (t == C.LOWERTOFLOOR) => teto.dest
-            (dir == 1) => teto.topheight
-            else => teto.bottomheight
-        }
+        val destino = if dir == 1 => teto.topheight => teto.bottomheight
+        val esmaga = (dir == -1) && teto.crush    ;; subindo, nunca esmaga
         loop {                            ;; anda ate o destino
             await :game.specials
-            val r = S.move_plane(sp.world, teto.sector, vel, destino, 1, dir, teto.crush)
+            val r = S.move_plane(sp.world, teto.sector, vel, destino, 1, dir, esmaga)
             until (r == S.RESULT_PASTDEST)
-            if vai_e_volta && (r == S.RESULT_CRUSHED) {
+            if desacelera && (dir == -1) && (r == S.RESULT_CRUSHED) {
                 set vel = devagar
             }
         }

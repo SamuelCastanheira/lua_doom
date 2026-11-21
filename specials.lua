@@ -315,6 +315,7 @@ function M.new(world, res, sound, pools)
     secret_exit = false,
     switch_map = {},
     stamp = 0,
+    tetos_ativos = {},                   -- C4b
   }
   for i = 1, #SWITCH_PAIRS do
     local ia = res:texture_num_for_name(SWITCH_PAIRS[i][1])
@@ -371,6 +372,59 @@ end
 -- task (os tetos nao sao gravados no save).
 local function start_ceiling(self, teto)
   return spawn_task(self, "movers", "Teto", self, teto)
+end
+
+-- C4b: os tetos ativos (activeceilings do Doom, MAXCEILINGS lugares). As
+-- linhas 57 e 74 param os tetos da tag (EV_CeilingCrushStop) e as linhas de
+-- esmagador reativam os parados (P_ActivateInStasisCeiling). Um teto criado
+-- com a lista cheia anda, mas nao pode ser parado. Parado, o thinker do Doom
+-- deixa de ser chamado: aqui, a task Teto e desligada (toggle) e volta de
+-- onde estava; o registro marca "parado".
+local MAXCEILINGS = 30
+
+local function add_active_ceiling(self, teto)
+  for i = 1, MAXCEILINGS do
+    if self.tetos_ativos[i] == nil then
+      self.tetos_ativos[i] = teto
+      return
+    end
+  end
+end
+
+function M.remover_teto(self, teto)
+  for i = 1, MAXCEILINGS do
+    if self.tetos_ativos[i] == teto then
+      self.tetos_ativos[i] = nil
+      return
+    end
+  end
+end
+
+function M.stop_ceiling(self, line)
+  local ok = false
+  for i = 1, MAXCEILINGS do
+    local teto = self.tetos_ativos[i]
+    if teto and teto.sector.tag == line.tag and not teto.parado then
+      teto.parado = true
+      if teto.task then
+        toggle(teto.task, false)
+      end
+      ok = true
+    end
+  end
+  return ok
+end
+
+local function activate_in_stasis_ceiling(self, line)
+  for i = 1, MAXCEILINGS do
+    local teto = self.tetos_ativos[i]
+    if teto and teto.sector.tag == line.tag and teto.parado then
+      teto.parado = false
+      if teto.task then
+        toggle(teto.task, true)
+      end
+    end
+  end
 end
 
 -- Porta (passo 3b): task Porta de setores.atm. "porta" e o registro da
@@ -768,7 +822,14 @@ local function start_floor(self, sec, dest, direction, speed, crush, floorpic)
   return true
 end
 
+-- EV_DoCeiling. C4b: so os esmagadores que vao e voltam esmagam (o que so
+-- desce, 44 e 72, e os que descem ate o chao, 41 e 43, nao); o teto que
+-- sobe (40) vai ate o teto vizinho mais alto; os esmagadores reativam os
+-- parados da tag antes de criar os novos.
 function M.do_crusher(self, line, ctype)
+  if ctype == CEIL_FASTCRUSH or ctype == CEIL_SILENTCRUSH or ctype == CEIL_CRUSHANDRAISE then
+    activate_in_stasis_ceiling(self, line)
+  end
   local ok = false
   local secs = sectors_from_tag(self.world, line.tag)
   for i = 1, #secs do
@@ -776,34 +837,33 @@ function M.do_crusher(self, line, ctype)
     if sec.specialdata == nil then
       local top = sec.ceilingheight
       local bottom = sec.floorheight
-      local crush = ctype ~= CEIL_RAISETOHIGHEST
+      local crush = ctype == CEIL_CRUSHANDRAISE or ctype == CEIL_SILENTCRUSH
+        or ctype == CEIL_FASTCRUSH
       local speed = CEILSPEED
       if ctype == CEIL_FASTCRUSH then
         speed = CEILSPEED * 2
       end
       local direction = -1
-      local dest = bottom
       if ctype == CEIL_RAISETOHIGHEST then
-        dest = highest_ceiling(sec)
+        top = highest_ceiling(sec)
         direction = 1
-        crush = false
       elseif ctype ~= CEIL_LOWERTOFLOOR then
         bottom = bottom + 8 * FRACUNIT
-        dest = bottom
       end
       local ceil = {
         kind = "ceiling",
         sector = sec,
         direction = direction,
-        dest = dest,
         speed = speed,
         crush = crush,
         ctype = ctype,
         topheight = top,
         bottomheight = bottom,
+        parado = false,
         dead = false,
       }
-      start_ceiling(self, ceil)           -- a task marca sec.specialdata
+      ceil.task = start_ceiling(self, ceil)  -- a task marca sec.specialdata
+      add_active_ceiling(self, ceil)
       ok = true
     end
   end
@@ -1273,7 +1333,7 @@ function M.cross_special(self, line, side, thing)
     [53] = function() return M.do_plat_perpetual(self, line) end,
     [54] = function() return M.stop_plat(self, line) end,
     [56] = function() return M.do_floor(self, line, raise_floor_crush_dest, 1, nil, true) end,
-    [57] = function() return M.stop_plat(self, line) end,
+    [57] = function() return M.stop_ceiling(self, line) end,   -- C4b: para os esmagadores
     [58] = function() return floor_up24() end,
     [59] = function() return floor_up24() end,
     [100] = function() return M.do_stairs(self, line, 16 * FRACUNIT, FLOORSPEED * 4) end,
@@ -1295,7 +1355,7 @@ function M.cross_special(self, line, side, thing)
   local again = {
     [72] = function() return M.do_crusher(self, line, CEIL_LOWERANDCRUSH) end,
     [73] = function() return M.do_crusher(self, line, CEIL_CRUSHANDRAISE) end,
-    [74] = function() return M.stop_plat(self, line) end,
+    [74] = function() return M.stop_ceiling(self, line) end,   -- C4b: para os esmagadores
     [75] = function() return door(VLD_CLOSE, false) end,
     [76] = function() return door(VLD_CLOSE30, true) end,
     [77] = function() return M.do_crusher(self, line, CEIL_FASTCRUSH) end,

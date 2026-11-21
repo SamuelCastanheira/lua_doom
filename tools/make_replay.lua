@@ -357,6 +357,17 @@ if correcoes then
     goto_xy(-1900, -2524); wait(4)
   end
   goto_xy(-1472, -3344); wait(40)
+  -- C4b, no E2M2: o esmagador da tag 16 (linha 728, tipo 73) desce; a
+  -- linha 687 (tipo 74) o para no meio (antes, parava elevadores); a 728 de
+  -- novo o reativa, e ele continua de onde parou
+  local function cross(n)
+    lines[#lines + 1] = string.format("%d cross %d", f, n)
+    f = f + 1
+  end
+  type_text("idclev22"); wait(40); type_text("iddqd"); wait(20)
+  cross(728); wait(60)
+  cross(687); wait(80)
+  cross(728); wait(120)
   lines[#lines + 1] = string.format("%d quit", f + 20)
   local fh = assert(io.open(out_path, "w"))
   fh:write(table.concat(lines, "\n"), "\n")
