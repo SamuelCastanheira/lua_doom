@@ -131,8 +131,10 @@ val task Botao (linha, attr, textura, timer) {
 ;;     fase agindo ja nesse tic, como o T_VerticalDoor lia a direcao nova;
 ;;   * o save grava direction e topcountdown (o mesmo formato de antes).
 
-;; Anda ate o destino. Devolve :chegou, ou :troca se o Lua mudou a direcao
-;; (o recado). "direto": a fase comeca agindo ja, sem esperar (troca).
+;; Anda ate o destino. Devolve :chegou, :troca se o Lua mudou a direcao
+;; (o recado), ou :esmagou se a porta, fechando, bateu em algo e volta a
+;; abrir (C4a; as portas que so fecham, CLOSE e BLAZECLOSE, ficam tentando).
+;; "direto": a fase comeca agindo ja, sem esperar (troca).
 val func mover (sp, porta, dir, direto) {
     var espera = !direto
     loop {
@@ -144,6 +146,8 @@ val func mover (sp, porta, dir, direto) {
         val destino = if dir == 1 => porta.topheight => porta.sector.floorheight
         val r = S.move_plane(sp.world, porta.sector, porta.speed, destino, 1, dir, false)
         until (r == S.RESULT_PASTDEST, :chegou)
+        val reabre = (porta.type != S.VLD.CLOSE) && (porta.type != S.VLD.BLAZECLOSE)
+        until ((dir == -1) && (r == S.RESULT_CRUSHED) && reabre, :esmagou)
     }
 }
 
@@ -173,6 +177,10 @@ val task Porta (sp, porta) {
         set direto = (r == :troca)
         ifs {
             (r == :troca) => {}           ;; recado: segue na direcao nova
+            (r == :esmagou) => {          ;; C4a: bateu em algo: volta a abrir
+                set porta.direction = 1
+                S.play(sp, "doropn")
+            }
             (r == :fim) => {              ;; acabou a espera
                 val t = porta.type
                 ifs {
@@ -196,6 +204,9 @@ val task Porta (sp, porta) {
                 set porta.topcountdown = porta.topwait
             }
             else => {                     ;; chegou embaixo
+                if (porta.type == V.BLAZERAISE) || (porta.type == V.BLAZECLOSE) {
+                    S.play(sp, "bdcls")   ;; C4a: as rapidas batem ao fechar
+                }
                 until (porta.type != V.CLOSE30)
                 set porta.direction = 0
                 set porta.topcountdown = S.TICRATE * 30

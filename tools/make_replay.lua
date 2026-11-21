@@ -108,6 +108,7 @@ local ordem = arg[4] == "ordem"
 -- de novo, com ela na mao), serrando um zumbi (vira e e puxado para a
 -- frente); o berserk e o soco num barril (vira para ele); o BFG ate faltar celula
 -- (a troca vai para o plasma, a preferencia do P_CheckAmmo).
+-- C4: as correcoes dos specials, no E1M3 (ver cada parte abaixo).
 -- "quadros" e ignorado.
 local correcoes = arg[4] == "correcoes"
 -- "telas": roteiro do passo 7, rodado com "-warp 1 1". E1M1: visita os 3
@@ -342,6 +343,20 @@ if correcoes then
   goto_xy(-1472, -3344); wait(5)
   hold("7", 3); wait(40)                               -- BFG
   hold("ctrl", 330); wait(60)                          -- ate faltar celula
+  -- C4a: a porta da linha 329 (setor 97, DR) abre; o jogador fica dentro
+  -- dela; depois da espera (150 tics), ela fecha, bate no jogador e volta a
+  -- abrir (antes, ficava tentando fechar)
+  local function use(n)
+    lines[#lines + 1] = string.format("%d use %d", f, n)
+    f = f + 1
+  end
+  -- (o setor da porta e uma faixa diagonal fina e os monstros empurram o
+  -- jogador: o "goto" o devolve ao centro da porta a cada 5 quadros)
+  use(329); wait(60)
+  for _ = 1, 80 do
+    goto_xy(-1900, -2524); wait(4)
+  end
+  goto_xy(-1472, -3344); wait(40)
   lines[#lines + 1] = string.format("%d quit", f + 20)
   local fh = assert(io.open(out_path, "w"))
   fh:write(table.concat(lines, "\n"), "\n")
