@@ -43,8 +43,9 @@ os bugs de ciclo de vida na lógica de jogos, com custo aceitável?
 | 8. Mundo, barra, menu, automapa (A5, A2, A1, A3) | concluído (tag `passo8`); inclui o B1 (o rosto no hash) | [registro/10-interface-e-mundo.md](registro/10-interface-e-mundo.md) |
 | 9. Família de monstros (A4) | concluído (tag `passo9`): Zombieman, Shotgun Guy, Demon e Spectre com a task `Monstro` | [registro/11-familia-de-monstros.md](registro/11-familia-de-monstros.md) |
 | B2. Mutações pendentes | concluído: roteiro `ordem`; 88/88 detectadas, nenhuma pendente | [registro/12-mutacoes-pendentes.md](registro/12-mutacoes-pendentes.md) |
-| C1. Revisões do port | concluído (tag `c1` na branch `lua`, a referência nova): o `carry`, o jogador esmagado | [registro/13-correcoes-c1.md](registro/13-correcoes-c1.md) |
-| Depois do C1 (C2–C4, D, M) | planejado: correções, experimentos, escrita | seção 6, "Depois do passo 7" |
+| C1. Revisões do port | concluído (tag `c1` na branch `lua`): o `carry`, o jogador esmagado | [registro/13-correcoes-c1.md](registro/13-correcoes-c1.md) |
+| C2. O menu e a tecla Pause param o mundo | concluído (tag `c2` na branch `lua`, a referência nova): `toggle` da task `Mundo` | [registro/14-correcoes-c2.md](registro/14-correcoes-c2.md) |
+| Depois do C2 (C3, C4, D, M) | planejado: correções, experimentos, escrita | seção 6, "Depois do passo 7" |
 
 Desvios em relação a este plano, decididos durante o passo 2:
 
@@ -657,7 +658,8 @@ documentada e uma tag nova de referência. Prioridade sugerida:
 1. **Revisões do próprio port (C1, feito, tag `c1`):** o `carry` vazando
    para um jogo novo (no Atmos, `defer` no início de `task Jogo`); o
    jogador esmagado que não morre (`docs/registro/13-correcoes-c1.md`).
-2. **C2. O menu pausa o mundo**, como no `P_Ticker` do Doom, e a tecla Pause:
+2. **C2 (feito, tag `c2`). O menu pausa o mundo**, como no `P_Ticker` do Doom, e a tecla Pause
+   (`docs/registro/14-correcoes-c2.md`):
    com a task `Mundo` (A5), `toggle mundo(false)`; registrar também a
    alternativa equivalente com um `if` no laço do `Nivel` (notas, seção 11).
    Contraste para a monografia: no elevador (3c) o `toggle` não era
@@ -694,8 +696,8 @@ monografia como trabalho futuro.
 
 **Feito no passo 8:** A1, A2, A3, A5 e B1 (`docs/registro/10-interface-e-mundo.md`).
 **Feito no passo 9:** A4 (`docs/registro/11-familia-de-monstros.md`).
-**Feito depois:** B2 (`docs/registro/12-mutacoes-pendentes.md`) e C1
-(`docs/registro/13-correcoes-c1.md`).
+**Feito depois:** B2 (`docs/registro/12-mutacoes-pendentes.md`), C1
+(`docs/registro/13-correcoes-c1.md`) e C2 (`docs/registro/14-correcoes-c2.md`).
 
 **Ordem sugerida para o que falta:** M1 (rápido, agora com os passos 7 a
 9); D1 (responde ao viés da equivalência); na fase de correções, C2

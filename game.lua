@@ -206,7 +206,19 @@ function M.new(argv)
     iwad_path = iwad_path,
     world = nil,
     wad = w,
+    paused = false,       -- C2: a tecla Pause (paused do Doom)
+    sendpause = false,    -- C2: Pause apertada, vale no proximo tic (G_BuildTiccmd)
   }
+
+  -- C2: liga ou desliga a pausa (paused do G_Ticker). Como o
+  -- S_PauseSound/S_ResumeSound do Doom, so a musica para.
+  local function pausar(on)
+    game.sendpause = false
+    if game.paused ~= on then
+      game.paused = on
+      sound_mod.pause_music(sound, on)
+    end
+  end
 
   function game.start_sound(name)
     sound.play(name)
@@ -537,6 +549,28 @@ function M.new(argv)
     sound_mod.play_title_music(sound)
   end
 
+  -- C2: a figura "PAUSE", como no D_Display do Doom: no alto da vista (no
+  -- alto da tela com o automapa), centrada, por cima da vista e da barra, por
+  -- baixo do menu.
+  local pause_pic = lump_patch("M_PAUSE")
+  local function paint_pause()
+    if not (game.paused and pause_pic) then
+      return
+    end
+    local blocks = game.screen_size + 3
+    local width, height = 320, 200
+    if blocks < 11 then
+      width = blocks * 32
+      height = (blocks * 168 // 10) & ~7
+    end
+    local x = (320 - width) // 2
+    local y = 4
+    if not (game.automap and game.automap.active) and width < 320 then
+      y = (200 - 32 - height) // 2 + 4
+    end
+    v.draw_patch(fb, x + (width - 68) // 2, y, pause_pic)
+  end
+
   local function paint_view()
     if game.automap and game.automap.active then
       v.fill(fb, 0)
@@ -544,6 +578,7 @@ function M.new(argv)
       if game.status and game.player then
         status_mod.draw(game.status, fb, game.player, game.show_messages)
       end
+      paint_pause()
       return
     end
     local p = game.player
@@ -567,6 +602,7 @@ function M.new(argv)
     if game.status and game.player and renderer.screenblocks < 11 then
       status_mod.draw(game.status, fb, game.player, game.show_messages)
     end
+    paint_pause()
   end
 
   local function apply_palette()
@@ -806,6 +842,9 @@ function M.new(argv)
             end
             dirty = true
           end
+          if ev.key == "pause" and game.gamestate == "view" then
+            game.sendpause = true  -- C2: G_Responder (vale no proximo tic)
+          end
           if game.gamestate == "view" and not menu.active then
             if ev.key == "equals" and game.screen_size < 8 then
               game.screen_size = game.screen_size + 1
@@ -915,6 +954,24 @@ function M.new(argv)
       game.mousex = 0
       game.mousey = 0
     end
+    if game.sendpause then
+      -- C2: o comando da pausa troca os botoes (BT_SPECIAL); o G_Ticker
+      -- alterna paused, e o P_PlayerThink zera os botoes
+      game.player.cmd.buttons = 0
+      pausar(not game.paused)
+    end
+  end
+
+  -- C2: o mundo para neste tic? Como o P_Ticker do Doom: com a pausa e, com o
+  -- menu aberto, depois do primeiro tic do nivel (no Doom, viewz ~= 1; aqui,
+  -- leveltime > 0, que tambem vale depois de um load).
+  function G.mundo_parado()
+    return game.paused or (menu.active and (game.leveltime or 0) > 0)
+  end
+
+  -- C2: a pausa acaba com o nivel (o Nivel chama no defer)
+  function G.pausar(on)
+    pausar(on)
   end
 
   -- Fase 2a, depois do emit :game.jogador (a task Jogador faz o tic do
@@ -1114,6 +1171,9 @@ function M.new(argv)
       tostring(game.episode), tostring(game.mapn), tostring(game.wiping),
       tostring(menu.active), tostring(game.level_gen),
     }
+    if game.paused then
+      t[#t + 1] = "pausado"  -- C2 (so quando pausado: o hash antigo nao muda)
+    end
     local world = game.world
     if world then
       for i = 1, #world.mobjs do

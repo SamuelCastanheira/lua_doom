@@ -192,6 +192,15 @@ function M.set_music_volume(self, vol)
   print("set volume", math.floor(vol / 15 * 1000))
 end
 
+-- Pausa do jogo (C2): como o S_PauseSound/S_ResumeSound do Doom, so a
+-- musica para; os efeitos continuam.
+function M.pause_music(self, on)
+  self.music_paused = on
+  if self.music_on then
+    video.music_pause(on)
+  end
+end
+
 function M.stop_music(self)
   if self.music_on then
     video.music_close()
@@ -334,7 +343,7 @@ function M.update(self)
       end
     end
   end
-  if self.music_on and self.music_loop then
+  if self.music_on and self.music_loop and not self.music_paused then
     local mode = string.lower(video.music_status() or "")
     if mode ~= "" and mode ~= "playing" then
       video.music_play()

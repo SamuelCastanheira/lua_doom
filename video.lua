@@ -221,6 +221,12 @@ function M.music_volume(level)
   end
 end
 
+function M.music_pause(on)
+  if raw.music_pause then
+    raw.music_pause(on)
+  end
+end
+
 function M.music_close()
   if raw.music_close then
     raw.music_close()

@@ -346,6 +346,11 @@ function M.responder(self, key)
       return true
     end
   end
+  if key == "pause" then
+    -- C2: o M_Responder do Doom nao usa a tecla Pause; ela segue para o jogo
+    -- (G_Responder), com o menu aberto ou fechado
+    return false
+  end
   if key == "f1" then
     self.active = true
     self.message = nil

@@ -1015,6 +1015,20 @@ intenção ("este pedaço do jogo para"); a versão com o `if` é mais curta. Na
 fase de correções, dá para fazer a primeira e registrar a segunda como a
 alternativa equivalente.
 
+**Resultado (C2, tag `c2`; `docs/registro/14-correcoes-c2.md`).** Feito
+assim: o `Nivel` desliga o `Mundo` com `toggle` quando a pausa ou o menu
+param o mundo, e desfaz a pausa num `defer`. Duas coisas apareceram na
+prática. Primeiro, o comando do jogador estava dentro do `Mundo`, mas é o
+`G_BuildTiccmd`, que no Doom roda também com o mundo parado; ele teve de sair
+(um commit só de refatoração antes da correção). A previsão "a pausa é uma
+linha" vale para o mundo, não para o que fica em volta: a tecla, a figura, a
+música e o primeiro tic do nível com o menu aberto deram o mesmo código nas
+duas branches. Segundo, a diferença entre as branches ficou onde o C1 já
+tinha mostrado: na `lua`, a barra teve de sair do ramo do tic com um
+sinalizador para continuar andando, e a pausa é desfeita em dois lugares
+(`start_level` e `end_game`); na `atmos`, o automapa e a barra já eram
+irmãos do `Mundo`, e o `defer` do `Nivel` cobre todas as saídas.
+
 ---
 
 ## 12. O meio da régua: rosto, menu e automapa (passo 8)

@@ -93,8 +93,9 @@ task Mundo (r) {
     ;; pools dos specials e dos monstros e o Jogador; acorda com :mundo.tic,
     ;; emitido pelo Nivel, e devolve em r.fim o resultado do tic (nil,
     ;; "morte" ou "saida"). O automapa e a barra de status ficam fora, no
-    ;; Nivel, como o AM_Ticker e o ST_Ticker do Doom: e o que permitiria pausar
-    ;; o mundo com um toggle (docs/NOTAS_MONOGRAFIA.md, secao 11).
+    ;; Nivel, como o AM_Ticker e o ST_Ticker do Doom: com a pausa ou o menu, o
+    ;; Nivel desliga o Mundo com um toggle (C2; docs/NOTAS_MONOGRAFIA.md,
+    ;; secao 11).
     ;;
     ;; Specials de setor, na ordem do antigo specials_mod.tick (P7). As pools
     ;; existem antes de montar o nivel: build_level cria as luzes e o load
@@ -138,10 +139,15 @@ task Mundo (r) {
 ;; (idclev). Morrer e renascer cria outra instancia (G_DoReborn).
 ;;
 ;; A cada tic: o automapa, o mundo (task Mundo, passo 8a) e, se o mundo
-;; seguiu, a barra de status.
+;; seguiu, a barra de status. Com a pausa ou o menu aberto (C2), o mundo fica
+;; desligado (toggle), como o P_Ticker do Doom; o automapa e a barra andam.
 task Nivel (save) {
     val r = [fim=nil]
     pin mundo = spawn Mundo(r)            ;; pools prontas antes de montar
+    var parado = false                    ;; C2: o mundo esta desligado
+    defer {
+        G.pausar(false)                   ;; C2: a pausa e do Nivel: nao
+    }                                     ;; sobrevive a ele (G_InitNew)
     if save {
         G.load_level(save)
     } else {
@@ -162,7 +168,13 @@ task Nivel (save) {
                     emit @(automapa) (:automapa.tic)   ;; passo 8d: o automapa
                     G.tic_comando()                    ;; o comando do jogador
                                                        ;; (G_BuildTiccmd, fora do
-                                                       ;; P_Ticker no Doom)
+                                                       ;; P_Ticker no Doom) e a
+                                                       ;; tecla Pause
+                    val parar = G.mundo_parado()       ;; C2: pausa ou menu
+                    if parar != parado {
+                        toggle mundo(!parar)           ;; desligado, nao acorda
+                        set parado = parar             ;; nem com o :mundo.tic
+                    }
                     emit @(mundo) (:mundo.tic)         ;; passo 8a: o tic do mundo
                     if !r.fim {
                         emit @(rosto) (:barra.tic)     ;; passo 8b: o rosto

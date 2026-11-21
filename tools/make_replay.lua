@@ -101,6 +101,9 @@ local ordem = arg[4] == "ordem"
 -- C1: idkfa (todas as armas), saida e New Game na intermissao; no E1M1 do
 -- jogo novo, tenta trocar para a escopeta e atira (antes da correcao, o
 -- jogo novo comecava com as armas do anterior: o carry vazava).
+-- C2: a pausa (tecla Pause e menu) no E1M1 do jogo novo; o idclev na pausa
+-- (o nivel novo comeca sem pausa); no fim do E1M2, o menu aberto quando o
+-- E1M3 comeca (o primeiro tic do nivel roda).
 -- "quadros" e ignorado.
 local correcoes = arg[4] == "correcoes"
 -- "telas": roteiro do passo 7, rodado com "-warp 1 1". E1M1: visita os 3
@@ -290,6 +293,31 @@ if correcoes then
   wait(60)
   hold("3", 3); wait(40)                               -- escopeta (se tiver)
   hold("ctrl", 30); wait(40)
+  -- C2. Pausa: o mundo para; a barra e o automapa continuam. Com o automapa
+  -- aberto, a figura vai para o alto da tela. "andar" segurado na pausa: o
+  -- comando e montado e jogado fora. A pausa termina com "atirar" segurado:
+  -- no tic da tecla Pause os botoes sao zerados, e o tiro sai no seguinte.
+  tap("pause"); wait(30)
+  tap("tab"); wait(20); tap("tab"); wait(10)
+  at(f, "up", "down"); wait(20)
+  at(f, "ctrl", "down"); wait(6)
+  tap("pause"); wait(20)
+  at(f, "ctrl", "up"); at(f, "up", "up"); wait(20)
+  -- o menu aberto para o mundo
+  tap("escape"); wait(40); tap("escape"); wait(20)
+  -- pausa e menu juntos: o menu nao usa a tecla Pause; despausado com o menu
+  -- aberto, o mundo continua parado ate o menu fechar
+  tap("pause"); wait(10); tap("escape"); wait(10)
+  tap("pause"); wait(30); tap("escape"); wait(30)
+  -- idclev na pausa: o E1M2 comeca sem pausa
+  tap("pause"); wait(10); type_text("idclev12"); wait(80)
+  -- fim do E1M2 com o menu aberto na intermissao: acelera a contagem, passa
+  -- ao "entering", abre o menu e espera o E1M3 comecar (o primeiro tic do
+  -- nivel roda, depois o menu para o mundo); fecha o menu
+  cmd("exit"); wait(120)
+  tap("space"); wait(40); tap("space"); wait(10)
+  tap("escape"); wait(220)
+  tap("escape"); wait(60)
   lines[#lines + 1] = string.format("%d quit", f + 20)
   local fh = assert(io.open(out_path, "w"))
   fh:write(table.concat(lines, "\n"), "\n")
@@ -583,12 +611,15 @@ if botoes then
   wait(20)
   use(136); wait(60)                                   -- botao: volta em 35 tics
   use(136); wait(10); use(136); wait(80)               -- 2o uso com o botao ativo
-  -- Save com um botao ativo: main (item 0) -> 3 Save Game -> slot 5; o
-  -- "use" acontece com o menu ja no slot, logo antes de gravar.
+  -- Save com um botao ativo: main (item 0) -> 3 Save Game -> slot 5. O
+  -- "use" vem 10 quadros antes de abrir o menu: desde o C2, o menu para o
+  -- mundo, e o save grava o timer do instante em que o menu abriu (antes, o
+  -- "use" era com o menu ja no slot, e o timer descia durante a espera).
+  use(136); wait(10)
   keys({ "escape", "down", "down", "down", "return" })
   wait(10)
   keys({ "down", "down", "down", "down", "down" })
-  use(136); wait(5)
+  wait(5)
   keys({ "return" })                                   -- grava (botao no meio)
   wait(100)
   -- Load: main (item 3) -> 2 Load Game -> slot 0 -> 5

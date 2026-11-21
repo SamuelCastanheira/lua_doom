@@ -37,7 +37,8 @@ Atmos) e escreve em **português**. Responda em português.
 | tag `passo7` | a intermissão e o finale em tasks (`telas.atm`) |
 | tag `passo8` | a task `Mundo`, o rosto da barra (`barra.atm`), o menu e o automapa (`interface.atm`) |
 | tag `passo9` | a família de monstros: Zombieman, Shotgun Guy, Demon e Spectre com a task `Monstro` (`monstro.atm`). **Estado atual da migração** |
-| tag `c1` (branch `lua`) | a branch `lua` com as correções do C1 (o `carry`, o jogador esmagado). **Referência de equivalência atual** (`REF_TAG` padrão) |
+| tag `c1` (branch `lua`) | a branch `lua` com as correções do C1 (o `carry`, o jogador esmagado) |
+| tag `c2` (branch `lua`) | a branch `lua` com o C2 (o menu e a tecla Pause param o mundo). **Referência de equivalência atual** (`REF_TAG` padrão) |
 | tag `luaV.1` | marco antigo do usuário (sem relação com a migração) |
 | commit `522b06f` | renderer 100% Lua (referência pixel a pixel do renderer em C, usada por `make compare`) |
 
@@ -104,8 +105,10 @@ Um quadro tem três fases, sempre nesta ordem:
                  senao: emit :menu.tic (task Menu, passo 8c), depois a tela atual:
                         G.tic_view_antes()   -> "segue" | "parado"
                           emit :automapa.tic   (Nivel; task Automapa, 8d)
-                          emit :mundo.tic      (Nivel; task Mundo, 8a): tic_comando,
-                                               :game.jogador, tic_view_meio, mobjs,
+                          G.tic_comando()      (Nivel: comando e tecla Pause, C2)
+                          G.mundo_parado()?    toggle mundo (pausa ou menu, C2)
+                          emit :mundo.tic      (Nivel; task Mundo, 8a): :game.jogador,
+                                               tic_view_meio, mobjs,
                                                :game.specials, tic_mundo_fim
                           emit :barra.tic      (Nivel; task Rosto, 8b)
                         G.tic_view_depois()  -> nil | "saida"
@@ -410,7 +413,8 @@ Ordem atual de um tic de nível (`G.tic_view_antes`, 1 e 2;
 `emit :game.jogador`, 3; `G.tic_view_meio`, 4 a 6; `emit :game.specials`, 7;
 `G.tic_view_depois`, 8 a 11):
 1. automapa
-2. comando do jogador (`build_ticcmd`)
+2. comando do jogador (`build_ticcmd`, no `Nivel`) e a tecla Pause; com a
+   pausa ou o menu aberto (C2), o `Mundo` está desligado e 3 a 10 não rodam
 3. `emit :game.jogador` em `Nivel`: a task `Jogador` (`jogador.atm`, passo
    4c). Vivo: `mover`, `pisar`, `usar`, `escolher_arma`, `contar_poderes`,
    `contar_avisos` (partes em `player.lua`) e então `emit :jogador.arma`,
@@ -522,7 +526,7 @@ automapa, `-`/`=` mudam o tamanho da tela.
 ### 5.2 Equivalência da lógica (driver Atmos × referência)
 
 ```sh
-make test-drivers          # semantica do Atmos (P1-P9) + 14 roteiros contra a tag c1; saves comparados byte a byte
+make test-drivers          # semantica do Atmos (P1-P9) + 14 roteiros contra a tag c2; saves comparados byte a byte
 sh tests/test_drivers.sh 0 1 fluxo         # roteiro com todas as transicoes
 sh tests/test_drivers.sh 4000 1            # pseudoaleatorio, 4000 quadros, semente 1
 sh tests/test_drivers.sh 6000 2 exits      # tambem termina niveis
@@ -535,13 +539,13 @@ sh tests/test_drivers.sh 0 1 arma -warp 1 1       # passo 4: cada arma, trocas, 
 sh tests/test_drivers.sh 0 1 monstro -warp 1 2 -respawn  # passo 5: zumbis em todos os comportamentos, save e load, pesadelo
 sh tests/test_drivers.sh 0 1 familia -warp 1 5 -respawn # passo 9: os quatro tipos com task no E1M5, save e load
 sh tests/test_drivers.sh 0 1 ordem -warp 1 3      # B2: use no tic em que a linha entra no alcance; porta e elevador vizinhos
-sh tests/test_drivers.sh 0 1 correcoes -warp 1 1  # fase C: New Game na intermissao (C1); cenarios das proximas correcoes
+sh tests/test_drivers.sh 0 1 correcoes -warp 1 1  # fase C: New Game na intermissao (C1); pausa e menu (C2); cenarios das proximas correcoes
 sh tests/test_drivers.sh 0 1 telas -warp 1 1      # passo 7: intermissao acelerada e completa, E1M8, finale
 REF_TAG=passo1 sh tests/test_drivers.sh 0 1 fluxo   # outra referencia (passo1: antes das correcoes)
 ```
 
 - Argumentos: `quadros semente [exits|fluxo] [args do jogo]`.
-- A referência é **`REF_TAG`** (padrão `c1`, desde o C1; antes, `passo1`). O script cria um worktree
+- A referência é **`REF_TAG`** (padrão `c2`, desde o C2; antes, `c1` e `passo1`). O script cria um worktree
   em `build/ref-<tag>`, aplica `tests/ref-<tag>.patch` se existir, compila e
   roda o `lua5.4 main.lua` de lá. Compara com `atmos main.atm` e com
   `lua5.4 main.lua` atuais.
@@ -564,7 +568,7 @@ Se a tag nova não tiver algum comando de teste do replay, crie
 ### 5.3 Sensibilidade, métricas e custo
 
 ```sh
-make test-mutacoes         # tools/mutacoes.py: 90/90 detectadas, 7 equivalentes, 0 pendentes
+make test-mutacoes         # tools/mutacoes.py: 97/97 detectadas, 7 equivalentes, 0 pendentes
 make metricas              # tools/metricas_passo2.py + tools/custo_drivers.py
 python3 tools/metricas_finais.py --custo --memoria   # tabelas finais de todos os passos (le build/test-drivers.log e build/mutacoes.log)
 python3 tools/custo_drivers.py 5           # ms/quadro dos 3 drivers
@@ -654,6 +658,15 @@ revisões do próprio port na seção 5). No fim, as correções são feitas nas
   cada branch, uma tag nova na branch `lua` (`c2`…), `REF_TAG` padrão em
   `tests/test_drivers.sh` trocado para ela, o cenário no roteiro
   `correcoes` e as divergências contra a referência anterior registradas.
+- **Corrigido no C2** (tag `c2`): o menu aberto (depois do primeiro tic do
+  nível, o `viewz != 1` do Doom, aqui `leveltime > 0`) e a tecla Pause param
+  o mundo, como o `P_Ticker`. Atmos: o `Nivel` desliga a task `Mundo` com
+  `toggle mundo(false)` e desfaz a pausa num `defer`; o comando do jogador
+  (`G.tic_comando`) saiu do `Mundo` para o `Nivel`, porque o `G_BuildTiccmd`
+  roda também com o mundo parado. Lua: um `if` em volta do tic do mundo, e a
+  pausa desfeita em `start_level` e `end_game`. A barra e o automapa andam na
+  pausa; a figura `M_PAUSE` e a música pausada. Registro:
+  `docs/registro/14-correcoes-c2.md`.
 - `game.gamestate` continua existindo (tela exibida, lida por redesenho,
   paleta, mouse, cheats, menu e automapa), mas só `G.enter` o escreve.
 - O wipe (a imagem) continua em Lua (`wipe.lua`); desde o passo 6 a

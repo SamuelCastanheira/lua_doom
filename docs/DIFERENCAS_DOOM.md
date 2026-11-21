@@ -80,7 +80,6 @@ desce até o piso) e 141 (esmagador silencioso).
 |---|---|---|
 | Demos | tela de título (`main.atm`, task `Titulo`) | o Doom alterna TITLEPIC → créditos → demos gravadas (`DEMO1`..`DEMO3`) e grava/reproduz demos (`-record`, `-playdemo`). Para o TCC: o demo é o "replay" do próprio Doom |
 | Multiplayer | – | cooperativo e deathmatch ausentes |
-| Menu não pausa; sem tecla de pausa | `game.lua` (`tic_view_antes`: com o menu aberto, só zera o comando) | o `P_Ticker` não roda o mundo com o menu aberto no single player (`!netgame && menuactive && !demoplayback`), e a tecla Pause alterna `paused` (`BTS_PAUSE` no `G_Ticker`); a barra, o automapa e o HUD continuam. Aqui, com o menu aberto, monstros, specials e `leveltime` continuam, e não há pausa. Visto em 2026-11-20, numa conversa sobre pausar com `toggle` |
 | Arma | `player.lua` (`WEAPON_PATCH`, `WEAPON_READY`, `WEAPON_ATK`) | tabelas próprias, não a máquina de estados do `p_pspr.c`; é o passo 4b (`PLANO_ATMOS.md`) |
 | Transição de tela (wipe) | `wipe.lua` | usa `math.random`, não a tabela fixa (`M_Random`); só é determinística porque o replay fixa a semente |
 
@@ -119,4 +118,5 @@ fase de correção.
 |---|---|---|
 | `carry` vaza para um jogo novo (seção 5) | `atmos`: `defer { G.game.carry = nil }` no início de `task Jogo`; `lua`: `game.carry = nil` no New Game (`docs/registro/13-correcoes-c1.md`) | C1, tag `c1` |
 | Jogador esmagado não morre (specials) | o esmagamento passa por `game.damage_mobj` (gancho `collision.dano_esmagar`), nas duas branches: dor, armadura, modo deus, morte. A cadência (a cada 4 tics) e o sangue ficam no item "Esmagamento sem sangue nem restos" | C1, tag `c1` |
+| Menu não pausa; sem tecla de pausa (seção 4) | com o menu aberto (depois do primeiro tic do nível) ou com a tecla Pause, o `Nivel` desliga a task `Mundo` com `toggle`; a barra e o automapa continuam, a figura `M_PAUSE` aparece e a música pausa. Na branch `lua`, um `if` em volta do tic do mundo (`docs/registro/14-correcoes-c2.md`). Fica diferente: a tecla Pause só vale no nível (no Doom, ela também mostra a figura na intermissão e no finale, que continuam) e é engolida pelas mensagens do menu | C2, tag `c2` |
 | Mutações pendentes de cobertura (seção 5) | roteiro `ordem` (E1M3): "use" no tic em que a linha entra no alcance; porta e elevador vizinhos no mesmo tic, com o jogador na fronteira (`docs/registro/12-mutacoes-pendentes.md`). Só teste: o jogo não mudou | B2 (sem tag nova) |
