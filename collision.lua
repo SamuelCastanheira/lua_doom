@@ -999,6 +999,16 @@ function M.aim_slope(world, source, angle, attackrange)
   return 0
 end
 
+-- P_AimLineAttack com o alvo (linetarget): a inclinacao (0 sem alvo) e o
+-- alvo (C3: o soco e a motosserra viram o jogador para ele)
+function M.aim_line(world, source, angle, attackrange)
+  local slope, target = aim(world, source, angle, attackrange)
+  if target then
+    return slope, target
+  end
+  return 0, nil
+end
+
 function M.aim_line_attack(world, source, angle, attackrange)
   local _, target = aim(world, source, angle, attackrange)
   return target

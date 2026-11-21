@@ -351,14 +351,15 @@ local function dump_player(p)
     { "itemcount", p.itemcount or 0 },
     { "secretcount", p.secretcount or 0 },
     { "didsecret", p.didsecret and true or false },
-    { "psprite_y", p.psprite_sy or 0 },
-    { "psprite_sy", p.psprite_sy or 0 },
-    { "psprite_state", p.psprite_state or "" },
-    { "psprite_tics", p.psprite_tics or 0 },
-    { "psprite_step", p.psprite_step or 0 },
-    { "psprite_body", p.psprite_body or "" },
-    { "psprite_flash", p.psprite_flash or "" },
-    { "flash_tics", p.flash_tics or 0 },
+    -- C3: os dois psprites (a arma e o clarao), como o P_ArchivePlayers
+    { "psp0_state", p.psprites[0].state },
+    { "psp0_tics", p.psprites[0].tics },
+    { "psp0_sx", p.psprites[0].sx },
+    { "psp0_sy", p.psprites[0].sy },
+    { "psp1_state", p.psprites[1].state },
+    { "psp1_tics", p.psprites[1].tics },
+    { "psp1_sx", p.psprites[1].sx },
+    { "psp1_sy", p.psprites[1].sy },
     { "powers", num_list(p.powers or {}, 6) },
   }
 end
@@ -595,13 +596,15 @@ local function apply_player(player, rec)
   player.itemcount = take("itemcount", 0)
   player.secretcount = take("secretcount", 0)
   player.didsecret = rec.didsecret and true or false
-  player.psprite_sy = take("psprite_sy", player.psprite_sy)
-  player.psprite_state = take("psprite_state", player.psprite_state)
-  player.psprite_tics = take("psprite_tics", player.psprite_tics)
-  player.psprite_step = take("psprite_step", 0)
-  player.psprite_body = take("psprite_body", "")
-  player.psprite_flash = take("psprite_flash", "")
-  player.flash_tics = take("flash_tics", 0)
+  -- C3: os psprites; um save de antes do C3 nao os tem, e a arma fica como
+  -- o nivel a montou (subindo)
+  for i = 0, 1 do
+    local psp = player.psprites[i]
+    psp.state = take("psp" .. i .. "_state", psp.state)
+    psp.tics = take("psp" .. i .. "_tics", psp.tics)
+    psp.sx = take("psp" .. i .. "_sx", psp.sx)
+    psp.sy = take("psp" .. i .. "_sy", psp.sy)
+  end
   if rec.powers then
     copy_nums(player.powers, rec.powers)
   end

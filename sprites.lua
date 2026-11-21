@@ -180,28 +180,6 @@ local BASEYCENTER = 100
 local WEAPONTOP = 32 * FRACUNIT
 local FINESINE_LEN = 10240
 
-function M.weapon_xy(player, leveltime)
-  local state = player.psprite_state or "ready"
-  if state == "up" or state == "down" then
-    return FRACUNIT, player.psprite_sy
-  end
-  if state == "atk" then
-    local sy = player.psprite_sy
-    if not sy or sy == 0 then
-      sy = WEAPONTOP
-    end
-    return FRACUNIT, sy
-  end
-  local bob = player.bob or 0
-  local tables = require("tables")
-  local angle = band(128 * leveltime, 8191)
-  local sx = FRACUNIT + fixed_mul(bob, tables.finesine[(angle + math.floor(FINEANGLES / 4)) % FINESINE_LEN])
-  angle = band(angle, math.floor(FINEANGLES / 2) - 1)
-  local sy = WEAPONTOP + fixed_mul(bob, tables.finesine[angle])
-  player.psprite_sy = sy
-  return sx, sy
-end
-
 -- Patches (ex.: "PISFA0") cujos estados em info.STATES tem FF_FULLBRIGHT.
 -- Os flashes das armas sao acesos; o corpo da arma usa a luz do setor.
 local FF_FULLBRIGHT = 32768
@@ -236,23 +214,19 @@ local function player_shadow(player)
   return inv > 4 * 32 or band(inv, 8) ~= 0
 end
 
-function M.draw_weapon(renderer, fb, player, leveltime)
-  local player_mod = require("player")
-  local sx, sy = M.weapon_xy(player, leveltime)
-  local body = player_mod.weapon_body(player)
-  local n = renderer.res:check_num_for_name(body)
-  if n < 0 then
-    n = renderer.res:check_num_for_name("PISGA0")
-  end
+-- R_DrawPlayerSprites: a arma e o clarao, os psprites acesos, cada um no
+-- seu estado de info.STATES e na sua posicao (C3; antes, o desenho calculava
+-- o balanco da arma e escrevia psprite_sy no jogador).
+function M.draw_weapon(renderer, fb, player)
+  local pspr = require("pspr")
   local shadow = player_shadow(player)
-  M.draw_psprite(renderer, fb, n, sx, sy, is_fullbright(body), shadow)
-  local flash = ""
-  if (player.flash_tics or 0) > 0 then
-    flash = player.psprite_flash or ""
-  end
-  if flash ~= "" then
-    local fn = renderer.res:check_num_for_name(flash)
-    M.draw_psprite(renderer, fb, fn, sx, sy, is_fullbright(flash), shadow)
+  for position = pspr.PS_WEAPON, pspr.PS_FLASH do
+    local psp = player.psprites[position]
+    if psp.state ~= 0 then
+      local name, aceso = pspr.patch(psp.state)
+      local n = renderer.res:check_num_for_name(name)
+      M.draw_psprite(renderer, fb, n, psp.sx, psp.sy, aceso, shadow)
+    end
   end
 end
 
