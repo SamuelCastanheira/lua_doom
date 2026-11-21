@@ -46,6 +46,7 @@ local render = require("render")
 local sprites = require("sprites")
 local collision = require("collision")
 local player_mod = require("player")
+local pspr = require("pspr")
 local specials_mod = require("specials")
 local rng = require("random")
 local thinker = require("thinker")
@@ -249,9 +250,11 @@ function M.new(argv)
     player.weaponowned = prev.weaponowned
     player.pendingweapon = 10
     player.readyweapon = prev.readyweapon
-    player.psprite_state = "up"
-    player.psprite_sy = 128 * 65536
-    player.psprite_body = ""
+    -- C3: o jogador do Doom passa de um nivel ao outro com os psprites; so
+    -- a posicao horizontal da arma sobrevive (P_SetupPsprites apaga os
+    -- estados e sobe a arma de baixo)
+    player.psprites[0].sx = prev.psprite_sx or 0
+    player.psprites[1].sx = prev.psprite_sx or 0
     player.cheats = prev.cheats
     player.didsecret = prev.didsecret
     player.cards = { [0] = false, false, false, false, false, false }
@@ -343,6 +346,7 @@ function M.new(argv)
         maxammo = copy_list(p.maxammo, 4),
         weaponowned = copy_list(p.weaponowned, 9),
         readyweapon = p.readyweapon,
+        psprite_sx = p.psprites[0].sx,
         cheats = p.cheats,
         didsecret = (self.mapn == 9) or p.didsecret or secret or false,
       }
@@ -508,6 +512,9 @@ function M.new(argv)
       apply_carry(self.player, self.carry)
       self.carry = nil
     end
+    if self.player then
+      pspr.preparar_psprites(self.player, self)  -- C3: P_SetupPsprites
+    end
     print(string.format(
       "vista %s  linhas %d  coisas %d  jogador %d,%d",
       world.mapname, #world.lines, #world.mobjs, px, py
@@ -596,8 +603,8 @@ function M.new(argv)
     render.render(renderer, game.world, fb)
     sprites.draw(renderer, game.world, fb)
     render.draw_masked(renderer)
-    if p and (p.playerstate ~= player_mod.PST_DEAD or p.psprite_sy < player_mod.WEAPONBOTTOM) then
-      sprites.draw_weapon(renderer, fb, p, game.leveltime or 0)
+    if p then
+      sprites.draw_weapon(renderer, fb, p)  -- C3: os psprites acesos (R_DrawPlayerSprites)
     end
     if game.status and game.player and renderer.screenblocks < 11 then
       status_mod.draw(game.status, fb, game.player, game.show_messages)
@@ -1232,15 +1239,16 @@ function M.new(argv)
     end
     local p = game.player
     if p then
+      local w, f = p.psprites[0], p.psprites[1]
       t[#t + 1] = string.format("p%s,%s,%s,%s,%s", tostring(p.health), tostring(p.armorpoints),
-        tostring(p.readyweapon), tostring(p.psprite_state), tostring(p.psprite_sy))
-      -- arma (passo 4a): o resto do que a task Arma escreve; tambem so com
-      -- DOOM_REPLAY_SIDES=1
+        tostring(p.readyweapon), tostring(w.state), tostring(w.sy))
+      -- arma (passo 4a; C3: os dois psprites): o resto do que a task Arma
+      -- escreve; tambem so com DOOM_REPLAY_SIDES=1
       if os.getenv("DOOM_REPLAY_SIDES") == "1" then
-        t[#t + 1] = string.format("a%s,%s,%s,%s,%s,%s,%s,%s,%s", tostring(p.psprite_body),
-          tostring(p.psprite_flash), tostring(p.flash_tics), tostring(p.psprite_tics),
-          tostring(p.psprite_step), tostring(p.pendingweapon), tostring(p.attackdown),
-          tostring(p.refire), tostring(p.extralight))
+        t[#t + 1] = string.format("a%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s", tostring(w.tics),
+          tostring(w.sx), tostring(f.state), tostring(f.tics), tostring(f.sx), tostring(f.sy),
+          tostring(p.pendingweapon), tostring(p.attackdown), tostring(p.refire),
+          tostring(p.extralight), tostring(p.mo and p.mo.flags))
       end
     end
     return table.concat(t, ";")

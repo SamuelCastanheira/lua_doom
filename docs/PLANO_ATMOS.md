@@ -44,8 +44,9 @@ os bugs de ciclo de vida na lógica de jogos, com custo aceitável?
 | 9. Família de monstros (A4) | concluído (tag `passo9`): Zombieman, Shotgun Guy, Demon e Spectre com a task `Monstro` | [registro/11-familia-de-monstros.md](registro/11-familia-de-monstros.md) |
 | B2. Mutações pendentes | concluído: roteiro `ordem`; 88/88 detectadas, nenhuma pendente | [registro/12-mutacoes-pendentes.md](registro/12-mutacoes-pendentes.md) |
 | C1. Revisões do port | concluído (tag `c1` na branch `lua`): o `carry`, o jogador esmagado | [registro/13-correcoes-c1.md](registro/13-correcoes-c1.md) |
-| C2. O menu e a tecla Pause param o mundo | concluído (tag `c2` na branch `lua`, a referência nova): `toggle` da task `Mundo` | [registro/14-correcoes-c2.md](registro/14-correcoes-c2.md) |
-| Depois do C2 (C3, C4, D, M) | planejado: correções, experimentos, escrita | seção 6, "Depois do passo 7" |
+| C2. O menu e a tecla Pause param o mundo | concluído (tag `c2` na branch `lua`): `toggle` da task `Mundo` | [registro/14-correcoes-c2.md](registro/14-correcoes-c2.md) |
+| C3. A arma como no Doom (o 4b) | concluído (tag `c3` na branch `lua`, a referência nova): `pspr.lua` e a task `Arma` com as fases do Doom | [registro/15-correcoes-c3.md](registro/15-correcoes-c3.md) |
+| Depois do C3 (C4, D, M) | planejado: correções, experimentos, escrita | seção 6, "Depois do passo 7" |
 
 Desvios em relação a este plano, decididos durante o passo 2:
 
@@ -664,8 +665,8 @@ documentada e uma tag nova de referência. Prioridade sugerida:
    alternativa equivalente com um `if` no laço do `Nivel` (notas, seção 11).
    Contraste para a monografia: no elevador (3c) o `toggle` não era
    equivalente; na pausa, é exatamente o comportamento do Doom.
-3. **O 4b:** a arma com os estados de `info.STATES` e as ações do
-   `p_pspr.c`.
+3. **C3 (feito, tag `c3`). O 4b:** a arma com os estados de `info.STATES` e as ações do
+   `p_pspr.c` (`docs/registro/15-correcoes-c3.md`).
 4. **O resto do DIFERENCAS:** specials (porta reabrir ao esmagar,
    esmagamento com sangue e restos, desaceleração, linha 40, linhas 57 e 74,
    elevadores e esmagadores em estase, escada, botões, limites, sons de piso
@@ -697,7 +698,8 @@ monografia como trabalho futuro.
 **Feito no passo 8:** A1, A2, A3, A5 e B1 (`docs/registro/10-interface-e-mundo.md`).
 **Feito no passo 9:** A4 (`docs/registro/11-familia-de-monstros.md`).
 **Feito depois:** B2 (`docs/registro/12-mutacoes-pendentes.md`), C1
-(`docs/registro/13-correcoes-c1.md`) e C2 (`docs/registro/14-correcoes-c2.md`).
+(`docs/registro/13-correcoes-c1.md`), C2 (`docs/registro/14-correcoes-c2.md`) e C3
+(`docs/registro/15-correcoes-c3.md`).
 
 **Ordem sugerida para o que falta:** M1 (rápido, agora com os passos 7 a
 9); D1 (responde ao viés da equivalência); na fase de correções, C2

@@ -14,6 +14,7 @@ local compat = require("compat")
 local tables = require("tables")
 local collision = require("collision")
 local rng = require("random")
+local pspr = require("pspr")
 
 local M = {}
 
@@ -88,8 +89,6 @@ local AM_MISL = 3
 local INVERSECOLORMAP = 32
 local WEAPONTOP = 32 * FRACUNIT
 local WEAPONBOTTOM = 128 * FRACUNIT
-local LOWERSPEED = 6 * FRACUNIT
-local RAISESPEED = 6 * FRACUNIT
 local TICRATE = 35
 local MAXHEALTH = 100
 
@@ -123,97 +122,8 @@ local WEAPON_AMMO = {
   [WP_BFG] = AM_CELL,
 }
 
-local WEAPON_PATCH = {
-  [WP_FIST] = "PUNGA0",
-  [WP_PISTOL] = "PISGA0",
-  [WP_SHOTGUN] = "SHTGA0",
-  [WP_CHAINGUN] = "CHGGA0",
-  [WP_MISSILE] = "MISGA0",
-  [WP_PLASMA] = "PLSGA0",
-  [WP_BFG] = "BFGGA0",
-  [WP_CHAINSAW] = "SAWGC0",
-  [WP_SUPERSHOTGUN] = "SHT2A0",
-}
-
-local WEAPON_FIRE_BODY = {
-  [WP_FIST] = "PUNGC0",
-  [WP_PISTOL] = "PISGB0",
-  [WP_SHOTGUN] = "SHTGA0",
-  [WP_CHAINGUN] = "CHGGB0",
-  [WP_MISSILE] = "MISGB0",
-  [WP_PLASMA] = "PLSGA0",
-  [WP_BFG] = "BFGGB0",
-  [WP_CHAINSAW] = "SAWGA0",
-  [WP_SUPERSHOTGUN] = "SHT2A0",
-}
-
-local WEAPON_ATK = {
-  [WP_FIST] = {
-    { "PUNGB0", 4, false, "", 0, 0 },
-    { "PUNGC0", 4, true, "", 0, 0 },
-    { "PUNGD0", 5, false, "", 0, 0 },
-    { "PUNGC0", 4, false, "", 0, 0 },
-    { "PUNGB0", 5, false, "", 0, 0 },
-  },
-  [WP_PISTOL] = {
-    { "PISGA0", 4, false, "", 0, 0 },
-    { "PISGB0", 6, true, "PISFA0", 7, 1 },
-    { "PISGC0", 4, false, "", 0, 0 },
-    { "PISGB0", 5, false, "", 0, 0 },
-  },
-  [WP_SHOTGUN] = {
-    { "SHTGA0", 3, false, "", 0, 0 },
-    { "SHTGA0", 7, true, "SHTFA0", 7, 1 },
-    { "SHTGB0", 5, false, "", 0, 0 },
-    { "SHTGC0", 5, false, "", 0, 0 },
-    { "SHTGD0", 4, false, "", 0, 0 },
-    { "SHTGC0", 5, false, "", 0, 0 },
-    { "SHTGB0", 5, false, "", 0, 0 },
-    { "SHTGA0", 3, false, "", 0, 0 },
-    { "SHTGA0", 7, false, "", 0, 0 },
-  },
-  [WP_CHAINGUN] = {
-    { "CHGGA0", 4, true, "CHGFA0", 5, 1 },
-    { "CHGGB0", 4, true, "CHGFB0", 5, 2 },
-  },
-  [WP_MISSILE] = {
-    { "MISGB0", 8, false, "MISFA0", 15, 1 },
-    { "MISGB0", 12, true, "", 0, 2 },
-  },
-  [WP_PLASMA] = {
-    { "PLSGA0", 3, true, "PLSFA0", 4, 1 },
-    { "PLSGB0", 20, false, "", 0, 0, true },
-  },
-  [WP_BFG] = {
-    { "BFGGA0", 20, false, "", 0, 0 },
-    { "BFGGB0", 10, false, "BFGFA0", 17, 1 },
-    { "BFGGB0", 10, true, "", 0, 2 },
-    { "BFGGB0", 20, false, "", 0, 0 },
-  },
-  [WP_CHAINSAW] = {
-    { "SAWGA0", 4, true, "", 0, 0 },
-    { "SAWGB0", 4, true, "", 0, 0 },
-  },
-  [WP_SUPERSHOTGUN] = {
-    { "SHT2A0", 3, false, "", 0, 0 },
-    { "SHT2A0", 7, true, "SHT2I0", 9, 1 },
-    { "SHT2B0", 7, false, "", 0, 0 },
-    { "SHT2C0", 7, false, "", 0, 0 },
-    { "SHT2D0", 7, false, "", 0, 0 },
-    { "SHT2E0", 7, false, "", 0, 0 },
-    { "SHT2F0", 7, false, "", 0, 0 },
-    { "SHT2G0", 6, false, "", 0, 0 },
-    { "SHT2H0", 6, false, "", 0, 0 },
-    { "SHT2A0", 5, false, "", 0, 0 },
-  },
-}
-
-local WEAPON_READY = {
-  [WP_CHAINSAW] = {
-    { "SAWGC0", 4, "sawidl" },
-    { "SAWGD0", 4, "" },
-  },
-}
+-- C3: as tabelas proprias da arma (WEAPON_PATCH, WEAPON_FIRE_BODY,
+-- WEAPON_ATK, WEAPON_READY) sairam; a arma segue info.STATES (pspr.lua).
 
 function M.damage_mobj(target, source, damage, inflictor)
   if target == nil or target.alive == false or not has(target.flags, MF_SHOOTABLE) then
@@ -251,6 +161,7 @@ function M.damage_mobj(target, source, damage, inflictor)
       player.playerstate = PST_DEAD
       target.alive = false
       target.flags = band(target.flags, bnot(MF_SOLID + MF_SHOOTABLE))
+      pspr.soltar_arma(player, nil)  -- C3: P_KillMobj -> P_DropWeapon
     end
     return
   end
@@ -323,13 +234,7 @@ function M.spawn(world, start, cheats)
     killcount = 0,
     itemcount = 0,
     secretcount = 0,
-    psprite_sy = WEAPONBOTTOM,
-    psprite_state = "up",
-    psprite_tics = 0,
-    psprite_step = 0,
-    psprite_body = "",
-    psprite_flash = "",
-    flash_tics = 0,
+    psprites = pspr.novos_psprites(),  -- C3: a arma e o clarao (pspr.lua)
     powers = { [0] = 0, 0, 0, 0, 0, 0 },
     message = "",
     message_tics = 0,
@@ -532,279 +437,9 @@ local function special_sector(world, player, game, leveltime)
   end
 end
 
-local function ammo_needed(weapon)
-  if weapon == WP_BFG then
-    return 40
-  end
-  return 1
-end
-
-local function gun_shot(player, game, accurate)
-  local mo = player.mo
-  local slope = collision.bullet_slope(game.world, mo)
-  local damage = 5 * ((rng.p_random() % 3) + 1)
-  local angle = mo.angle
-  if not accurate then
-    angle = as_u32(angle + (rng.p_random() - rng.p_random()) * 262144)
-  end
-  return collision.line_attack(game.world, mo, damage, game, MISSILERANGE, angle, slope)
-end
-
-local function do_shot(player, game, ammo_type)
-  local need = ammo_needed(player.readyweapon)
-  if ammo_type ~= nil then
-    if player.ammo[ammo_type] < need then
-      return
-    end
-    player.ammo[ammo_type] = player.ammo[ammo_type] - need
-  end
-  local mo = player.mo
-  local weapon = player.readyweapon
-  if mo and (weapon == WP_MISSILE or weapon == WP_PLASMA or weapon == WP_BFG) then
-    local enemy = require("enemy")
-    if weapon == WP_PLASMA then
-      if band(rng.p_random(), 1) ~= 0 then
-        player.psprite_flash = "PLSFB0"
-      else
-        player.psprite_flash = "PLSFA0"
-      end
-      player.flash_tics = 4
-    end
-    if weapon == WP_MISSILE then
-      enemy.spawn_player_missile(game.world, mo, "rocket")
-      if game and game.start_sound then
-        game.start_sound("rlaunc")
-      end
-    elseif weapon == WP_PLASMA then
-      enemy.spawn_player_missile(game.world, mo, "plasma")
-      if game and game.start_sound then
-        game.start_sound("plasma")
-      end
-    else
-      enemy.spawn_player_missile(game.world, mo, "bfg")
-      if game and game.start_sound then
-        game.start_sound("bfg")
-      end
-    end
-    player.refire = player.refire + 1
-    player.attackdown = true
-    enemy.noise_alert(game.world, mo, game)
-    return
-  end
-  if mo and weapon == WP_FIST then
-    local damage = ((rng.p_random() % 10) + 1) * 2
-    if (player.powers[PW_STRENGTH] or 0) ~= 0 then
-      damage = damage * 10
-    end
-    local angle = as_u32(mo.angle + (rng.p_random() - rng.p_random()) * 262144)
-    local hit = collision.line_attack(game.world, mo, damage, game, MELEERANGE, angle, nil)
-    if hit and game and game.start_sound then
-      game.start_sound("punch")
-    end
-  elseif mo and weapon == WP_CHAINSAW then
-    local damage = 2 * ((rng.p_random() % 10) + 1)
-    local angle = as_u32(mo.angle + (rng.p_random() - rng.p_random()) * 262144)
-    local hit = collision.line_attack(game.world, mo, damage, game, MELEERANGE + 1, angle, nil)
-    if game and game.start_sound then
-      if hit then
-        game.start_sound("sawhit")
-      else
-        game.start_sound("sawful")
-      end
-    end
-  elseif mo and weapon == WP_SHOTGUN then
-    if game and game.start_sound then
-      game.start_sound("shotgn")
-    end
-    for _ = 1, 7 do
-      gun_shot(player, game, false)
-    end
-  elseif mo and weapon == WP_SUPERSHOTGUN then
-    if game and game.start_sound then
-      game.start_sound("dshtgn")
-    end
-    local slope = collision.bullet_slope(game.world, mo)
-    for _ = 1, 20 do
-      local damage = 5 * ((rng.p_random() % 3) + 1)
-      local angle = as_u32(mo.angle + (rng.p_random() - rng.p_random()) * 524288)
-      local pellet = slope + (rng.p_random() - rng.p_random()) * 32
-      collision.line_attack(game.world, mo, damage, game, MISSILERANGE, angle, pellet)
-    end
-  elseif mo then
-    if game and game.start_sound then
-      game.start_sound("pistol")
-    end
-    gun_shot(player, game, player.refire == 0)
-  end
-  player.refire = player.refire + 1
-  player.attackdown = true
-  if mo then
-    local enemy = require("enemy")
-    enemy.noise_alert(game.world, mo, game)
-  end
-end
-
-local function start_ready(player, game)
-  player.psprite_state = "ready"
-  player.psprite_step = 0
-  local seq = WEAPON_READY[player.readyweapon]
-  if not seq then
-    player.psprite_body = WEAPON_PATCH[player.readyweapon] or "PISGA0"
-    player.psprite_tics = 0
-    return
-  end
-  local body, tics, sfx = seq[1][1], seq[1][2], seq[1][3]
-  player.psprite_body = body
-  player.psprite_tics = tics
-  if sfx ~= "" and game and game.start_sound then
-    game.start_sound(sfx)
-  end
-end
-
-local function tick_ready(player, game)
-  local seq = WEAPON_READY[player.readyweapon]
-  if not seq then
-    player.psprite_body = WEAPON_PATCH[player.readyweapon] or "PISGA0"
-    return
-  end
-  if player.psprite_tics > 0 then
-    player.psprite_tics = player.psprite_tics - 1
-    if player.psprite_tics > 0 then
-      return
-    end
-    player.psprite_step = (player.psprite_step + 1) % #seq
-  end
-  local row = seq[player.psprite_step + 1]
-  player.psprite_body = row[1]
-  player.psprite_tics = row[2]
-  if row[3] ~= "" and game and game.start_sound then
-    game.start_sound(row[3])
-  end
-end
-
-local function enter_atk_step(player, game, ammo_type, firing, can_fire)
-  local seq = WEAPON_ATK[player.readyweapon] or WEAPON_ATK[WP_PISTOL]
-  while true do
-    if player.psprite_step >= #seq then
-      if firing and can_fire and player.pendingweapon == WP_NOCHANGE then
-        player.psprite_step = 0
-      else
-        start_ready(player, game)
-        if not firing then
-          player.attackdown = false
-          player.refire = 0
-        end
-        return
-      end
-    else
-      local row = seq[player.psprite_step + 1]
-      if row[7] and firing and can_fire and player.pendingweapon == WP_NOCHANGE and (player.health or 0) > 0 then
-        player.psprite_step = 0
-      else
-        player.psprite_body = row[1]
-        player.psprite_tics = row[2]
-        if row[5] ~= 0 then
-          player.psprite_flash = row[4]
-          player.flash_tics = row[5]
-        end
-        if row[6] ~= 0 then
-          player.extralight = row[6]
-        end
-        if row[3] then
-          do_shot(player, game, ammo_type)
-        end
-        if row[2] > 0 then
-          return
-        end
-        player.psprite_step = player.psprite_step + 1
-      end
-    end
-  end
-end
-
-local function lower_weapon(player, game)
-  player.psprite_state = "down"
-  if player.psprite_body == "" then
-    player.psprite_body = WEAPON_PATCH[player.readyweapon] or "PISGA0"
-  end
-  player.psprite_sy = player.psprite_sy + LOWERSPEED
-  if player.psprite_sy < WEAPONBOTTOM then
-    return
-  end
-  player.psprite_sy = WEAPONBOTTOM
-  if player.playerstate == PST_DEAD or player.health <= 0 then
-    return
-  end
-  if player.pendingweapon ~= WP_NOCHANGE then
-    player.readyweapon = player.pendingweapon
-    player.pendingweapon = WP_NOCHANGE
-  end
-  if player.readyweapon == WP_CHAINSAW and game and game.start_sound then
-    game.start_sound("sawup")
-  end
-  player.psprite_state = "up"
-  player.psprite_body = WEAPON_PATCH[player.readyweapon] or "PISGA0"
-end
-
-local function raise_weapon(player, game)
-  player.psprite_sy = player.psprite_sy - RAISESPEED
-  if player.psprite_body == "" then
-    player.psprite_body = WEAPON_PATCH[player.readyweapon] or "PISGA0"
-  end
-  if player.psprite_sy > WEAPONTOP then
-    return
-  end
-  player.psprite_sy = WEAPONTOP
-  start_ready(player, game)
-end
-
--- Arma (passo 4a): a maquina de estados da arma (antes weapon_think,
--- chamada no meio de M.think) virou a task Arma (arma.atm), filha da task
--- Jogador (passo 4c), que a acorda com :jogador.arma depois do tic do
--- jogador. Aqui ficam as partes de um tic que ela chama.
-
--- Comeco de todo tic da arma: o jogador morto so baixa a arma (devolve nil);
--- vivo, confere a municao (sem municao, pede a troca em pendingweapon) e
--- devolve o que o resto do tic precisa.
-function M.arma_comeco(player, game)
-  if player.playerstate == PST_DEAD or player.health <= 0 then
-    lower_weapon(player, game)
-    return nil
-  end
-  local cmd = player.cmd
-  local firing = band(cmd.buttons, BT_ATTACK) ~= 0
-  local ammo_type = WEAPON_AMMO[player.readyweapon]
-  local can_fire = true
-  local need = ammo_needed(player.readyweapon)
-  if ammo_type ~= nil and player.ammo[ammo_type] < need then
-    can_fire = player.readyweapon == WP_FIST or player.readyweapon == WP_CHAINSAW
-    if not can_fire then
-      local order = { WP_PISTOL, WP_SHOTGUN, WP_CHAINGUN, WP_MISSILE, WP_PLASMA, WP_BFG, WP_FIST }
-      for i = 1, #order do
-        local w = order[i]
-        local at = WEAPON_AMMO[w]
-        if player.weaponowned[w] and (at == nil or player.ammo[at] >= ammo_needed(w)) then
-          player.pendingweapon = w
-          break
-        end
-      end
-      ammo_type = WEAPON_AMMO[player.readyweapon]
-      can_fire = ammo_type == nil or player.ammo[ammo_type] >= ammo_needed(player.readyweapon)
-    end
-  end
-  return { firing = firing, ammo_type = ammo_type, can_fire = can_fire }
-end
-
--- Pode comecar a atirar? (o lanca-foguetes e o BFG pedem soltar o gatilho)
-function M.arma_pode_atirar(player)
-  return (not player.attackdown) or (player.readyweapon ~= WP_MISSILE and player.readyweapon ~= WP_BFG)
-end
-
-M.arma_baixar = lower_weapon
-M.arma_subir = raise_weapon
-M.arma_pronta = start_ready
-M.arma_balanco = tick_ready
-M.arma_passo = enter_atk_step
+-- C3: a arma (o tiro, as fases e as partes de um tic que a task Arma
+-- chamava) saiu daqui: os psprites seguem info.STATES, com as acoes do
+-- p_pspr.c, em pspr.lua.
 
 local function death_think(world, player, game, leveltime)
   local mo = player.mo
@@ -879,15 +514,43 @@ function M.usar(world, player, game)
 end
 
 -- Troca de arma pelo teclado: so registra o pedido (a task Arma troca).
-function M.escolher_arma(player)
+-- C3: como o P_PlayerThink do Doom: a tecla 1 da a motosserra, se o jogador
+-- a tiver (com a motosserra na mao, so volta ao punho com o berserk); no
+-- Doom 2, a tecla 3 da a espingarda de cano duplo; no shareware, nada de
+-- plasma nem BFG.
+function M.escolher_arma(player, game)
   local cmd = player.cmd
   if band(cmd.buttons, BT_CHANGE) ~= 0 then
     local neww = math.floor(band(cmd.buttons, BT_WEAPONMASK) / (2 ^ BT_WEAPONSHIFT))
+    local commercial, shareware = pspr.modo(game)
+    if neww == WP_FIST and player.weaponowned[WP_CHAINSAW]
+        and not (player.readyweapon == WP_CHAINSAW and (player.powers[PW_STRENGTH] or 0) ~= 0) then
+      neww = WP_CHAINSAW
+    end
+    if commercial and neww == WP_SHOTGUN and player.weaponowned[WP_SUPERSHOTGUN]
+        and player.readyweapon ~= WP_SUPERSHOTGUN then
+      neww = WP_SUPERSHOTGUN
+    end
     if neww >= 0 and neww <= WP_SUPERSHOTGUN and player.weaponowned[neww] and neww ~= player.readyweapon then
-      player.pendingweapon = neww
+      if (neww ~= WP_PLASMA and neww ~= WP_BFG) or not shareware then
+        player.pendingweapon = neww
+      end
     end
   end
 end
+
+-- C3: a motosserra que acertou puxa o jogador para a frente no tic
+-- seguinte (MF_JUSTATTACKED, no comeco do P_PlayerThink)
+local function arrancada(player)
+  local mo = player.mo
+  if band(mo.flags, pspr.MF_JUSTATTACKED) ~= 0 then
+    player.cmd.angleturn = 0
+    player.cmd.forwardmove = 100       -- 0xc800 / 512
+    player.cmd.sidemove = 0
+    mo.flags = band(mo.flags, bnot(pspr.MF_JUSTATTACKED))
+  end
+end
+M.arrancada = arrancada
 
 -- Poderes (forca, invulnerabilidade, invisibilidade, infravermelho, roupa):
 -- descontam a cada tic; e o efeito de tela deles (fixedcolormap).
@@ -1086,13 +749,7 @@ function M.build_ticcmd(held, turnheld, player, mousex, mousey, sensitivity, mou
   end
   local picked = nil
   if held["1"] then
-    if player and player.readyweapon == WP_CHAINSAW then
-      picked = WP_FIST
-    elseif player and player.weaponowned[WP_CHAINSAW] then
-      picked = WP_CHAINSAW
-    else
-      picked = WP_FIST
-    end
+    picked = WP_FIST                     -- C3: a motosserra e do P_PlayerThink
   elseif held["2"] then
     picked = WP_PISTOL
   elseif held["3"] then
@@ -1139,16 +796,6 @@ function M.build_ticcmd(held, turnheld, player, mousex, mousey, sensitivity, mou
     end
   end
   return cmd, held_count
-end
-
-function M.weapon_body(player)
-  if player.psprite_body ~= "" then
-    return player.psprite_body
-  end
-  if player.psprite_state == "atk" or player.psprite_state == "fire" then
-    return WEAPON_FIRE_BODY[player.readyweapon] or WEAPON_PATCH[player.readyweapon] or "PISGA0"
-  end
-  return WEAPON_PATCH[player.readyweapon] or "PISGA0"
 end
 
 local KEY_CARD = {

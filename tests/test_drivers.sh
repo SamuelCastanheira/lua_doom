@@ -29,8 +29,8 @@
 #   ordem: "use" no tic em que a linha entra no alcance; porta e elevador vizinhos no mesmo tic (rode com -warp 1 3; B2)
 #   correcoes: cenarios da fase de correcoes; C1: New Game na intermissao depois do idkfa; C2: pausa e menu, idclev na pausa, menu aberto no comeco do E1M3 (rode com -warp 1 1)
 #
-# REF_TAG=<tag> muda a referencia (padrao: c2, a branch lua com as correcoes
-# ate o C2; antes, c1 e passo1); REF_DIR=<pasta> aponta
+# REF_TAG=<tag> muda a referencia (padrao: c3, a branch lua com as correcoes
+# ate o C3; antes, c2, c1 e passo1); REF_DIR=<pasta> aponta
 # para uma pasta pronta (por exemplo, a branch lua: build/branch-lua).
 set -e
 cd "$(dirname "$0")/.."
@@ -43,7 +43,7 @@ while [ $# -gt 0 ] && [ $n -lt 3 ]; do
   shift
   n=$((n + 1))
 done
-REF_TAG=${REF_TAG:-c2}
+REF_TAG=${REF_TAG:-c3}
 # O hash de estado tambem cobre os lados (texturas e deslocamento) so com
 # esta variavel; tools/custo_drivers.py roda sem ela.
 export DOOM_REPLAY_SIDES=1
@@ -230,11 +230,12 @@ if [ "$EXITS" = "pisos" ] && [ $status -eq 0 ]; then
   [ $status -eq 0 ] && echo "  cobertura dos pisos: save e load com pisos subindo e descendo; E2M2, E2M4, E2M1, E3M5"
 fi
 # No roteiro "arma" (passo 4a): save no meio do tiro do BFG (slot 5 com
-# psprite_state "atk" e readyweapon 6) e um load. As trocas, a falta de
+# readyweapon 6 e, desde o C3, a arma num estado de tiro do BFG, S_BFG1 a
+# S_BFG4 = 84 a 87; antes, psprite_state "atk") e um load. As trocas, a falta de
 # municao e a morte atirando foram conferidas com prints (registro do passo
 # 4, secao 4a).
 if [ "$EXITS" = "arma" ] && [ $status -eq 0 ]; then
-  grep -aq '"psprite_state":"atk"' "$OUT/run_atm/doomsav5.dsg" 2>/dev/null || { echo "COBERTURA INCOMPLETA: o slot 5 nao tem a arma atirando"; status=1; }
+  grep -aqE '"psp0_state":8[4-7][,}]' "$OUT/run_atm/doomsav5.dsg" 2>/dev/null || { echo "COBERTURA INCOMPLETA: o slot 5 nao tem a arma atirando"; status=1; }
   grep -aq '"readyweapon":6' "$OUT/run_atm/doomsav5.dsg" 2>/dev/null || { echo "COBERTURA INCOMPLETA: o slot 5 nao tem o BFG"; status=1; }
   n=$(grep -c "^pedido jogo.carregar" "$OUT/atm.out" || true)
   [ "$n" -ge 1 ] || { echo "COBERTURA INCOMPLETA: $n loads (esperado 1)"; status=1; }

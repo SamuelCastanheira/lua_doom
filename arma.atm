@@ -1,119 +1,255 @@
-;; Arma do jogador (psprites) como task Atmos (passo 4a do docs/PLANO_ATMOS.md).
+;; Arma do jogador (psprites) como task Atmos: passo 4a do
+;; docs/PLANO_ATMOS.md e, desde o C3, com os estados de info.STATES e as
+;; acoes do p_pspr.c do Doom (pspr.lua).
 ;;
-;; Antes: weapon_think (player.lua, tag passo3), chamada no meio de
-;; player.think, despachava a cada tic por player.psprite_state ("up",
-;; "ready", "atk", "down"). Agora a task Arma e filha da task Jogador
-;; (jogador.atm, passo 4c) e acorda com :jogador.arma, que o Jogador emite
-;; depois das partes do seu tic.
+;; Antes do C3 (tag c2): a arma tinha tabelas proprias em player.lua
+;; (WEAPON_PATCH, WEAPON_ATK, WEAPON_READY) e quatro fases por nome em
+;; psprite_state ("up", "ready", "atk", "down"); o clarao era um contador
+;; (flash_tics). Cada fase era uma funcao desta task.
 ;;
-;; A fase continua em psprite_state, no registro do jogador, pelos mesmos
-;; motivos da porta (passo 3b): o renderer, o save e o hash de estado a leem,
-;; e o Lua escreve pendingweapon (troca de arma, item apanhado) no meio do tic
-;; (o recado). Cada fase e uma funcao que roda um tic por vez ate a fase
-;; mudar; as partes de um tic (baixar, subir, um passo do tiro...) continuam
-;; em player.lua, com as tabelas da arma.
+;; Agora: como no Doom, o jogador tem dois psprites, a arma (psprites[0]) e
+;; o clarao (psprites[1]), cada um num estado de info.STATES. Entrar num
+;; estado chama a acao dele (P_SetPsprite, em pspr.lua), e as acoes trocam
+;; estados: o A_WeaponReady comeca o tiro ou a descida, o A_ReFire volta ao
+;; comeco do tiro, o A_Lower troca de arma no fundo, o A_Raise acaba a
+;; subida. A task "descompila" a parte da tabela de cada arma em fases com
+;; nome (as faixas abaixo), como a task Monstro (monstro.atm) faz com os
+;; monstros, e escreve no codigo o que vem depois de que: subir, pronta e
+;; baixar se repetem (um quadro, a acao a cada tic); o tiro termina na arma
+;; pronta; o clarao termina apagado (S_LIGHTDONE). Cada quadro vem da tabela.
+;;
+;; Os dois psprites sao dois ramos do par, na ordem do P_MovePsprites: a
+;; arma, depois o clarao (P6). A arma liga o clarao (A_GunFlash,
+;; A_FirePistol...) no meio do seu tic, e o clarao desconta o primeiro tic
+;; logo em seguida, no mesmo tic, como no Doom.
+;;
+;; Saltos de fora: as acoes trocam o estado do proprio psprite (a task
+;; percebe em "entrar") e o do outro (a arma liga o clarao); a morte troca o
+;; estado da arma no meio do tic (P_DropWeapon, de player.damage_mobj). A
+;; task percebe o salto e vai para a fase do estado novo, como na task
+;; Monstro. Um estado fora da tabela da arma e erro: o caso "estranho" da
+;; Monstro (o load por indice) nao existe aqui, e no passo 9 ele calou um
+;; erro de tabela.
+;;
+;; A task e filha da task Jogador (jogador.atm, passo 4c) e acorda com
+;; :jogador.arma, que o Jogador emite depois das partes do seu tic.
 
-val A = require "player"
+val P    = require "pspr"
+val info = require "info"
 
-;; Um tic da arma comeca sempre igual: o jogador morto so baixa a arma
-;; (devolve nil); vivo, devolve [firing, ammo_type, can_fire] (sem municao,
-;; ja pediu a troca em pendingweapon).
-val func tic (p, game) {
-    await :jogador.arma
-    A.arma_comeco(p, game)
-}
-
-;; Fase "up": sobe ate o topo (ou baixa, se pediram outra arma).
-val func subir (p, game) {
+;; Os estados de a ate b, em sequencia (cada fase ocupa uma faixa continua
+;; de info.STATES, na ordem de info.c).
+val func faixa (a, b) {
+    val seq = []
+    var st = a
     loop {
-        val c = tic(p, game)
-        if c {
-            if p.pendingweapon != A.WP_NOCHANGE {
-                A.arma_baixar(p, game)
-            } else {
-                A.arma_subir(p, game)
-            }
-        }
-        until (p.psprite_state != :up)
+        until (st > b)
+        set seq@(#seq + 1) = st
+        set st = st + 1
     }
+    seq
 }
 
-;; Fase "down": desce ate embaixo e troca de arma (morto, fica embaixo).
-val func baixar (p, game) {
+;; As fases de cada arma. Entre parenteses, as acoes dos quadros. subir,
+;; baixar e pronta sao um quadro de 1 tic que volta a si mesmo (a motosserra
+;; pronta tem dois, de 4 tics); "clarao" e uma lista de sequencias, porque a
+;; metralhadora e o plasma tem dois claroes, um para cada tiro.
+
+val PUNHO = [
+    subir  = [info.S_PUNCHUP],                         ;; (A_Raise)
+    baixar = [info.S_PUNCHDOWN],                       ;; (A_Lower)
+    pronta = [info.S_PUNCH],                           ;; (A_WeaponReady)
+    atirar = faixa(info.S_PUNCH1, info.S_PUNCH5),      ;; (), (A_Punch), (), (), (A_ReFire)
+    clarao = [],
+]
+
+val PISTOLA = [
+    subir  = [info.S_PISTOLUP],
+    baixar = [info.S_PISTOLDOWN],
+    pronta = [info.S_PISTOL],
+    atirar = faixa(info.S_PISTOL1, info.S_PISTOL4),    ;; (), (A_FirePistol), (), (A_ReFire)
+    clarao = [[info.S_PISTOLFLASH]],                   ;; (A_Light1)
+]
+
+val ESCOPETA = [
+    subir  = [info.S_SGUNUP],
+    baixar = [info.S_SGUNDOWN],
+    pronta = [info.S_SGUN],
+    atirar = faixa(info.S_SGUN1, info.S_SGUN9),        ;; SGUN2 (A_FireShotgun), SGUN9 (A_ReFire)
+    clarao = [faixa(info.S_SGUNFLASH1, info.S_SGUNFLASH2)],  ;; (A_Light1), (A_Light2)
+]
+
+val METRALHADORA = [
+    subir  = [info.S_CHAINUP],
+    baixar = [info.S_CHAINDOWN],
+    pronta = [info.S_CHAIN],
+    atirar = faixa(info.S_CHAIN1, info.S_CHAIN3),      ;; (A_FireCGun) x2, (A_ReFire) com 0 tics
+    clarao = [[info.S_CHAINFLASH1], [info.S_CHAINFLASH2]],   ;; (A_Light1), (A_Light2)
+]
+
+val LANCA_FOGUETES = [
+    subir  = [info.S_MISSILEUP],
+    baixar = [info.S_MISSILEDOWN],
+    pronta = [info.S_MISSILE],
+    atirar = faixa(info.S_MISSILE1, info.S_MISSILE3),  ;; (A_GunFlash), (A_FireMissile), (A_ReFire) com 0 tics
+    clarao = [faixa(info.S_MISSILEFLASH1, info.S_MISSILEFLASH4)], ;; (A_Light1), (), (A_Light2) x2
+]
+
+val PLASMA = [
+    subir  = [info.S_PLASMAUP],
+    baixar = [info.S_PLASMADOWN],
+    pronta = [info.S_PLASMA],
+    atirar = faixa(info.S_PLASMA1, info.S_PLASMA2),    ;; (A_FirePlasma), (A_ReFire)
+    clarao = [[info.S_PLASMAFLASH1], [info.S_PLASMAFLASH2]], ;; (A_Light1); um dos dois, por P_Random
+]
+
+val BFG = [
+    subir  = [info.S_BFGUP],
+    baixar = [info.S_BFGDOWN],
+    pronta = [info.S_BFG],
+    atirar = faixa(info.S_BFG1, info.S_BFG4),          ;; (A_BFGsound), (A_GunFlash), (A_FireBFG), (A_ReFire)
+    clarao = [faixa(info.S_BFGFLASH1, info.S_BFGFLASH2)],    ;; (A_Light1), (A_Light2)
+]
+
+val MOTOSSERRA = [
+    subir  = [info.S_SAWUP],
+    baixar = [info.S_SAWDOWN],
+    pronta = faixa(info.S_SAW, info.S_SAWB),           ;; (A_WeaponReady) x2; o primeiro toca "sawidl"
+    atirar = faixa(info.S_SAW1, info.S_SAW3),          ;; (A_Saw) x2, (A_ReFire) com 0 tics
+    clarao = [],
+]
+
+val CANO_DUPLO = [                                     ;; Doom 2
+    subir  = [info.S_DSGUNUP],
+    baixar = [info.S_DSGUNDOWN],
+    pronta = [info.S_DSGUN],
+    atirar = faixa(info.S_DSGUN1, info.S_DSGUN10),     ;; DSGUN2 (A_FireShotgun2), ... DSGUN10 (A_ReFire)
+    clarao = [faixa(info.S_DSGUNFLASH1, info.S_DSGUNFLASH2)],
+]
+
+;; Pelo numero da arma (wp_fist = 0 ... wp_supershotgun = 8)
+val ARMAS = []
+set ARMAS@(0) = PUNHO
+set ARMAS@(1) = PISTOLA
+set ARMAS@(2) = ESCOPETA
+set ARMAS@(3) = METRALHADORA
+set ARMAS@(4) = LANCA_FOGUETES
+set ARMAS@(5) = PLASMA
+set ARMAS@(6) = BFG
+set ARMAS@(7) = MOTOSSERRA
+set ARMAS@(8) = CANO_DUPLO
+
+;; Posicao do estado st na sequencia seq (0 se nao estiver)
+val func indice (seq, st) {
+    var achou = 0
+    var i = 0
     loop {
-        val c = tic(p, game)
-        if c {
-            A.arma_baixar(p, game)
+        set i = i + 1
+        until (i > #seq)
+        if (seq@i) == st {
+            set achou = i
         }
-        until (p.psprite_state != :down)
     }
+    achou
 }
 
-;; Fase "atk": a sequencia de tiro (WEAPON_ATK), um passo a cada psprite_tics.
-val func atirar (p, game) {
-    loop {
-        val c = tic(p, game)
-        if c {
-            if p.psprite_state == :fire {     ;; nenhum codigo escreve "fire" hoje
-                set p.psprite_state = :atk
-            }
-            if c.firing {
-                set p.attackdown = true
-            }
-            if p.psprite_tics > 0 {
-                set p.psprite_tics = p.psprite_tics - 1
-            }
-            if p.psprite_tics <= 0 {
-                set p.psprite_step = p.psprite_step + 1
-                A.arma_passo(p, game, c.ammo_type, c.firing, c.can_fire)
-            }
+;; A sequencia de clarao que contem st (nil se nenhuma)
+val func qual (claroes, st) {
+    var achou = nil
+    loop _, seq in claroes {
+        if indice(seq, st) > 0 {
+            set achou = seq
         }
-        until (p.psprite_state != :atk)
     }
+    achou
 }
 
-;; Fase "ready" (e qualquer outra): balanca a arma ate trocar ou atirar.
-val func pronta (p, game) {
-    loop {
-        val c = tic(p, game)
-        if c {
-            ifs {
-                (p.pendingweapon != A.WP_NOCHANGE) => A.arma_baixar(p, game)
-                c.firing && c.can_fire && A.arma_pode_atirar(p) => {
-                    set p.psprite_state = :atk
-                    set p.psprite_step = 0
-                    set p.psprite_sy = A.WEAPONTOP
-                    set p.attackdown = true
-                    A.arma_passo(p, game, c.ammo_type, c.firing, c.can_fire)
-                }
-                (p.psprite_state != :ready) => A.arma_pronta(p, game)
-                else => {
-                    A.arma_balanco(p, game)
-                    if !c.firing {
-                        set p.attackdown = false
-                        set p.refire = 0
-                    }
-                }
-            }
-        }
-        val st = p.psprite_state
-        until ((st == :up) || (st == :down) || (st == :atk))
-    }
-}
-
-;; O clarao do tiro (psprite_flash): um contador, flash_tics, que o Lua liga
-;; ao atirar (passo do tiro, plasma). Roda num ramo proprio, antes da fase
-;; (P6): o tiro deste tic liga um clarao novo depois da contagem.
-val func clarao (p) {
+;; Conta os tics do estado atual do psprite pos, um :jogador.arma por vez
+;; (o P_MovePsprites). Devolve :fim (acabaram os tics) ou :salto (o estado
+;; foi trocado de fora; o tic ja descontou o estado novo). Apagado (estado
+;; 0), espera ate alguem acender.
+val func contar (p, pos) {
+    val psp = p.psprites@pos
+    val st = psp.state
     loop {
         await :jogador.arma
-        val vivo = (p.playerstate != A.PST_DEAD) && (p.health > 0)
-        if vivo && (p.flash_tics > 0) {
-            set p.flash_tics = p.flash_tics - 1
-            if p.flash_tics <= 0 {
-                set p.psprite_flash = ""
-                set p.extralight = 0
-            }
+        val acabou = P.contar_tic(p, pos)
+        until (psp.state != st, :salto)
+        until (acabou, :fim)
+    }
+}
+
+;; Entra no estado st (com a acao). Devolve :ok ou :aplicado (a acao, ou um
+;; quadro de 0 tics, levou a outro estado, ja aplicado).
+val func entrar (p, pos, game, st) {
+    P.set_psprite(p, pos, st, game)
+    if (p.psprites@pos).state == st => :ok => :aplicado
+}
+
+;; Roda a sequencia seq a partir do estado atual (ja aplicado). "vencido":
+;; os tics do estado atual ja acabaram neste tic (salto de fora). "repete":
+;; volta ao comeco no fim. Devolve :fim, :salto ou :aplicado.
+val func sequencia (p, pos, game, seq, vencido, repete) {
+    var i = indice(seq, (p.psprites@pos).state)
+    var r = if vencido => :fim => contar(p, pos)
+    loop {
+        until (r != :fim, r)
+        set i = i + 1
+        if repete && (i > #seq) {
+            set i = 1
+        }
+        until (i > #seq, :fim)
+        val e = entrar(p, pos, game, seq@i)
+        until (e != :ok, e)
+        set r = contar(p, pos)
+    }
+}
+
+;; O salto deixou o estado novo sem tics: ele vence ja neste tic
+val func vencido (p, pos, r) {
+    val psp = p.psprites@pos
+    (r == :salto) && (psp.state != 0) && (psp.tics == 0)
+}
+
+;; O psprite da arma: a fase do estado atual; ao terminar, a proxima
+val func arma (p, game) {
+    val pos = P.PS_WEAPON
+    var venc = false
+    loop {
+        val W = ARMAS@(p.readyweapon)
+        val st = (p.psprites@pos).state
+        val r = ifs {
+            (st == 0) => contar(p, pos)                ;; guardada (morte sem corpo)
+            (indice(W.subir, st) > 0)  => sequencia(p, pos, game, W.subir, venc, true)
+            (indice(W.pronta, st) > 0) => sequencia(p, pos, game, W.pronta, venc, true)
+            (indice(W.baixar, st) > 0) => sequencia(p, pos, game, W.baixar, venc, true)
+            (indice(W.atirar, st) > 0) => sequencia(p, pos, game, W.atirar, venc, false)
+            else => error("arma: estado " ++ tostring(st) ++ " fora da tabela da arma " ++ tostring(p.readyweapon))
+        }
+        set venc = vencido(p, pos, r)
+        if r == :fim {
+            entrar(p, pos, game, W.pronta@1)           ;; o tiro termina na arma pronta
+        }
+    }
+}
+
+;; O psprite do clarao: apagado ate a arma acender; cada clarao e uma
+;; sequencia que termina apagada (S_LIGHTDONE, A_Light0)
+val func clarao (p, game) {
+    val pos = P.PS_FLASH
+    var venc = false
+    loop {
+        val W = ARMAS@(p.readyweapon)
+        val st = (p.psprites@pos).state
+        val seq = qual(W.clarao, st)
+        val r = ifs {
+            (st == 0) => contar(p, pos)                ;; apagado: espera um tiro
+            seq => sequencia(p, pos, game, seq, venc, false)
+            else => error("clarao: estado " ++ tostring(st) ++ " fora da tabela da arma " ++ tostring(p.readyweapon))
+        }
+        set venc = vencido(p, pos, r)
+        if r == :fim {
+            entrar(p, pos, game, info.S_LIGHTDONE)     ;; apaga (A_Light0)
         }
     }
 }
@@ -121,18 +257,10 @@ val func clarao (p) {
 val task Arma (p, game) {
     set pub = p
     par {
-        clarao(p)
+        arma(p, game)                                  ;; ps_weapon
     } with {
-        loop {
-            val st = p.psprite_state
-            ifs {
-                (st == :up) => subir(p, game)
-                (st == :down) => baixar(p, game)
-                (st == :atk) || (st == :fire) => atirar(p, game)
-                else => pronta(p, game)
-            }
-        }
+        clarao(p, game)                                ;; ps_flash, depois da arma
     }
 }
 
-[Arma=Arma]
+[Arma=Arma, ARMAS=ARMAS]

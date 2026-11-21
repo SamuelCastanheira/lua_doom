@@ -38,7 +38,8 @@ Atmos) e escreve em **português**. Responda em português.
 | tag `passo8` | a task `Mundo`, o rosto da barra (`barra.atm`), o menu e o automapa (`interface.atm`) |
 | tag `passo9` | a família de monstros: Zombieman, Shotgun Guy, Demon e Spectre com a task `Monstro` (`monstro.atm`). **Estado atual da migração** |
 | tag `c1` (branch `lua`) | a branch `lua` com as correções do C1 (o `carry`, o jogador esmagado) |
-| tag `c2` (branch `lua`) | a branch `lua` com o C2 (o menu e a tecla Pause param o mundo). **Referência de equivalência atual** (`REF_TAG` padrão) |
+| tag `c2` (branch `lua`) | a branch `lua` com o C2 (o menu e a tecla Pause param o mundo) |
+| tag `c3` (branch `lua`) | a branch `lua` com o C3 (a arma com `info.STATES` e o `p_pspr.c`, em `pspr.lua`). **Referência de equivalência atual** (`REF_TAG` padrão) |
 | tag `luaV.1` | marco antigo do usuário (sem relação com a migração) |
 | commit `522b06f` | renderer 100% Lua (referência pixel a pixel do renderer em C, usada por `make compare`) |
 
@@ -526,7 +527,7 @@ automapa, `-`/`=` mudam o tamanho da tela.
 ### 5.2 Equivalência da lógica (driver Atmos × referência)
 
 ```sh
-make test-drivers          # semantica do Atmos (P1-P9) + 14 roteiros contra a tag c2; saves comparados byte a byte
+make test-drivers          # semantica do Atmos (P1-P9) + 14 roteiros contra a tag c3; saves comparados byte a byte
 sh tests/test_drivers.sh 0 1 fluxo         # roteiro com todas as transicoes
 sh tests/test_drivers.sh 4000 1            # pseudoaleatorio, 4000 quadros, semente 1
 sh tests/test_drivers.sh 6000 2 exits      # tambem termina niveis
@@ -545,7 +546,7 @@ REF_TAG=passo1 sh tests/test_drivers.sh 0 1 fluxo   # outra referencia (passo1: 
 ```
 
 - Argumentos: `quadros semente [exits|fluxo] [args do jogo]`.
-- A referência é **`REF_TAG`** (padrão `c2`, desde o C2; antes, `c1` e `passo1`). O script cria um worktree
+- A referência é **`REF_TAG`** (padrão `c3`, desde o C3; antes, `c2`, `c1` e `passo1`). O script cria um worktree
   em `build/ref-<tag>`, aplica `tests/ref-<tag>.patch` se existir, compila e
   roda o `lua5.4 main.lua` de lá. Compara com `atmos main.atm` e com
   `lua5.4 main.lua` atuais.
@@ -675,9 +676,15 @@ revisões do próprio port na seção 5). No fim, as correções são feitas nas
 - Ramos `-- caminho antigo (sem main.atm)` em `menu.lua`, `cheats.lua` e
   `saveg.lua` existem para os testes unitários com um `game` falso. Não
   remova.
-- Animação da arma usa tabelas próprias em `player.lua` (`WEAPON_PATCH`,
-  `WEAPON_READY`, `WEAPON_ATK`), não a máquina de estados do `p_pspr.c`. Isso
-  é o passo 4.
+- **Corrigido no C3** (tag `c3`): a arma segue os estados de
+  `info.STATES` com as ações do `p_pspr.c` (`pspr.lua`, igual nas duas
+  branches). O jogador tem `psprites[0]` (arma) e `psprites[1]` (clarão),
+  cada um com `state`, `tics`, `sx`, `sy`; saíram `psprite_state`,
+  `psprite_body`, `flash_tics` e as tabelas `WEAPON_*`. Atmos: a task `Arma`
+  com uma tabela por arma (fases subir, pronta, atirar, baixar, clarão) e os
+  dois psprites como ramos do `par`; um estado fora da tabela é `error`.
+  Lua: `pspr.mover_psprites` (o `P_MovePsprites`). O desenho só lê os
+  psprites. Registro: `docs/registro/15-correcoes-c3.md`.
 - Sprites e arma usam a luz do setor (como o Doom); flashes de arma
   (`PISFA0`, `SHT2I0`…) são `FF_FULLBRIGHT`, lidos de `info.STATES`.
 

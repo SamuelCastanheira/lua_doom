@@ -104,6 +104,10 @@ local ordem = arg[4] == "ordem"
 -- C2: a pausa (tecla Pause e menu) no E1M1 do jogo novo; o idclev na pausa
 -- (o nivel novo comeca sem pausa); no fim do E1M2, o menu aberto quando o
 -- E1M3 comeca (o primeiro tic do nivel roda).
+-- C3: no E1M3, a arma como no Doom: a motosserra pela tecla 1 (e a tecla 1
+-- de novo, com ela na mao), serrando um zumbi (vira e e puxado para a
+-- frente); o berserk e o soco num barril (vira para ele); o BFG ate faltar celula
+-- (a troca vai para o plasma, a preferencia do P_CheckAmmo).
 -- "quadros" e ignorado.
 local correcoes = arg[4] == "correcoes"
 -- "telas": roteiro do passo 7, rodado com "-warp 1 1". E1M1: visita os 3
@@ -318,6 +322,26 @@ if correcoes then
   tap("space"); wait(40); tap("space"); wait(10)
   tap("escape"); wait(220)
   tap("escape"); wait(60)
+  -- C3, no E1M3. O jogador nasce olhando para o norte; o zumbi em
+  -- (-1152, -2880) e o barril em (-1280, -3024) ficam logo ao norte do
+  -- "goto", um pouco para o lado (o ataque de perto vira o jogador para o
+  -- alvo). O barril nao anda: os monstros acordam com o barulho.
+  local function goto_xy(x, y)
+    lines[#lines + 1] = string.format("%d goto %d %d", f, x, y)
+    f = f + 1
+  end
+  type_text("iddqd"); wait(10); type_text("idkfa"); wait(20)
+  hold("1", 3); wait(40)                               -- motosserra
+  hold("1", 3); wait(40)                               -- de novo: fica (sem berserk)
+  goto_xy(-1137, -2930); wait(5)
+  hold("ctrl", 40); wait(30)                           -- serra o zumbi
+  type_text("idbeholds"); wait(10)                     -- berserk
+  hold("1", 3); wait(40)                               -- com berserk: o punho
+  goto_xy(-1265, -3074); wait(5)
+  hold("ctrl", 40); wait(30)                           -- soco no barril
+  goto_xy(-1472, -3344); wait(5)
+  hold("7", 3); wait(40)                               -- BFG
+  hold("ctrl", 330); wait(60)                          -- ate faltar celula
   lines[#lines + 1] = string.format("%d quit", f + 20)
   local fh = assert(io.open(out_path, "w"))
   fh:write(table.concat(lines, "\n"), "\n")

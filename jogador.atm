@@ -26,18 +26,20 @@ val task Jogador (p, game) {
     spawn arma.Arma(p, game)              ;; filha: termina com o Jogador
     loop {                                ;; vivo
         await :game.jogador
+        J.arrancada(p)                    ;; C3: motosserra (MF_JUSTATTACKED)
         until (p.playerstate == J.PST_DEAD)   ;; morreu: este tic ja e de morto
         val w = game.world
         val t = game.leveltime || 0
         J.mover(w, p, game, t)            ;; girar, andar, altura da camera
         J.pisar(w, p, game, t)            ;; dano e segredo do setor
         J.usar(w, p, game)                ;; linhas
-        J.escolher_arma(p)                ;; pedido pelo teclado
+        J.escolher_arma(p, game)          ;; pedido pelo teclado
         J.contar_poderes(p)               ;; e o efeito de tela
         J.contar_avisos(p)                ;; claroes e mensagem
         emit :jogador.arma
     }
     loop {                                ;; morto (o tic corrente ja chegou)
+        J.arrancada(p)
         J.cair(game.world, p, game, game.leveltime || 0)
         emit :jogador.arma                ;; a arma continua descendo
         val renasce = J.usou(p)

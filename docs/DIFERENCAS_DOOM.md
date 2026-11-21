@@ -80,7 +80,7 @@ desce até o piso) e 141 (esmagador silencioso).
 |---|---|---|
 | Demos | tela de título (`main.atm`, task `Titulo`) | o Doom alterna TITLEPIC → créditos → demos gravadas (`DEMO1`..`DEMO3`) e grava/reproduz demos (`-record`, `-playdemo`). Para o TCC: o demo é o "replay" do próprio Doom |
 | Multiplayer | – | cooperativo e deathmatch ausentes |
-| Arma | `player.lua` (`WEAPON_PATCH`, `WEAPON_READY`, `WEAPON_ATK`) | tabelas próprias, não a máquina de estados do `p_pspr.c`; é o passo 4b (`PLANO_ATMOS.md`) |
+| Estados do mobj do jogador | `player.lua` (o mobj do jogador não tem `istate`) | o `p_pspr.c` põe o mobj do jogador em `S_PLAY_ATK1`/`S_PLAY_ATK2` ao atirar e volta a `S_PLAY` no `A_WeaponReady`; o `P_MovePlayer` o põe em `S_PLAY_RUN1` ao andar; esmagado morto, vira `S_GIBS`. Aqui o mobj do jogador não tem estados; no single player ele não aparece. Visto no C3 |
 | Transição de tela (wipe) | `wipe.lua` | usa `math.random`, não a tabela fixa (`M_Random`); só é determinística porque o replay fixa a semente |
 
 ## 5. Revisões do próprio port (não são do Doom)
@@ -119,4 +119,5 @@ fase de correção.
 | `carry` vaza para um jogo novo (seção 5) | `atmos`: `defer { G.game.carry = nil }` no início de `task Jogo`; `lua`: `game.carry = nil` no New Game (`docs/registro/13-correcoes-c1.md`) | C1, tag `c1` |
 | Jogador esmagado não morre (specials) | o esmagamento passa por `game.damage_mobj` (gancho `collision.dano_esmagar`), nas duas branches: dor, armadura, modo deus, morte. A cadência (a cada 4 tics) e o sangue ficam no item "Esmagamento sem sangue nem restos" | C1, tag `c1` |
 | Menu não pausa; sem tecla de pausa (seção 4) | com o menu aberto (depois do primeiro tic do nível) ou com a tecla Pause, o `Nivel` desliga a task `Mundo` com `toggle`; a barra e o automapa continuam, a figura `M_PAUSE` aparece e a música pausa. Na branch `lua`, um `if` em volta do tic do mundo (`docs/registro/14-correcoes-c2.md`). Fica diferente: a tecla Pause só vale no nível (no Doom, ela também mostra a figura na intermissão e no finale, que continuam) e é engolida pelas mensagens do menu | C2, tag `c2` |
+| Arma (seção 4) | os dois psprites do Doom (a arma e o clarão) com os estados de `info.STATES` e as ações do `p_pspr.c` (`pspr.lua`); a task `Arma` com as fases do Doom por arma; o desenho só lê os psprites; a tecla 1, a motosserra e o soco como no Doom (`docs/registro/15-correcoes-c3.md`) | C3, tag `c3` |
 | Mutações pendentes de cobertura (seção 5) | roteiro `ordem` (E1M3): "use" no tic em que a linha entra no alcance; porta e elevador vizinhos no mesmo tic, com o jogador na fronteira (`docs/registro/12-mutacoes-pendentes.md`). Só teste: o jogo não mudou | B2 (sem tag nova) |
