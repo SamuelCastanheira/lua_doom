@@ -573,6 +573,14 @@ local function tick_door(self, door)
   end
   local res = M.move_plane(self.world, door.sector, door.speed, dest, 1, door.direction, false)
   mark(self)
+  if res == RESULT_CRUSHED and door.direction == -1
+      and door.type ~= VLD_CLOSE and door.type ~= VLD_BLAZECLOSE then
+    -- C4a: fechando, bateu em algo: volta a abrir (T_VerticalDoor); as
+    -- portas que so fecham ficam tentando
+    door.direction = 1
+    play(self, "doropn")
+    return
+  end
   if res ~= RESULT_PASTDEST then
     return
   end
@@ -585,6 +593,9 @@ local function tick_door(self, door)
       door.dead = true
     end
   else
+    if door.type == VLD_BLAZERAISE or door.type == VLD_BLAZECLOSE then
+      play(self, "bdcls")  -- C4a: as rapidas batem ao fechar
+    end
     if door.type == VLD_CLOSE30 then
       door.direction = 0
       door.topcountdown = TICRATE * 30
