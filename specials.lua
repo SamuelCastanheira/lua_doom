@@ -846,6 +846,7 @@ function M.tick(self)
         side[btn.attr] = btn.texture
         mark(self)
       end
+      play(self, "swtchn")               -- C4f: o botao volta com som
     else
       keep[#keep + 1] = btn
     end
@@ -1363,6 +1364,28 @@ function M.start_light_strobing(self, line)
   return ok
 end
 
+-- C4f: como o P_StartButton: um botao ativo para a mesma linha impede outro
+-- (antes, o segundo devolvia a textura trocada depois), e mais de
+-- MAXBUTTONS ativos e erro, como no Doom.
+local MAXBUTTONS = 16
+
+function M.start_button(self, line, attr, texture, timer)
+  for i = 1, #self.buttons do
+    if self.buttons[i].line == line then
+      return
+    end
+  end
+  if #self.buttons >= MAXBUTTONS then
+    error("P_StartButton: no button slots left!")
+  end
+  self.buttons[#self.buttons + 1] = {
+    line = line,
+    attr = attr,
+    texture = texture,
+    timer = timer,
+  }
+end
+
 function M.change_switch(self, line, use_again)
   local side = line.sides[1]
   if not side then
@@ -1382,12 +1405,7 @@ function M.change_switch(self, line, use_again)
     local new = self.switch_map[tex]
     if new ~= nil then
       if use_again then
-        self.buttons[#self.buttons + 1] = {
-          line = line,
-          attr = attr,
-          texture = tex,
-          timer = BUTTONTIME,
-        }
+        M.start_button(self, line, attr, tex, BUTTONTIME)
       end
       side[attr] = new
       mark(self)
