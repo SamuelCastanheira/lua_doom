@@ -44,6 +44,12 @@ ROTEIROS = {
 # Mutantes equivalentes: mudam o codigo mas nao o comportamento. Sobreviver
 # e o esperado; a justificativa fica registrada.
 EQUIVALENTES = {
+    "pronta-nao-repete":
+        "C3: o fim de qualquer faixa da arma volta ao primeiro quadro da arma "
+        "pronta (entrar(W.pronta@1)), e o proximo da arma pronta e ela mesma "
+        "(a da motosserra tem dois quadros, e o proximo do segundo e o "
+        "primeiro): para a pronta, repetir e terminar dao o mesmo estado. A "
+        "mesma mutacao na subida (subida-nao-repete) e detectada",
     "arma-no-meio-do-jogador":
         "a arma no meio do tic do jogador, como no P_PlayerThink do Doom "
         "(depois da troca pelo teclado, antes dos poderes). O que vem depois "
@@ -424,7 +430,7 @@ MUTACOES = [
      "Depois de um salto de fora com os tics ja no fim, o zumbi espera mais um tic",
      "        set vencido = (r == :salto) && (mo.tics <= 0)",
      "        set vencido = false",
-     "monstro.atm", "monstro"),
+     "monstro.atm", "familia"),          # C3: no roteiro monstro, o caso sumiu com a arma nova
     ("corpo-nao-volta",
      "O corpo do zumbi nunca volta no pesadelo (-respawn)",
      "            T.mobj_parado(game.world, mo, game)   ;; corpo: pesadelo (-respawn)\n",
@@ -642,6 +648,11 @@ MUTACOES = [
      "O fim do clarao volta ao primeiro quadro do clarao (nunca apaga)",
      "            entrar(p, pos, game, info.S_LIGHTDONE)     ;; apaga (A_Light0)\n",
      "            entrar(p, pos, game, seq@1)\n",
+     "arma.atm", "arma"),
+    ("subida-nao-repete",
+     "A subida termina depois do primeiro quadro (sem repetir o A_Raise, vai direto para a arma pronta)",
+     "            (indice(W.subir, st) > 0)  => sequencia(p, pos, game, W.subir, venc, true)\n",
+     "            (indice(W.subir, st) > 0)  => sequencia(p, pos, game, W.subir, venc, false)\n",
      "arma.atm", "arma"),
     ("pronta-nao-repete",
      "A arma pronta para depois do primeiro quadro (o A_WeaponReady so roda uma vez)",

@@ -492,7 +492,62 @@ seguinte. Onde o jogador anda, o balanço passou a ser calculado no tic; onde
 atira, a cadência e o clarão mudaram (o roteiro `arma` diverge em 89% dos
 quadros).
 
-MUTACOES_C3
+## Mutações
+
+`make test-mutacoes` rodou num worktree fixo no commit do C3
+(`build/mut-c3`), para que o trabalho do C4 na árvore principal não
+interferisse.
+
+**As mutações da task `Arma` do 4a saíram** com o código que testavam:
+`clarao-depois-da-fase`, `clarao-conta-morto` (no Doom o clarão também
+conta com o jogador morto: deixou de ser erro), `troca-ignorada-na-subida`
+(no Doom o `A_Raise` não olha a troca pedida: o comportamento "mutado"
+virou o do Doom), `tiro-sem-gatilho-preso` (equivalente),
+`pronta-nao-zera-refire`, `foguete-sem-soltar` e `load-perde-fase-da-arma`.
+As do 4c (`arma-no-meio-do-jogador`, equivalente, e
+`morto-perde-o-tic-da-morte`) foram refeitas com o texto novo do
+`jogador.atm`.
+
+**As do C3:**
+
+| Mutação | Erro simulado | Roteiro | 1º quadro | Quadros dif. |
+|---|---|---|---|---|
+| `clarao-antes-da-arma` | o ramo do clarão antes do da arma (o clarão aceso no tic não desconta) | `arma` | 1 | 1.102 |
+| `tiro-volta-ao-comeco` | o fim do tiro volta ao começo do tiro | `arma` | 1.047 | 1.817 (save difere) |
+| `salto-vencido-espera` | o salto de fora sem tics (a arma solta na morte) espera um tic | `arma` | 2.738 | 72 |
+| `clarao-nao-apaga` | o fim do clarão volta ao começo do clarão | `arma` | 50 | 2.656 (save difere) |
+| `subida-nao-repete` | a subida termina no primeiro quadro (vai direto à pronta) | `arma` | 1 | 2.081 (save difere) |
+| `pronta-nao-repete` | a pronta termina no primeiro quadro | `arma` | – | 0: **equivalente** |
+| `foguete-sem-soltar` | lança-foguetes e BFG atiram de novo sem soltar o gatilho | `arma` | 1.781 | 1.029 (save difere) |
+| `refire-nao-zera` | soltar o gatilho não zera `refire` | `arma` | 1.043 | 1.826 (save difere) |
+| `subida-mais-lenta` | a arma sobe 5 por tic | `arma` | 1 | 626 |
+| `sem-balanco` | a arma pronta não balança | semente 1 | 179 | 2.917 |
+| `clarao-sem-primeiro-tic` | o clarão não desconta no tic em que acende | `arma` | 45 | 2.950 (save difere) |
+| `load-perde-a-arma` | o load não restaura os psprites | `arma` | 2.371 | 624 |
+| `punho-sem-virar` | o soco não vira para o alvo | `correcoes` | 1.606 | 529 |
+| `motosserra-sem-arrancada` | a motosserra não puxa o jogador | `correcoes` | 1.444 | 691 |
+| `tecla-1-como-antes` | a tecla 1 com a motosserra volta ao punho | `correcoes` | 1.394 | 741 |
+| `sem-municao-ordem-antiga` | sem munição, o plasma não é a primeira escolha | `correcoes` | 2.003 | 132 |
+| `carry-sem-sx` | o nível seguinte começa com `sx` 0 | `fluxo` | 508 | 170 |
+
+`pronta-nao-repete` é equivalente, e a razão diz algo sobre a task: o fim
+de qualquer faixa volta ao primeiro quadro da arma pronta, e o próximo da
+pronta é ela mesma; para a pronta, "repetir" e "terminar" levam ao mesmo
+estado. A mesma mutação na subida (`subida-nao-repete`) é detectada.
+
+**Uma mutação antiga perdeu o cenário.** `salto-sem-vencido` (passo 5, task
+`Monstro`: um salto de fora com os tics já no fim espera um tic a mais),
+detectada no roteiro `monstro` até a `c2` (quadro 955), sobreviveu: com a
+cadência e o clarão novos da arma, a briga do roteiro mudou e o caso não
+acontece mais num quadro desenhado. No roteiro `familia` (os quatro tipos
+com a task `Monstro`, passo 9) ela é detectada (quadro 2.046, 1.181
+quadros), e passou a usá-lo. É o segundo caso, depois do `botoes` no C2, em
+que uma correção de comportamento tira a sensibilidade de um roteiro
+antigo.
+
+Resultado, com os ajustes: **107/107 não equivalentes detectadas**, 7
+equivalentes, nenhuma pendente (na rodada antes dos ajustes: 105/107, 6
+equivalentes).
 
 ## Métricas
 
