@@ -42,6 +42,7 @@ local RESULT_PASTDEST = 2
 local PLAT_DOWN = 0
 local PLAT_UP = 1
 local PLAT_WAITING = 2
+local PLAT_INSTASIS = 3                  -- C4d: parado (in_stasis do Doom)
 local PLAT_DWUS = 0
 local PLAT_PERPETUAL = 1
 local PLAT_BLAZEDWUS = 2
@@ -294,6 +295,7 @@ function M.new(world, res, sound)
     switch_map = {},
     stamp = 0,
     tetos_ativos = {},                   -- C4b
+    plats_ativos = {},                   -- C4d
   }
   for i = 1, #SWITCH_PAIRS do
     local ia = res:texture_num_for_name(SWITCH_PAIRS[i][1])
@@ -607,7 +609,47 @@ local function tick_door(self, door)
   end
 end
 
+-- C4d: os elevadores ativos (activeplats do Doom, MAXPLATS lugares; cheia,
+-- o Doom para com erro). As linhas 54 e 89 param os elevadores da tag
+-- (EV_StopPlat): status in_stasis, o status de antes em oldstatus, e o
+-- thinker deixa de pensar (tick_plat nao faz nada). As linhas de elevador
+-- perpetuo (53, 87) os religam (P_ActivateInStasis). Antes do C4d,
+-- stop_plat escrevia status = WAITING e count enorme, e o elevador parado
+-- continuava descontando o count.
+local MAXPLATS = 30
+
+function M.add_active_plat(self, plat)
+  for i = 1, MAXPLATS do
+    if self.plats_ativos[i] == nil then
+      self.plats_ativos[i] = plat
+      return
+    end
+  end
+  error("P_AddActivePlat: no more plats!")
+end
+
+local function remover_plat(self, plat)
+  for i = 1, MAXPLATS do
+    if self.plats_ativos[i] == plat then
+      self.plats_ativos[i] = nil
+      return
+    end
+  end
+end
+
+local function activate_in_stasis(self, tag)
+  for i = 1, MAXPLATS do
+    local plat = self.plats_ativos[i]
+    if plat and plat.sector.tag == tag and plat.status == PLAT_INSTASIS then
+      plat.status = plat.oldstatus
+    end
+  end
+end
+
 local function tick_plat(self, plat)
+  if plat.status == PLAT_INSTASIS then
+    return                               -- C4d: parado
+  end
   if plat.status == PLAT_WAITING then
     plat.count = plat.count - 1
     if plat.count <= 0 then
@@ -628,6 +670,13 @@ local function tick_plat(self, plat)
   end
   local res = M.move_plane(self.world, plat.sector, plat.speed, dest, 0, direction, false)
   mark(self)
+  if res == RESULT_CRUSHED and plat.status == PLAT_UP then
+    -- C4d: subindo, bateu em algo: volta a descer (T_PlatRaise)
+    plat.count = plat.wait
+    plat.status = PLAT_DOWN
+    play(self, "pstart")
+    return
+  end
   if res == RESULT_PASTDEST then
     if plat.status == PLAT_DOWN or plat.type == PLAT_PERPETUAL then
       plat.status = PLAT_WAITING
@@ -636,6 +685,7 @@ local function tick_plat(self, plat)
     else
       plat.sector.specialdata = nil
       plat.dead = true
+      remover_plat(self, plat)
       play(self, "pstop")
     end
   end
@@ -895,6 +945,7 @@ function M.do_plat_dwus(self, line, blaze)
       end
       sec.specialdata = plat
       self.thinkers[#self.thinkers + 1] = plat
+      M.add_active_plat(self, plat)      -- C4d
       play(self, "pstart")
       ok = true
     end
@@ -1091,6 +1142,7 @@ function M.do_donut(self, line)
 end
 
 function M.do_plat_perpetual(self, line)
+  activate_in_stasis(self, line.tag)     -- C4d: P_ActivateInStasis
   local ok = false
   local secs = sectors_from_tag(self.world, line.tag)
   for i = 1, #secs do
@@ -1118,6 +1170,7 @@ function M.do_plat_perpetual(self, line)
       }
       sec.specialdata = plat
       self.thinkers[#self.thinkers + 1] = plat
+      M.add_active_plat(self, plat)      -- C4d
       play(self, "pstart")
       ok = true
     end
@@ -1160,6 +1213,7 @@ function M.do_plat_raise(self, line, amount, change)
       }
       sec.specialdata = plat
       self.thinkers[#self.thinkers + 1] = plat
+      M.add_active_plat(self, plat)      -- C4d
       play(self, "pstart")
       ok = true
     end
@@ -1167,13 +1221,14 @@ function M.do_plat_raise(self, line, amount, change)
   return ok
 end
 
+-- EV_StopPlat (C4d)
 function M.stop_plat(self, line)
   local ok = false
-  for i = 1, #self.thinkers do
-    local th = self.thinkers[i]
-    if th.kind == "plat" and not th.dead and th.sector.tag == line.tag then
-      th.status = PLAT_WAITING
-      th.count = 2147483647
+  for i = 1, MAXPLATS do
+    local plat = self.plats_ativos[i]
+    if plat and plat.status ~= PLAT_INSTASIS and plat.sector.tag == line.tag then
+      plat.oldstatus = plat.status
+      plat.status = PLAT_INSTASIS
       ok = true
     end
   end

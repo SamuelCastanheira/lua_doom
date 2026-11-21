@@ -401,6 +401,7 @@ local function dump_thinker(th, world)
       { "high", th.high or 0 },
       { "wait", th.wait or 0 },
       { "count", th.count or 0 },
+      { "oldstatus", th.oldstatus or 0 },   -- C4d: o status de antes de parar
     }
   end
   if th.kind == "floor" then
@@ -722,12 +723,16 @@ function M.apply(game, data)
           high = rec.high or 0,
           wait = rec.wait or 0,
           count = rec.count or 0,
+          oldstatus = rec.oldstatus or 0,
           dest = rec.dest or 0,
           dead = false,
         }
         if th.kind == "door" or th.kind == "plat" or th.kind == "floor" then
           sector.specialdata = th
           game.specials.thinkers[#game.specials.thinkers + 1] = th
+          if th.kind == "plat" then
+            require("specials").add_active_plat(game.specials, th)  -- C4d
+          end
         end
       end
     end
