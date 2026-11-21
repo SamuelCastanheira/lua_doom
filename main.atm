@@ -121,7 +121,6 @@ task Mundo (r) {
     spawn jogador.Jogador(G.game.player, G.game)
     loop {
         await :mundo.tic
-        G.tic_comando()
         emit :game.jogador                ;; passo 4c: task Jogador
         val meio = G.tic_view_meio()      ;; "segue" | "morte"
         set r.fim = ifs {
@@ -161,6 +160,9 @@ task Nivel (save) {
             val fim = ifs {
                 (antes == :segue) => {
                     emit @(automapa) (:automapa.tic)   ;; passo 8d: o automapa
+                    G.tic_comando()                    ;; o comando do jogador
+                                                       ;; (G_BuildTiccmd, fora do
+                                                       ;; P_Ticker no Doom)
                     emit @(mundo) (:mundo.tic)         ;; passo 8a: o tic do mundo
                     if !r.fim {
                         emit @(rosto) (:barra.tic)     ;; passo 8b: o rosto

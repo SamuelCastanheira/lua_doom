@@ -20,9 +20,10 @@
 --   2. ate 4 tics:        se wiping: tic_wipe()
 --                         senao:     tic_menu(), depois a tela atual:
 --                                    tic_view_antes()   -> "segue" | "parado" (automapa)
+--                                    tic_comando()      (comando do jogador)
 --                                    (emit :mundo.tic -> task Mundo, passo 8a:
---                                     tic_comando, :game.jogador, tic_view_meio,
---                                     mobjs, :game.specials, tic_mundo_fim)
+--                                     :game.jogador, tic_view_meio, mobjs,
+--                                     :game.specials, tic_mundo_fim)
 --                                    (emit :barra.tic -> task Rosto, passo 8b)
 --                                    intermissao e finale: tasks de telas.atm
 --                                    (passo 7), com :game.tic
@@ -874,7 +875,7 @@ function M.new(argv)
   --                         Lua), na ordem do antigo specials_mod.tick
   --   G.tic_mundo_fim()     texturas animadas, saida, leveltime
   --   emit :barra.tic       a barra de status, fora do mundo (task Rosto, 8b)
-  -- Desde o passo 8a, do G.tic_comando ao G.tic_mundo_fim e a task Mundo
+  -- Desde o passo 8a, do emit :game.jogador ao G.tic_mundo_fim e a task Mundo
   -- (main.atm), acordada pelo Nivel com :mundo.tic; o automapa (em
   -- tic_view_antes) e a barra (:barra.tic) ficam fora dela, como o
   -- AM_Ticker e o ST_Ticker do Doom ficam fora do P_Ticker. Era uma funcao so
@@ -896,7 +897,9 @@ function M.new(argv)
     return "segue"
   end
 
-  -- Comeco do tic do mundo (passo 8a, task Mundo): o comando do jogador.
+  -- O comando do jogador, chamado pelo Nivel logo antes do tic do mundo. No
+  -- Doom, o G_BuildTiccmd fica fora do P_Ticker: monta o comando a cada tic,
+  -- mesmo quando o mundo nao roda.
   function G.tic_comando()
     if menu.active then
       game.player.cmd = player_mod.empty_cmd()
