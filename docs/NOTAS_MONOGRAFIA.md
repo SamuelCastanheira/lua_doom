@@ -1029,6 +1029,22 @@ sinalizador para continuar andando, e a pausa é desfeita em dois lugares
 (`start_level` e `end_game`); na `atmos`, o automapa e a barra já eram
 irmãos do `Mundo`, e o `defer` do `Nivel` cobre todas as saídas.
 
+**O `toggle` de novo, no C4 (tetos e elevadores parados).** No passo 3c,
+parar o elevador com `toggle` não era equivalente, porque o elevador
+parado deste port continuava descontando o contador; a fase ficou no
+registro, com o recado (`status = WAITING`, `count` enorme), e a task
+testava o status a cada tic. No C4, com o comportamento do Doom (o thinker
+parado não pensa: `EV_StopPlat` e `EV_CeilingCrushStop` tiram a função do
+thinker), o parar virou `toggle(t, false)` chamado do Lua, e o reativar,
+`toggle(t, true)`. A task `Teto` não precisou de nenhuma linha (a direção e
+a velocidade ficam nas variáveis locais, e o `olddirection` do Doom some); a
+task `Elevador` **perdeu** o recado, o `:troca` e o `direto`, porque ninguém
+mais escreve o status com ela ligada. É a mesma lição do C2: quando o
+original de fato congela uma parte do jogo, o `toggle` é a tradução exata e
+encurta o código; quando o original continua contando por baixo, o
+`toggle` não serve e a fase tem de ser dado (`docs/registro/16-correcoes-c4.md`,
+C4b e C4d).
+
 ---
 
 ## 12. O meio da régua: rosto, menu e automapa (passo 8)

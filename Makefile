@@ -6,7 +6,7 @@
 #   make debug        -O0 -g com AddressSanitizer/UBSan (Linux/macOS)
 #   make run          compila e roda: $(LUA) main.lua $(ARGS)
 #   make run-atmos    idem pelo driver Atmos: atmos main.atm -- $(ARGS)
-#   make test-drivers prova que main.atm da o mesmo jogo que a referencia (tag c3; antes, c2, c1 e passo1)
+#   make test-drivers prova que main.atm da o mesmo jogo que a referencia (tag c4; antes, c3, c2, c1 e passo1)
 #   make test-mutacoes confere que o teste de equivalencia detecta erros
 #   make metricas     metricas de codigo e custo do fluxo de telas
 #   make test         roda os testes em tests/
@@ -165,7 +165,7 @@ run-atmos: all
 	$(ASAN_PRELOAD) $(ATMOS) main.atm -- $(ARGS)
 # (make run tambem roda o main.atm: main.lua e um lancador desde o passo 2)
 
-# Equivalencia com a referencia imperativa (tag c3: a branch lua com as correcoes ate o C3; antes, c2, c1 e passo1) em modo replay.
+# Equivalencia com a referencia imperativa (tag c4: a branch lua com as correcoes ate o C4; antes, c3, c2, c1 e passo1) em modo replay.
 # "fluxo" passa por todas as transicoes de tela e confere a cobertura.
 test-drivers: all
 	@$(ATMOS) tests/atmos_semantica.atm

@@ -39,7 +39,8 @@ Atmos) e escreve em **português**. Responda em português.
 | tag `passo9` | a família de monstros: Zombieman, Shotgun Guy, Demon e Spectre com a task `Monstro` (`monstro.atm`). **Estado atual da migração** |
 | tag `c1` (branch `lua`) | a branch `lua` com as correções do C1 (o `carry`, o jogador esmagado) |
 | tag `c2` (branch `lua`) | a branch `lua` com o C2 (o menu e a tecla Pause param o mundo) |
-| tag `c3` (branch `lua`) | a branch `lua` com o C3 (a arma com `info.STATES` e o `p_pspr.c`, em `pspr.lua`). **Referência de equivalência atual** (`REF_TAG` padrão) |
+| tag `c3` (branch `lua`) | a branch `lua` com o C3 (a arma com `info.STATES` e o `p_pspr.c`, em `pspr.lua`) |
+| tag `c4` (branch `lua`) | a branch `lua` com o C4 (os specials do DIFERENCAS e a descrição do save). **Referência de equivalência atual** (`REF_TAG` padrão) |
 | tag `luaV.1` | marco antigo do usuário (sem relação com a migração) |
 | commit `522b06f` | renderer 100% Lua (referência pixel a pixel do renderer em C, usada por `make compare`) |
 
@@ -527,7 +528,7 @@ automapa, `-`/`=` mudam o tamanho da tela.
 ### 5.2 Equivalência da lógica (driver Atmos × referência)
 
 ```sh
-make test-drivers          # semantica do Atmos (P1-P9) + 14 roteiros contra a tag c3; saves comparados byte a byte
+make test-drivers          # semantica do Atmos (P1-P9) + 14 roteiros contra a tag c4; saves comparados byte a byte
 sh tests/test_drivers.sh 0 1 fluxo         # roteiro com todas as transicoes
 sh tests/test_drivers.sh 4000 1            # pseudoaleatorio, 4000 quadros, semente 1
 sh tests/test_drivers.sh 6000 2 exits      # tambem termina niveis
@@ -546,7 +547,7 @@ REF_TAG=passo1 sh tests/test_drivers.sh 0 1 fluxo   # outra referencia (passo1: 
 ```
 
 - Argumentos: `quadros semente [exits|fluxo] [args do jogo]`.
-- A referência é **`REF_TAG`** (padrão `c3`, desde o C3; antes, `c2`, `c1` e `passo1`). O script cria um worktree
+- A referência é **`REF_TAG`** (padrão `c4`, desde o C4; antes, `c3`, `c2`, `c1` e `passo1`). O script cria um worktree
   em `build/ref-<tag>`, aplica `tests/ref-<tag>.patch` se existir, compila e
   roda o `lua5.4 main.lua` de lá. Compara com `atmos main.atm` e com
   `lua5.4 main.lua` atuais.
@@ -569,7 +570,7 @@ Se a tag nova não tiver algum comando de teste do replay, crie
 ### 5.3 Sensibilidade, métricas e custo
 
 ```sh
-make test-mutacoes         # tools/mutacoes.py: 107/107 detectadas (C3), 7 equivalentes, 0 pendentes
+make test-mutacoes         # tools/mutacoes.py: 119/120 detectadas (C4), 7 equivalentes, 1 pendente (corpo-sem-restos)
 make metricas              # tools/metricas_passo2.py + tools/custo_drivers.py
 python3 tools/metricas_finais.py --custo --memoria   # tabelas finais de todos os passos (le build/test-drivers.log e build/mutacoes.log)
 python3 tools/custo_drivers.py 5           # ms/quadro dos 3 drivers
@@ -685,6 +686,19 @@ revisões do próprio port na seção 5). No fim, as correções são feitas nas
   dois psprites como ramos do `par`; um estado fora da tabela é `error`.
   Lua: `pspr.mover_psprites` (o `P_MovePsprites`). O desenho só lê os
   psprites. Registro: `docs/registro/15-correcoes-c3.md`.
+- **Corrigido no C4** (tag `c4`, sete grupos C4a a C4g, um commit por grupo
+  em cada branch): portas que reabrem; tetos (linha 40, 44/72 sem esmagar,
+  desaceleração, linhas 57/74 param, os esmagadores reativam); esmagamento a
+  cada 4 tics com sangue e restos (gancho `collision.esmagar`, com o
+  `leveltime`); elevadores (voltam ao bater; parados em `in_stasis`, com
+  `oldstatus` no save); pisos (o special do donut e do "baixar e trocar",
+  no hash; a escada do `EV_BuildStairs`; sons); botões (sem duplicar, com
+  som); limites (30 tetos, 30 elevadores, 16 botões). **Parar tetos e
+  elevadores é `toggle` da task** (`toggle(t, false)` chamado do Lua): o
+  recado do elevador (passo 3c) sumiu. `specials.game` guarda o jogo (o
+  `leveltime` dos sons). A descrição do save é digitada: todo save de
+  roteiro chama `descricao()` (`tools/make_replay.lua`). Registro:
+  `docs/registro/16-correcoes-c4.md`.
 - Sprites e arma usam a luz do setor (como o Doom); flashes de arma
   (`PISFA0`, `SHT2I0`…) são `FF_FULLBRIGHT`, lidos de `info.STATES`.
 

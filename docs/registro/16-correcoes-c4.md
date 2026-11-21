@@ -10,7 +10,8 @@ O C4 é feito em grupos, um por sistema. Cada grupo é um commit em cada
 branch, conferido com os roteiros do sistema contra a branch `lua` (`REF_TAG=lua
 REF_DIR=build/branch-lua`); a bateria inteira (`make test-drivers`,
 `make test-branches`, `make test-mutacoes`) e a tag nova **`c4`** vêm no fim
-do C4. Este registro cresce a cada grupo.
+do C4. Este registro cresceu a cada grupo; o fechamento, no fim, tem a
+bateria, as mutações e as métricas.
 
 - Linhas citadas como "antes": `atmos` no commit `1ab5725` (C3), branch `lua`
   na tag `c3`.
@@ -24,7 +25,7 @@ do C4. Este registro cresce a cada grupo.
 | C4d. Elevadores | volta ao bater subindo; parado de verdade (estase) e reativação; limite | `9efd93d` / `9339673` | concluído |
 | C4e. Pisos | troca do special; escada; sons de piso e teto | `eb75953` / `21f9219` | concluído |
 | C4f. Botões | não duplica; som ao voltar; limite | `5b4b42f` / `7b06b63` | concluído |
-| C4g. Save | a descrição digitada | (este) | concluído |
+| C4g. Save | a descrição digitada | `8a52fcd` / `c70af1d` | concluído |
 
 ---
 
@@ -757,3 +758,171 @@ Um quadro gravado (`DOOM_REPLAY_DUMP`) mostra o slot com o texto e o cursor
 `_` antes e depois da letra; os saves dos testes têm a descrição `S`.
 `make test-branches`: idêntico à branch `lua` nos 14 roteiros, com a
 cobertura de todos (os saves e loads dos roteiros continuam acontecendo).
+
+---
+
+## Fechamento do C4
+
+### A bateria e a tag
+
+Com os sete grupos commitados nas duas branches, a branch `lua` ganhou a
+tag **`c4`** (`c70af1d`), que virou a referência padrão de
+`tests/test_drivers.sh`.
+
+**Contra a referência nova** (`make test-drivers`, tag `c4`): idêntico nos
+14 roteiros, com os saves iguais byte a byte e a cobertura de todos.
+`make test-branches` (no C4g, com todos os grupos): idêntico à branch `lua`
+nos 14. `make test`: 12 passam, as 8 falhas conhecidas. A janela abre e
+fecha limpo nas duas branches.
+
+**Contra a referência anterior** (`REF_TAG=c3`, com os roteiros novos). A
+tabela compara o hash do framebuffer. Ela mistura dois efeitos: os
+specials corrigidos e a descrição do save (C4g), porque os roteiros novos
+digitam a descrição depois de escolher o slot, e o código da `c3` grava na
+hora e recebe a letra e o `enter` com o menu já fechado (o `enter` abre o
+menu de novo). Por isso alguns roteiros com save têm até outro número de
+quadros na referência.
+
+| Roteiro | Quadros (`c4` / `c3`) | Diferentes | 1º quadro | O que diverge |
+|---|---|---|---|---|
+| `ordem`, `telas`, `luzes`, pseudoaleatório, `exits` | iguais | 0 | – | sem save e sem os specials corrigidos num quadro desenhado |
+| `correcoes` | 3.480 / 3.480 | 137 | 2.358 | a porta do E1M3 (C4a), o elevador (C4d), o esmagador do E2M2 (C4b); antes disso, idêntico (C1 a C3) |
+| `arma` | 3.000 / 3.000 | 677 | 2.324 | o save do BFG (C4g) |
+| `botoes` | 867 / 867 | 583 | 285 | o save (C4g) e o segundo botão (C4f) |
+| `monstro` | 2.761 / 2.761 | 1.855 | 907 | o save (C4g) |
+| `familia` | 3.232 / 3.232 | 1.234 | 1.999 | o save (C4g) |
+| `pisos` | 2.624 / 2.624 | 2.474 | 151 | o donut e o special, o esmagamento a cada 4 tics (C4c, C4e), o save |
+| `portas` | 2.976 / 2.976 | 2.607 | 370 | os saves (C4g) |
+| `elevadores` | 2.122 / 1.798 | 1.998 | 125 | os saves (C4g; a referência sai do roteiro), o parado (C4d) |
+| `fluxo` | 4.484 / 4.707 | 2.719 | 1.989 | o save (C4g) |
+
+Cada grupo já tinha sido conferido no seu commit, com prints e contra a
+branch `lua` nos roteiros do sistema (seções acima).
+
+### Mutações
+
+`make test-mutacoes` (todas as mutações do projeto, 127): **119/120 não
+equivalentes detectadas**, 7 equivalentes, 1 pendente de cobertura.
+
+**As que saíram ou mudaram.** `parar-ignorado` e `parar-um-tic-depois`
+(passo 3c) testavam o recado do elevador, que sumiu no C4d. `parar-com-toggle`
+(passo 3c) simulava parar com `toggle` e era detectada porque o elevador
+parado deste port descontava o contador; no C4d o `toggle` virou o
+comportamento certo, e a mutação deixou de ser um erro. `teto-vai-ate-o-mais-alto`
+(passo 3d) simulava o teto da linha 40 subindo, como no Doom, e virou o
+código; a mutação inversa é `teto-40-parado`. Quatro foram refeitas com o
+texto novo (`elevador-sem-espera-inicial`, `espera-um-tic-a-menos`,
+`piso-sem-espera-inicial`, `piso-nao-troca-textura`), todas detectadas.
+
+**As do C4:**
+
+| Mutação | Erro simulado | Roteiro | 1º quadro | Quadros dif. |
+|---|---|---|---|---|
+| `porta-nao-reabre` | a porta que bate fica tentando | `correcoes` | 2.306 | 53 |
+| `teto-40-parado` | o teto da linha 40 fica na altura atual | `pisos` | 2.235 | 390 |
+| `so-desce-esmaga` | o esmagador que só desce esmaga | `pisos` | 2.300 | 325 |
+| `teto-sem-desacelerar` | o teto que bate não desacelera | `pisos` | 774 | 990 |
+| `teto-parar-sem-toggle` | as linhas 57 e 74 marcam o teto, mas não desligam a task | `correcoes` | 3.258 | 223 |
+| `teto-sem-reativar` | as linhas de esmagador não reativam | `correcoes` | 3.340 | 141 |
+| `esmagar-todo-tic` | o esmagamento a cada tic | `pisos` | 772 | 675 |
+| `esmagar-sem-sangue` | sem o jato de sangue | `pisos` | 774 | 673 |
+| `corpo-sem-restos` | o corpo esmagado não vira restos | `pisos` | – | 0: **pendente** |
+| `elevador-nao-volta` | o elevador que bate subindo fica tentando | `correcoes` | 2.923 | 196 |
+| `elevador-parar-sem-toggle` | as linhas 54 e 89 marcam o elevador, mas não desligam a task | `elevadores` | 1.654 | 469 (save difere) |
+| `elevador-sem-reativar` | as linhas 53 e 87 não reativam | `elevadores` | 1.901 | 222 |
+| `load-perde-oldstatus` | o load perde o status de antes de parar | `elevadores` | 1.901 | 222 |
+| `piso-nao-troca-special` | o donut e o "baixar e trocar" não trocam o special | `pisos` | 1.960 | 197 |
+| `escada-dois-lados` | a escada segue linhas pelos dois lados | `pisos` | 267 | 1.406 (save difere) |
+| `botao-duplicado` | um segundo botão para a mesma linha | `botoes` | 182 | 370 (save difere) |
+| `save-grava-na-hora` | escolher o slot grava na hora | `botoes` | 1 | 867 (save difere) |
+
+Duas observações. `escada-dois-lados` é detectada, embora as escadas dos
+roteiros tenham dado os mesmos degraus pelo código antigo e pelo novo
+(C4e): a mutação mistura a regra antiga dos lados com a soma nova da altura
+(a cada linha com a mesma textura), uma combinação que nenhuma das duas
+versões tem, e os degraus mudam (a divergência começa no quadro 267). Ela
+mostra que o roteiro passa pela regra dos lados, mas não que a regra antiga
+inteira daria outro jogo nesses mapas. E
+`corpo-sem-restos` ficou pendente: nenhum roteiro esmaga o corpo de um
+monstro; os esmagadores dos roteiros (E2M2 e E2M4) não têm monstros nos
+setores, conferido com prints, e o jogador morto, que é esmagado, não tem
+estados neste port. Falta um cenário: matar um monstro dentro de um setor
+de esmagador e ligar o esmagador.
+
+### Métricas
+
+Linhas de código (sem comentários e linhas em branco), contadas por script
+sobre `1ab5725` (antes, `atmos`), `c3` (antes, `lua`) e os arquivos atuais:
+
+| `atmos`: task (`setores.atm`) | Antes | Depois | O que mudou |
+|---|---|---|---|
+| `Porta` (com `mover` e `esperar_porta`) | 66 | 75 | `:esmagou` e a reação (C4a); `bdcls` |
+| `Elevador` (com `mover_plat` e `esperar_plat`) | 55 | **49** | ganhou `:bateu` (C4d) e **perdeu o recado** (`:troca`, `direto`, os testes de status) |
+| `Piso` | 16 | 21 | `newspecial`, os sons (C4e) |
+| `Teto` | 38 | 40 | a desaceleração por tipo, o `esmaga` só descendo, os sons; o parar e o reativar **sem nenhuma linha** (C4b) |
+| `Botao` | 12 | 13 | o som (C4f) |
+
+| `lua`: função (`specials.lua`) | Antes | Depois |
+|---|---|---|
+| `tick_door` | 46 | 55 |
+| `tick_plat` | 33 | **43** |
+| `tick_floor` | 11 | 16 |
+| `tick_ceiling` | 41 | 43 |
+
+`specials.lua` inteiro: 1.241 → 1.361 na `atmos`, 1.465 → 1.590 na `lua`
+(as listas de ativos, `stop_ceiling`, `start_button`, a escada, os sons).
+
+**Leitura.** Nas correções que só acrescentam um caso (a porta que reabre,
+o piso que troca o special, os sons), as duas formas crescem parecido: um
+resultado novo no laço da task, um `if` a mais no tick. A diferença está
+no parar. Na `lua`, o elevador parado é um estado a mais que o tick testa
+(`if plat.status == PLAT_INSTASIS then return end`), e a volta ao bater é
+mais um ramo: o tick cresce de 33 para 43 linhas. Na `atmos`, o parar saiu
+da task (o Lua a desliga) e levou junto o recado que o passo 3c tinha posto
+nela: a task encolhe de 55 para 49 linhas mesmo ganhando a volta ao bater.
+No teto, o parar e o reativar não custaram nenhuma linha na task. É o
+mesmo resultado do C2, em escala menor: quando o original congela uma
+parte, o `toggle` é a tradução exata, e quem perde código é a forma
+estruturada.
+
+### Diferenças que ficam
+
+- **A velocidade do elevador "desce, espera, sobe"** (`PLATSPEED` em vez de
+  `PLATSPEED * 4`), achada no C4d; está em `docs/DIFERENCAS_DOOM.md`.
+- **O mobj do jogador sem estados** (C3): não vira restos ao ser esmagado
+  morto.
+- **O sangue do esmagamento pensa no tic seguinte** (C4c): os mobjs pensam
+  antes dos specials neste port.
+- **Fora do escopo**: o conteúdo do save no formato do Doom (tetos, luzes,
+  pisos inteiros; o load por índice) e o som posicional.
+- **Os sons** (`doropn`, `bdcls`, `pstart`, `stnmov`, `pstop`, `swtchn`) não
+  aparecem no replay, que roda sem som; foram conferidos pela leitura do
+  código e não têm mutação.
+
+### Como reproduzir
+
+```sh
+make test-drivers                 # contra a tag c4
+make test-branches                # contra a branch lua
+make test-mutacoes
+sh tests/test_drivers.sh 0 1 correcoes -warp 1 1   # C4a, C4b, C4d (E1M3, E2M2)
+sh tests/test_drivers.sh 0 1 pisos -warp 2 2       # C4b, C4c, C4e
+sh tests/test_drivers.sh 0 1 elevadores -warp 1 3  # C4d (parar, gravar parado, reativar)
+sh tests/test_drivers.sh 0 1 botoes -warp 1 1      # C4f, C4g
+python3 tools/diagramas.py docs/registro/16-correcoes-c4.md
+```
+
+### Arquivos alterados
+
+| Arquivo | Branch | Grupos |
+|---|---|---|
+| `setores.atm` | `atmos` | C4a (`Porta`), C4b (`Teto`), C4d (`Elevador`), C4e (`Piso`, `Teto`), C4f (`Botao`) |
+| `specials.lua` | as duas | C4a (`tick_door`, só `lua`), C4b, C4d, C4e, C4f |
+| `collision.lua` | as duas | C4c (`change_sector`, `jato_de_sangue`, o gancho `esmagar`) |
+| `game.lua` / `main.lua` | `atmos` / `lua` | C4c (o gancho), C4e (`specials.game`, o special no hash) |
+| `saveg.lua` | as duas | C4d (`oldstatus`; na `lua`, os elevadores carregados entram na lista de ativos) |
+| `menu.lua` | as duas | C4g |
+| `tools/make_replay.lua` | `atmos` | os cenários do C4a, C4b e C4d no `correcoes`; `descricao()` nos 13 saves (C4g); o comentário da reativação no `elevadores` |
+| `tests/test_drivers.sh` | `atmos` | a cobertura do `elevadores` pelo `status` 3; a referência padrão `c4` |
+| `tools/mutacoes.py` | `atmos` | as mutações do C4; as do recado do elevador e a do teto da linha 40 saíram; quatro refeitas com o texto novo |
+| `Makefile` | `atmos` | a referência nos comentários |
