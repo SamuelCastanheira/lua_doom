@@ -14,7 +14,7 @@
 local compat = require("compat")
 local wad = require("wad")
 local v = require("v_video")
-local rdata = require("r_data")
+local rdata = require("r_data_c")
 
 local M = {}
 
@@ -104,8 +104,8 @@ local function load_sectors(self, data)
       ceilingheight = i16(data, o + 2) * FRACUNIT,
       floorflat = name8(data, o + 4),
       ceilingflat = name8(data, o + 12),
-      floorpic = self.res and rdata.flat_num_for_name(self.res, name8(data, o + 4)) or 0,
-      ceilingpic = self.res and rdata.flat_num_for_name(self.res, name8(data, o + 12)) or 0,
+      floorpic = self.res and self.res:flat_num_for_name(name8(data, o + 4)) or 0,
+      ceilingpic = self.res and self.res:flat_num_for_name(name8(data, o + 12)) or 0,
       lightlevel = i16(data, o + 20),
       special = i16(data, o + 22),
       tag = i16(data, o + 24),
@@ -137,9 +137,9 @@ local function load_sides(self, data)
       topname = name8(data, o + 4),
       bottomname = name8(data, o + 12),
       midname = name8(data, o + 20),
-      toptexture = self.res and rdata.texture_num_for_name(self.res, name8(data, o + 4)) or 0,
-      bottomtexture = self.res and rdata.texture_num_for_name(self.res, name8(data, o + 12)) or 0,
-      midtexture = self.res and rdata.texture_num_for_name(self.res, name8(data, o + 20)) or 0,
+      toptexture = self.res and self.res:texture_num_for_name(name8(data, o + 4)) or 0,
+      bottomtexture = self.res and self.res:texture_num_for_name(name8(data, o + 12)) or 0,
+      midtexture = self.res and self.res:texture_num_for_name(name8(data, o + 20)) or 0,
       sector = sector,
     }
   end
@@ -476,9 +476,9 @@ local function swatch(res, kind, num)
   end
   local pixels
   if kind == "t" then
-    pixels = rdata.get_column(res, num, 0)
+    pixels = res:get_column(num, 0)
   else
-    pixels = rdata.flat_pixels(res, num)
+    pixels = res:flat_pixels(num)
   end
   hit = dominant(pixels)
   res.swatch[key] = hit

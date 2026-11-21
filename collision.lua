@@ -999,6 +999,16 @@ function M.aim_slope(world, source, angle, attackrange)
   return 0
 end
 
+-- P_AimLineAttack com o alvo (linetarget): a inclinacao (0 sem alvo) e o
+-- alvo (C3: o soco e a motosserra viram o jogador para ele)
+function M.aim_line(world, source, angle, attackrange)
+  local slope, target = aim(world, source, angle, attackrange)
+  if target then
+    return slope, target
+  end
+  return 0, nil
+end
+
 function M.aim_line_attack(world, source, angle, attackrange)
   local _, target = aim(world, source, angle, attackrange)
   return target
@@ -1245,19 +1255,53 @@ function M.thing_height_clip(world, thing)
   return thing.ceilingz - thing.floorz >= (thing.height or 0)
 end
 
+-- O esmagamento (PIT_ChangeSector do Doom). Quem nao cabe e tem MF_SHOOTABLE
+-- leva o esmagamento; o jogo liga o gancho M.esmagar(world, thing), porque
+-- precisa do dano do jogo (C1: game.damage_mobj, o P_DamageMobj: dor,
+-- armadura, modo deus, morte) e do leveltime (C4c: so a cada 4 tics, com
+-- um jato de sangue, M.jato_de_sangue). Sem o gancho (testes unitarios), a
+-- vida e subtraida direto, como antes do C1.
+M.esmagar = nil
+
+-- C4c: o jato de sangue do esmagamento: um MT_BLOOD no meio da altura, com
+-- uma velocidade sorteada (P_SpawnMobj tambem sorteia o lastlook)
+function M.jato_de_sangue(world, thing, game)
+  local thinker = require("thinker")
+  local info = require("info")
+  local mo = thinker.spawn_mobj(world, thing.x, thing.y, thing.z + thing.height // 2, info.MT_BLOOD, game)
+  mo.momx = (rng.p_random() - rng.p_random()) * 4096
+  mo.momy = (rng.p_random() - rng.p_random()) * 4096
+end
+
+local MF_DROPPED = 131072
+
 function M.change_sector(world, sector, crush)
   local nofit = false
-  local mobjs = world.mobjs or {}
+  -- C4c: copia da lista, porque o esmagamento cria sangue e remove itens
+  local mobjs = {}
+  for i = 1, #(world.mobjs or {}) do
+    mobjs[i] = world.mobjs[i]
+  end
   for i = 1, #mobjs do
     local thing = mobjs[i]
     if M.point_in_subsector(world, thing.x, thing.y).sector == sector then
       if not M.thing_height_clip(world, thing) then
         if (thing.health or 0) <= 0 then
+          -- C4c: o corpo vira restos (S_GIBS); o mobj do jogador e os
+          -- efeitos (fx) deste port nao tem estados
+          if thing.istate and not thing.player and not thing.fx then
+            require("thinker").set_mobj_state(thing, require("info").S_GIBS, world, nil)
+          end
           thing.flags = band(thing.flags or 0, bnot(MF_SOLID))
           thing.height = 0
+          thing.radius = 0
+        elseif has(thing.flags, MF_DROPPED) then
+          require("thinker").remove_mobj(world, thing)  -- C4c: item largado some
         elseif has(thing.flags, MF_SHOOTABLE) then
           nofit = true
-          if crush then
+          if crush and M.esmagar then
+            M.esmagar(world, thing)
+          elseif crush then  -- sem o jogo (testes unitarios): subtrai direto
             thing.health = thing.health - 10
             if thing.player then
               thing.player.health = thing.health

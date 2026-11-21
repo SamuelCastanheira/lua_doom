@@ -213,16 +213,14 @@ local function do_action(self, action, choice)
       self.sound.play("oof")
     end
   elseif action == "saveslot" then
-    local name = "save"
-    if self.game.world and self.game.world.mapname then
-      name = self.game.world.mapname
-    end
-    if self.game.save_game and self.game.save_game(self.game, choice, name) then
-      refresh_saves(self)
-      M.clear(self)
-      self.sound.play("swtchx")
-    else
-      self.sound.play("oof")
+    -- C4g: como o M_SaveSelect: comeca a digitar a descricao (um slot vazio
+    -- comeca em branco; um gravado, com a descricao antiga). Antes, gravava
+    -- na hora, com o nome do mapa.
+    self.save_string_enter = true
+    self.save_slot = choice
+    self.save_old = self.save_strings[choice + 1]
+    if self.save_old == LOADSAVEEMPTY then
+      self.save_strings[choice + 1] = ""
     end
   elseif action == "readthis" then
     goto_menu(self, "read1")
@@ -300,11 +298,15 @@ local function do_action(self, action, choice)
     self.epi = choice
     goto_menu(self, "skill")
   elseif action == "skill" then
-    self.game.skill = choice
-    self.game.episode = self.epi + 1
-    self.game.mapn = 1
-    if self.game.start_level then
-      self.game.start_level(self.game)
+    if self.game.request then
+      -- passo 2: o menu so pede; quem inicia o jogo e a task Fluxo (main.atm)
+      self.game.request("jogo.novo", { episode = self.epi + 1, mapn = 1, skill = choice })
+      M.clear(self)
+    elseif self.game.start_level then
+      self.game.skill = choice
+      self.game.episode = self.epi + 1
+      self.game.mapn = 1
+      self.game.start_level(self.game) -- caminho antigo (sem main.atm)
       M.clear(self)
     else
       self.message = "EPISODIO " .. tostring(self.epi + 1) .. " SKILL " .. tostring(choice)
@@ -314,7 +316,66 @@ local function do_action(self, action, choice)
   end
 end
 
+-- C4g: a descricao do save, como no M_Responder do Doom (saveStringEnter):
+-- letras (em maiusculas), digitos e alguns sinais da fonte do HUD; no maximo
+-- SAVESTRINGSIZE - 1 caracteres e (SAVESTRINGSIZE - 2) * 8 pixels.
+local SAVESTRINGSIZE = 24
+local SINAIS = { space = " ", minus = "-", equals = "=", comma = ",", period = "." }
+
+local function caractere(key)
+  if #key == 1 and key:match("[%w]") then
+    return key:upper()
+  end
+  return SINAIS[key]
+end
+
+local function largura(self, text)
+  local w = 0
+  for i = 1, #text do
+    local ch = text:sub(i, i):upper()
+    local p = (ch ~= " ") and patch(self, string.format("STCFN%03d", string.byte(ch)))
+    if p then
+      w = w + v.patch_size(p)
+    else
+      w = w + 4
+    end
+  end
+  return w
+end
+
+local function digitar(self, key)
+  local slot = self.save_slot
+  local s = self.save_strings[slot + 1]
+  if key == "backspace" then
+    if #s > 0 then
+      self.save_strings[slot + 1] = s:sub(1, -2)
+    end
+  elseif key == "escape" then
+    self.save_string_enter = false
+    self.save_strings[slot + 1] = self.save_old
+  elseif key == "return" then
+    self.save_string_enter = false
+    if s ~= "" then                      -- M_DoSave
+      if self.game.save_game and self.game.save_game(self.game, slot, s) then
+        refresh_saves(self)
+        M.clear(self)
+      else
+        self.sound.play("oof")
+      end
+    end
+  else
+    local ch = caractere(key)
+    if ch and #s < SAVESTRINGSIZE - 1 and largura(self, s) < (SAVESTRINGSIZE - 2) * 8 then
+      self.save_strings[slot + 1] = s .. ch
+    end
+  end
+  return true
+end
+
 function M.responder(self, key)
+  if self.save_string_enter then
+    return digitar(self, key)
+  end
   if self.message then
     if self.message_confirm then
       if key == "y" or key == "return" then
@@ -322,6 +383,9 @@ function M.responder(self, key)
         self.message = nil
         if action == "quit" then
           self.game.running = false
+          if self.game.request then
+            self.game.request("jogo.sair")
+          end
         elseif action == "endgame" and self.game.end_game then
           self.game.end_game(self.game)
           M.clear(self)
@@ -338,6 +402,11 @@ function M.responder(self, key)
       self.message = nil
       return true
     end
+  end
+  if key == "pause" then
+    -- C2: o M_Responder do Doom nao usa a tecla Pause; ela segue para o jogo
+    -- (G_Responder), com o menu aberto ou fechado
+    return false
   end
   if key == "f1" then
     self.active = true
@@ -494,7 +563,10 @@ end
 local function draw_slots(self, fb, menu)
   for i = 0, 5 do
     local y = menu.y + LINEHEIGHT * i
-    write_text(self, fb, menu.x, y, self.save_strings[i + 1])
+    local x = write_text(self, fb, menu.x, y, self.save_strings[i + 1])
+    if self.save_string_enter and i == self.save_slot then
+      write_text(self, fb, x, y, "_")    -- C4g: o cursor (M_DrawSave)
+    end
   end
 end
 

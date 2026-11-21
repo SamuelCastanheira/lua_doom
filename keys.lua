@@ -37,6 +37,7 @@ local NAMED = {
   [MASK + 229] = "shift",
   [MASK + 226] = "alt",
   [MASK + 230] = "alt",
+  [MASK + 72] = "pause",        -- C2: a tecla Pause (KEY_PAUSE)
 }
 
 function M.name_of(sym)

@@ -266,6 +266,78 @@ local function update_face(self, player, st_random)
   self.face_count = self.face_count - 1
 end
 
+-- Passo 8b: o rosto e a task Rosto (barra.atm). A prioridade, o contador,
+-- a "furia" e a vida do tic anterior viraram variaveis da task; aqui ficam os
+-- calculos que dependem do jogador. M.ticker continua para os testes sem
+-- main.atm.
+M.ROSTO = {
+  DEAD = ST_DEADFACE, GOD = ST_GODFACE,
+  EVILGRINCOUNT = ST_EVILGRINCOUNT, EVILGRINOFFSET = ST_EVILGRINOFFSET,
+  TURNCOUNT = ST_TURNCOUNT, MUCHPAIN = ST_MUCHPAIN, OUCHOFFSET = ST_OUCHOFFSET,
+  RAMPAGEOFFSET = ST_RAMPAGEOFFSET, RAMPAGEDELAY = ST_RAMPAGEDELAY,
+  STRAIGHTFACECOUNT = ST_STRAIGHTFACECOUNT,
+}
+
+-- O sorteio do olhar parado (gerador proprio da barra, self.rnd).
+function M.sortear(self)
+  self.rnd = u32_lcg(self.rnd)
+  return math.floor(self.rnd / 65536) % 256
+end
+
+-- Quanta dor o rosto mostra (5 niveis, pela vida).
+M.dor = calc_pain_offset
+
+-- O olhar parado: dor + um dos 3 olhares.
+function M.olhar(self, player, sorteio)
+  return calc_pain_offset(self, player) + (sorteio % 3)
+end
+
+-- Apanhou uma arma nova? (o sorriso; atualiza as armas conhecidas)
+function M.arma_nova(self, player)
+  local grin = false
+  for i = 0, 8 do
+    local now = player.weaponowned[i] and true or false
+    if self.old_weapons_owned[i] ~= now then
+      grin = true
+      self.old_weapons_owned[i] = now
+    end
+  end
+  return grin
+end
+
+-- O rosto do dano com atacante: "ai!" (dor grande) ou virado para ele.
+function M.rosto_dano(self, player, vida_antes)
+  if (player.health or 0) - vida_antes > ST_MUCHPAIN then
+    return calc_pain_offset(self, player) + ST_OUCHOFFSET
+  end
+  local bad = collision.angle_to(player.mo.x, player.mo.y, player.attacker.x, player.attacker.y)
+  local diffang
+  local turn_right
+  if compat.as_u32(bad) > compat.as_u32(player.mo.angle) then
+    diffang = compat.as_u32(bad - player.mo.angle)
+    turn_right = diffang > compat.as_u32(ANG180)
+  else
+    diffang = compat.as_u32(player.mo.angle - bad)
+    turn_right = diffang <= compat.as_u32(ANG180)
+  end
+  local face = calc_pain_offset(self, player)
+  if diffang < compat.as_u32(ANG45) then
+    return face + ST_RAMPAGEOFFSET
+  elseif turn_right then
+    return face + ST_TURNOFFSET
+  end
+  return face + ST_TURNOFFSET + 1
+end
+
+-- Modo deus (iddqd) ou invulnerabilidade.
+function M.deus(player)
+  local inv = 0
+  if player.powers then
+    inv = player.powers[PW_INVULNERABILITY] or 0
+  end
+  return compat.band(player.cheats or 0, CF_GODMODE) ~= 0 or inv ~= 0
+end
+
 function M.ticker(self, player)
   if player == nil then
     return

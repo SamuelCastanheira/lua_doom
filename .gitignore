@@ -1,0 +1,8 @@
+*.wad
+*.mid
+*.txt
+*.so
+*.o
+*.d
+build/
+*.dsg

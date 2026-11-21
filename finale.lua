@@ -347,6 +347,22 @@ local function start_cast(self)
   play_music(self.game, "evil", true)
 end
 
+-- Passo 7: o finale do Doom 1 (o texto, depois a arte) e a task Texto
+-- (telas.atm). O Doom 2 (elenco) continua por M.ticker.
+M.TEXTSPEED = TEXTSPEED
+M.TEXTWAIT = TEXTWAIT
+M.quer_pular = want_skip
+
+-- Fim do texto: a arte (com wipe; no episodio 3, a musica do coelho).
+function M.para_arte(self)
+  self.stage = STAGE_ART
+  self.count = 0
+  self.game.force_wipe = true
+  if self.game.episode == 3 then
+    play_music(self.game, "bunny", true)
+  end
+end
+
 function M.ticker(self)
   if self.commercial and self.stage == STAGE_TEXT and self.count > 50 and want_skip(self) then
     if self.game.mapn == 30 then
@@ -412,33 +428,15 @@ local function font(self, code)
   return lump(self.game.wad, string.format("STCFN%03d", code))
 end
 
-local function flat_row(y)
-  return (y % 64) * 64
-end
 
 local function fill_flat(self, fb)
   local data = self.flat_lump
-  if data == nil or #data < 4096 then
+  if data == nil then
     v.fill(fb, 0)
     return
   end
-  for y = 0, 199 do
-    local row = flat_row(y)
-    local dest = y * SCREENWIDTH
-    local x = 0
-    while x < SCREENWIDTH do
-      local n = 64
-      if n > SCREENWIDTH - x then
-        n = SCREENWIDTH - x
-      end
-      for i = 0, n - 1 do
-        fb[dest + x + i + 1] = data:byte(row + i + 1)
-      end
-      x = x + 64
-    end
-  end
+  fb:fill_flat(data)
 end
-
 local function draw_text(self, fb)
   fill_flat(self, fb)
   local nshow = math.floor(self.count / TEXTSPEED)
@@ -471,37 +469,10 @@ local function draw_text(self, fb)
   end
 end
 
-local function u32(data, off)
-  local b1, b2, b3, b4 = data:byte(off + 1, off + 4)
-  if b1 == nil then
-    return 0
-  end
-  return b1 + b2 * 256 + b3 * 65536 + b4 * 16777216
-end
 
 local function draw_patch_column(fb, x, patch, column)
-  if column < 0 then
-    return
-  end
-  local offset_pos = 8 + column * 4
-  if offset_pos + 4 > #patch then
-    return
-  end
-  local offset = u32(patch, offset_pos)
-  while offset < #patch and patch:byte(offset + 1) ~= 255 do
-    local top = patch:byte(offset + 1)
-    local length = patch:byte(offset + 2)
-    local source = offset + 3
-    for i = 0, length - 1 do
-      if top + i >= SCREENHEIGHT then
-        break
-      end
-      fb[(top + i) * SCREENWIDTH + x + 1] = patch:byte(source + i + 1)
-    end
-    offset = offset + length + 4
-  end
+  fb:draw_patch_column(x, patch, column)
 end
-
 local function draw_bunny(self, fb)
   v.fill(fb, 0)
   local scroll = 320 - math.floor((self.count - 230) / 2)

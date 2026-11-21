@@ -11,7 +11,7 @@
 -- Portas, plataformas, pisos, tetos e interruptores, a partir de specials.py.
 
 local collision = require("collision")
-local rdata = require("r_data")
+local rdata = require("r_data_c")
 local rng = require("random")
 local compat = require("compat")
 
@@ -26,8 +26,6 @@ local PLATSPEED = FRACUNIT
 local PLATWAIT = 3
 local FLOORSPEED = FRACUNIT
 local CEILSPEED = FRACUNIT
-local GLOWSPEED = 8
-local STROBEBRIGHT = 5
 local FASTDARK = 15
 local SLOWDARK = 35
 local BUTTONTIME = 35
@@ -42,6 +40,7 @@ local RESULT_PASTDEST = 2
 local PLAT_DOWN = 0
 local PLAT_UP = 1
 local PLAT_WAITING = 2
+local PLAT_INSTASIS = 3                  -- C4d: parado (in_stasis do Doom)
 local PLAT_DWUS = 0
 local PLAT_PERPETUAL = 1
 local PLAT_BLAZEDWUS = 2
@@ -87,10 +86,42 @@ local function mark(self)
   self.stamp = self.stamp + 1
 end
 
+-- C4e: o barulho de pedra dos pisos e tetos andando, a cada 8 tics
+-- (!(leveltime&7) no T_MoveFloor e no T_MoveCeiling)
+function M.som_de_pedra(self)
+  local lt = (self.game and self.game.leveltime) or 0
+  if lt % 8 == 0 then
+    M.play(self, "stnmov")
+  end
+end
+
 local function play(self, name)
   if self.sound and self.sound.play then
     self.sound.play(name)
   end
+end
+
+-- Usados pelas tasks de setores.atm.
+M.RESULT_PASTDEST = RESULT_PASTDEST
+M.RESULT_CRUSHED = RESULT_CRUSHED
+M.TICRATE = TICRATE
+M.VLD = {
+  NORMAL = VLD_NORMAL, CLOSE30 = VLD_CLOSE30, CLOSE = VLD_CLOSE, OPEN = VLD_OPEN,
+  RAISEIN5 = VLD_RAISEIN5, BLAZERAISE = VLD_BLAZERAISE, BLAZEOPEN = VLD_BLAZEOPEN,
+  BLAZECLOSE = VLD_BLAZECLOSE,
+}
+M.PLAT = {
+  DOWN = PLAT_DOWN, UP = PLAT_UP, WAITING = PLAT_WAITING, INSTASIS = PLAT_INSTASIS,
+  DWUS = PLAT_DWUS, PERPETUAL = PLAT_PERPETUAL, BLAZEDWUS = PLAT_BLAZEDWUS,
+}
+M.CEIL = {
+  LOWERTOFLOOR = CEIL_LOWERTOFLOOR, RAISETOHIGHEST = CEIL_RAISETOHIGHEST,
+  LOWERANDCRUSH = CEIL_LOWERANDCRUSH, CRUSHANDRAISE = CEIL_CRUSHANDRAISE,
+  FASTCRUSH = CEIL_FASTCRUSH, SILENTCRUSH = CEIL_SILENTCRUSH,
+}
+M.CEILSPEED = CEILSPEED
+function M.play(self, name)
+  play(self, name)
 end
 
 function M.move_plane(world, sector, speed, dest, floor_or_ceiling, direction, crush)
@@ -280,23 +311,26 @@ local function tag_line(tag)
   return { tag = tag }
 end
 
-function M.new(world, res, sound)
+-- pools: pools de tasks da task Nivel (main.atm), por exemplo
+-- { luzes = <tasks>, movers = <tasks>, botoes = <tasks> }. Sem main.atm (testes unitarios com game falso) e nil,
+-- e as partes ja migradas para tasks ficam paradas.
+function M.new(world, res, sound, pools)
   local self = {
     world = world,
     res = res,
     sound = sound,
-    thinkers = {},
-    lights = {},
+    pools = pools,
     scroll_lines = {},
-    buttons = {},
     exit_requested = false,
     secret_exit = false,
     switch_map = {},
     stamp = 0,
+    tetos_ativos = {},                   -- C4b
+    plats_ativos = {},                   -- C4d
   }
   for i = 1, #SWITCH_PAIRS do
-    local ia = rdata.texture_num_for_name(res, SWITCH_PAIRS[i][1])
-    local ib = rdata.texture_num_for_name(res, SWITCH_PAIRS[i][2])
+    local ia = res:texture_num_for_name(SWITCH_PAIRS[i][1])
+    local ib = res:texture_num_for_name(SWITCH_PAIRS[i][2])
     if ia ~= 0 or ib ~= 0 then
       self.switch_map[ia] = ib
       self.switch_map[ib] = ia
@@ -306,20 +340,179 @@ function M.new(world, res, sound)
   return self
 end
 
+-- Luzes (passo 3a): cada luz e uma task Atmos (setores.atm) na pool
+-- self.pools.luzes. Aqui ficam so a geometria (min/max de luz) e a criacao,
+-- na mesma ordem de antes (setores na ordem do mapa). O P_Random inicial de
+-- Pisca e Strobe e consumido no comeco da task, dentro do spawn_in, ou seja,
+-- no mesmo ponto em que este arquivo o consumia.
+local setores = nil
+
+-- Cria a task "nome" de setores.atm na pool "pool" do Nivel. Sem main.atm
+-- (testes unitarios com game falso) nao ha pools: a parte migrada fica
+-- parada.
+local function spawn_task(self, pool, nome, ...)
+  if not (self.pools and self.pools[pool]) then
+    return nil
+  end
+  setores = setores or require("setores")
+  return spawn_in(self.pools[pool], setores[nome], ...)
+end
+
+local function spawn_luz(self, nome, ...)
+  return spawn_task(self, "luzes", nome, ...)
+end
+
+-- Movimentadores (passo 3b): portas, elevadores, pisos e tetos ficam numa
+-- pool so, "movers", na ordem de criacao (a da antiga lista self.thinkers):
+-- a ordem entre eles importa (um mobj na fronteira de dois setores tem o
+-- chao e o teto calculados pelos dois). Portas (3b), elevadores (3c), pisos
+-- e tetos (3d) sao tasks de setores.atm; cada uma marca sector.specialdata
+-- no proprio spawn (sincrono, P8).
+
+-- Piso (passo 3d): task Piso. "piso" e o registro (kind, sector, direction,
+-- dest, speed, crush, floorpic): fica em sector.specialdata e e o pub da
+-- task (o save grava direction, dest e speed).
+function M.start_floor(self, piso)
+  if not (self.pools and self.pools.movers) then
+    piso.sector.specialdata = piso     -- sem main.atm: so ocupa o setor
+  end                                  -- (a escada para de procurar)
+  return spawn_task(self, "movers", "Piso", self, piso)
+end
+
+-- Teto e esmagador (passo 3d): task Teto. Direcao e velocidade ficam na
+-- task (os tetos nao sao gravados no save).
+local function start_ceiling(self, teto)
+  return spawn_task(self, "movers", "Teto", self, teto)
+end
+
+-- C4b: os tetos ativos (activeceilings do Doom, MAXCEILINGS lugares). As
+-- linhas 57 e 74 param os tetos da tag (EV_CeilingCrushStop) e as linhas de
+-- esmagador reativam os parados (P_ActivateInStasisCeiling). Um teto criado
+-- com a lista cheia anda, mas nao pode ser parado. Parado, o thinker do Doom
+-- deixa de ser chamado: aqui, a task Teto e desligada (toggle) e volta de
+-- onde estava; o registro marca "parado".
+local MAXCEILINGS = 30
+
+local function add_active_ceiling(self, teto)
+  for i = 1, MAXCEILINGS do
+    if self.tetos_ativos[i] == nil then
+      self.tetos_ativos[i] = teto
+      return
+    end
+  end
+end
+
+function M.remover_teto(self, teto)
+  for i = 1, MAXCEILINGS do
+    if self.tetos_ativos[i] == teto then
+      self.tetos_ativos[i] = nil
+      return
+    end
+  end
+end
+
+function M.stop_ceiling(self, line)
+  local ok = false
+  for i = 1, MAXCEILINGS do
+    local teto = self.tetos_ativos[i]
+    if teto and teto.sector.tag == line.tag and not teto.parado then
+      teto.parado = true
+      if teto.task then
+        toggle(teto.task, false)
+      end
+      ok = true
+    end
+  end
+  return ok
+end
+
+local function activate_in_stasis_ceiling(self, line)
+  for i = 1, MAXCEILINGS do
+    local teto = self.tetos_ativos[i]
+    if teto and teto.sector.tag == line.tag and teto.parado then
+      teto.parado = false
+      if teto.task then
+        toggle(teto.task, true)
+      end
+    end
+  end
+end
+
+-- Porta (passo 3b): task Porta de setores.atm. "porta" e o registro da
+-- porta (kind, sector, type, direction, topheight, speed, topwait,
+-- topcountdown): fica em sector.specialdata e e o pub da task. O Lua ainda
+-- escreve porta.direction quando alguem usa a porta de novo (spawn_door), e
+-- a task le na sua fase (o "recado"; ver docs/NOTAS_MONOGRAFIA.md, secao 5).
+function M.start_door(self, porta)
+  return spawn_task(self, "movers", "Porta", self, porta)
+end
+
+-- Elevador (passo 3c): task Elevador de setores.atm, na mesma pool. "plat" e
+-- o registro do elevador (kind, sector, type, status, oldstatus, speed, low,
+-- high, wait, count): fica em sector.specialdata e e o pub da task.
+--
+-- C4d: os elevadores ativos (activeplats do Doom, MAXPLATS lugares; cheia,
+-- o Doom para com erro). As linhas 54 e 89 param os elevadores da tag
+-- (EV_StopPlat): status in_stasis, o status de antes em oldstatus, e o
+-- thinker deixa de pensar; aqui, a task Elevador e desligada (toggle). As
+-- linhas de elevador perpetuo (53, 87) os religam (P_ActivateInStasis).
+-- Antes do C4d, stop_plat escrevia status = WAITING e count enorme no
+-- registro (o recado), e o elevador parado continuava descontando o count.
+local MAXPLATS = 30
+
+local function add_active_plat(self, plat)
+  for i = 1, MAXPLATS do
+    if self.plats_ativos[i] == nil then
+      self.plats_ativos[i] = plat
+      return
+    end
+  end
+  error("P_AddActivePlat: no more plats!")
+end
+
+function M.remover_plat(self, plat)
+  for i = 1, MAXPLATS do
+    if self.plats_ativos[i] == plat then
+      self.plats_ativos[i] = nil
+      return
+    end
+  end
+end
+
+-- Cria a task do elevador (EV_DoPlat e o load). Parado no save, ela nasce
+-- no status de antes e e desligada em seguida.
+function M.start_plat(self, plat)
+  local parado = plat.status == PLAT_INSTASIS
+  if parado then
+    plat.status = plat.oldstatus
+  end
+  plat.task = spawn_task(self, "movers", "Elevador", self, plat)
+  if parado then
+    plat.status = PLAT_INSTASIS
+    if plat.task then
+      toggle(plat.task, false)
+    end
+  end
+  add_active_plat(self, plat)
+  return plat.task
+end
+
+local function activate_in_stasis(self, tag)
+  for i = 1, MAXPLATS do
+    local plat = self.plats_ativos[i]
+    if plat and plat.sector.tag == tag and plat.status == PLAT_INSTASIS then
+      plat.status = plat.oldstatus
+      if plat.task then
+        toggle(plat.task, true)
+      end
+    end
+  end
+end
+
 local function spawn_light_flash(self, sector)
   sector.special = 0
-  local flash = {
-    sector = sector,
-    kind = "flash",
-    maxlight = sector.lightlevel,
-    minlight = min_surrounding_light(sector, sector.lightlevel),
-    maxtime = 64,
-    mintime = 7,
-    count = 0,
-  }
-  flash.count = band(rng.p_random(), flash.maxtime) + 1
-  self.lights[#self.lights + 1] = flash
-  mark(self)
+  spawn_luz(self, "Pisca", sector, sector.lightlevel,
+    min_surrounding_light(sector, sector.lightlevel))
 end
 
 local function spawn_strobe(self, sector, darktime, synced)
@@ -328,44 +521,19 @@ local function spawn_strobe(self, sector, darktime, synced)
   if minl == sector.lightlevel then
     minl = 0
   end
-  local count = 1
-  if not synced then
-    count = band(rng.p_random(), 7) + 1
-  end
-  self.lights[#self.lights + 1] = {
-    sector = sector,
-    kind = "strobe",
-    maxlight = sector.lightlevel,
-    minlight = minl,
-    darktime = darktime,
-    brighttime = STROBEBRIGHT,
-    count = count,
-  }
-  mark(self)
+  spawn_luz(self, "Strobe", sector, sector.lightlevel, minl, darktime, synced)
 end
 
 local function spawn_glow(self, sector)
   sector.special = 0
-  self.lights[#self.lights + 1] = {
-    sector = sector,
-    kind = "glow",
-    maxlight = sector.lightlevel,
-    minlight = min_surrounding_light(sector, sector.lightlevel),
-    direction = -1,
-  }
-  mark(self)
+  spawn_luz(self, "Brilho", sector, sector.lightlevel,
+    min_surrounding_light(sector, sector.lightlevel))
 end
 
 local function spawn_fire(self, sector)
   sector.special = 0
-  self.lights[#self.lights + 1] = {
-    sector = sector,
-    kind = "fire",
-    maxlight = sector.lightlevel,
-    minlight = min_surrounding_light(sector, sector.lightlevel) + 16,
-    count = 4,
-  }
-  mark(self)
+  spawn_luz(self, "Fogo", sector, sector.lightlevel,
+    min_surrounding_light(sector, sector.lightlevel) + 16)
 end
 
 local function spawn_door(self, sector, dtype, reverse)
@@ -398,13 +566,11 @@ local function spawn_door(self, sector, dtype, reverse)
     speed = speed,
     topwait = VDOORWAIT,
     topcountdown = 0,
-    dead = false,
   }
   if dtype == VLD_CLOSE30 then
     door.topheight = sector.ceilingheight
   end
-  sector.specialdata = door
-  self.thinkers[#self.thinkers + 1] = door
+  M.start_door(self, door)             -- a task marca sector.specialdata
   if door.direction == 1 then
     if dtype < VLD_BLAZERAISE then
       play(self, "doropn")
@@ -435,10 +601,8 @@ local function spawn_door_close_in_30(self, sector)
     speed = VDOORSPEED,
     topwait = VDOORWAIT,
     topcountdown = 30 * TICRATE,
-    dead = false,
   }
-  sector.specialdata = door
-  self.thinkers[#self.thinkers + 1] = door
+  M.start_door(self, door)
 end
 
 local function spawn_door_raise_in_5(self, sector)
@@ -455,10 +619,8 @@ local function spawn_door_raise_in_5(self, sector)
     speed = VDOORSPEED,
     topwait = VDOORWAIT,
     topcountdown = 5 * 60 * TICRATE,
-    dead = false,
   }
-  sector.specialdata = door
-  self.thinkers[#self.thinkers + 1] = door
+  M.start_door(self, door)
 end
 
 function M.spawn_specials(self)
@@ -496,196 +658,11 @@ function M.spawn_specials(self)
   end
 end
 
-local function tick_lights(self)
-  for i = 1, #self.lights do
-    local light = self.lights[i]
-    if light.kind == "glow" then
-      if light.direction == -1 then
-        light.sector.lightlevel = light.sector.lightlevel - GLOWSPEED
-        if light.sector.lightlevel <= light.minlight then
-          light.sector.lightlevel = light.sector.lightlevel + GLOWSPEED
-          light.direction = 1
-        end
-      else
-        light.sector.lightlevel = light.sector.lightlevel + GLOWSPEED
-        if light.sector.lightlevel >= light.maxlight then
-          light.sector.lightlevel = light.sector.lightlevel - GLOWSPEED
-          light.direction = -1
-        end
-      end
-      mark(self)
-    else
-      light.count = light.count - 1
-      if light.count == 0 then
-        if light.kind == "flash" then
-          if light.sector.lightlevel == light.maxlight then
-            light.sector.lightlevel = light.minlight
-            light.count = band(rng.p_random(), light.mintime) + 1
-          else
-            light.sector.lightlevel = light.maxlight
-            light.count = band(rng.p_random(), light.maxtime) + 1
-          end
-        elseif light.kind == "strobe" then
-          if light.sector.lightlevel == light.minlight then
-            light.sector.lightlevel = light.maxlight
-            light.count = light.brighttime
-          else
-            light.sector.lightlevel = light.minlight
-            light.count = light.darktime
-          end
-        elseif light.kind == "fire" then
-          local amount = band(rng.p_random(), 3) * 16
-          if light.sector.lightlevel - amount < light.minlight then
-            light.sector.lightlevel = light.minlight
-          else
-            light.sector.lightlevel = light.maxlight - amount
-          end
-          light.count = 4
-        end
-        mark(self)
-      end
-    end
-  end
-end
-
-local function tick_door(self, door)
-  if door.direction == 0 then
-    door.topcountdown = door.topcountdown - 1
-    if door.topcountdown <= 0 then
-      local dtype = door.type
-      if dtype == VLD_NORMAL or dtype == VLD_BLAZERAISE or dtype == VLD_CLOSE then
-        door.direction = -1
-        if dtype == VLD_BLAZERAISE then
-          play(self, "bdcls")
-        else
-          play(self, "dorcls")
-        end
-      elseif dtype == VLD_CLOSE30 or dtype == VLD_RAISEIN5 then
-        door.direction = 1
-        play(self, "doropn")
-      end
-    end
-    return
-  end
-  local dest = door.sector.floorheight
-  if door.direction == 1 then
-    dest = door.topheight
-  end
-  local res = M.move_plane(self.world, door.sector, door.speed, dest, 1, door.direction, false)
-  mark(self)
-  if res ~= RESULT_PASTDEST then
-    return
-  end
-  if door.direction == 1 then
-    if door.type == VLD_NORMAL or door.type == VLD_BLAZERAISE then
-      door.direction = 0
-      door.topcountdown = door.topwait
-    else
-      door.sector.specialdata = nil
-      door.dead = true
-    end
-  else
-    if door.type == VLD_CLOSE30 then
-      door.direction = 0
-      door.topcountdown = TICRATE * 30
-    else
-      door.sector.specialdata = nil
-      door.dead = true
-    end
-  end
-end
-
-local function tick_plat(self, plat)
-  if plat.status == PLAT_WAITING then
-    plat.count = plat.count - 1
-    if plat.count <= 0 then
-      if plat.sector.floorheight <= plat.low then
-        plat.status = PLAT_UP
-      else
-        plat.status = PLAT_DOWN
-      end
-      play(self, "pstart")
-    end
-    return
-  end
-  local dest = plat.low
-  local direction = -1
-  if plat.status == PLAT_UP then
-    dest = plat.high
-    direction = 1
-  end
-  local res = M.move_plane(self.world, plat.sector, plat.speed, dest, 0, direction, false)
-  mark(self)
-  if res == RESULT_PASTDEST then
-    if plat.status == PLAT_DOWN or plat.type == PLAT_PERPETUAL then
-      plat.status = PLAT_WAITING
-      plat.count = plat.wait
-      play(self, "pstop")
-    else
-      plat.sector.specialdata = nil
-      plat.dead = true
-      play(self, "pstop")
-    end
-  end
-end
-
-local function tick_floor(self, floor)
-  local res = M.move_plane(self.world, floor.sector, floor.speed, floor.dest, 0, floor.direction, floor.crush)
-  mark(self)
-  if res == RESULT_PASTDEST then
-    if floor.floorpic ~= nil then
-      floor.sector.floorpic = floor.floorpic
-    end
-    floor.sector.specialdata = nil
-    floor.dead = true
-  end
-end
-
-local function tick_ceiling(self, ceil)
-  local dest = ceil.dest
-  if ceil.ctype ~= 0 then
-    if ceil.direction == 1 then
-      dest = ceil.topheight
-    else
-      dest = ceil.bottomheight
-    end
-  end
-  local res = M.move_plane(self.world, ceil.sector, ceil.speed, dest, 1, ceil.direction, ceil.crush)
-  mark(self)
-  local bounce = ceil.ctype == CEIL_CRUSHANDRAISE or ceil.ctype == CEIL_FASTCRUSH or ceil.ctype == CEIL_SILENTCRUSH
-  if res == RESULT_PASTDEST then
-    if bounce then
-      if ceil.direction == -1 then
-        ceil.direction = 1
-        ceil.speed = CEILSPEED
-        if ceil.ctype == CEIL_FASTCRUSH then
-          ceil.speed = CEILSPEED * 2
-        end
-        if ceil.ctype == CEIL_SILENTCRUSH then
-          play(self, "pstop")
-        end
-      else
-        ceil.direction = -1
-        if ceil.ctype == CEIL_SILENTCRUSH then
-          play(self, "pstop")
-        end
-      end
-    else
-      ceil.sector.specialdata = nil
-      ceil.dead = true
-    end
-  elseif res == RESULT_CRUSHED and bounce then
-    local slow = math.floor(CEILSPEED / 8)
-    if slow < 1 then
-      slow = 1
-    end
-    ceil.speed = slow
-  end
-end
-
+-- O que ainda e Lua na fase de specials: as linhas com scroll (efeito 48).
+-- Ja sao tasks, nas pools do Nivel (main.atm): luzes (3a), que acordam antes
+-- desta funcao, e movers (3b) e botoes (3e), que acordam depois.
 function M.tick(self)
   local before = self.stamp
-  tick_lights(self)
   for i = 1, #self.scroll_lines do
     local side = self.scroll_lines[i].sides[1]
     if side then
@@ -693,40 +670,6 @@ function M.tick(self)
       mark(self)
     end
   end
-  local alive = {}
-  for i = 1, #self.thinkers do
-    local th = self.thinkers[i]
-    if not th.dead then
-      if th.kind == "door" then
-        tick_door(self, th)
-      elseif th.kind == "plat" then
-        tick_plat(self, th)
-      elseif th.kind == "floor" then
-        tick_floor(self, th)
-      elseif th.kind == "ceiling" then
-        tick_ceiling(self, th)
-      end
-      if not th.dead then
-        alive[#alive + 1] = th
-      end
-    end
-  end
-  self.thinkers = alive
-  local keep = {}
-  for i = 1, #self.buttons do
-    local btn = self.buttons[i]
-    btn.timer = btn.timer - 1
-    if btn.timer <= 0 then
-      local side = btn.line.sides[1]
-      if side then
-        side[btn.attr] = btn.texture
-        mark(self)
-      end
-    else
-      keep[#keep + 1] = btn
-    end
-  end
-  self.buttons = keep
   return self.stamp ~= before
 end
 
@@ -831,13 +774,11 @@ function M.do_plat_dwus(self, line, blaze)
         high = sec.floorheight,
         wait = PLATWAIT * TICRATE,
         count = 0,
-        dead = false,
       }
       if plat.low == plat.high then
         plat.low = plat.high - 8 * FRACUNIT
       end
-      sec.specialdata = plat
-      self.thinkers[#self.thinkers + 1] = plat
+      M.start_plat(self, plat)          -- a task marca sec.specialdata
       play(self, "pstart")
       ok = true
     end
@@ -865,73 +806,84 @@ function M.do_floor(self, line, dest_fn, direction, speed, crush)
         floorpic = nil,
         dead = false,
       }
-      sec.specialdata = floor
-      self.thinkers[#self.thinkers + 1] = floor
+      M.start_floor(self, floor)          -- a task marca sec.specialdata
       ok = true
     end
   end
   return ok
 end
 
+local function start_degrau(self, sec, height, speed)
+  M.start_floor(self, {                  -- marca sec.specialdata ja (P8)
+    kind = "floor",
+    sector = sec,
+    direction = 1,
+    dest = height,
+    speed = speed,
+    crush = false,
+    floorpic = nil,
+    dead = false,
+  })
+end
+
+-- EV_BuildStairs. C4e: como no Doom, o proximo degrau e o setor de tras de
+-- uma linha de dois lados cuja frente e o degrau atual (antes, os dois
+-- lados); a altura soma a cada linha com a mesma textura, antes de testar se
+-- o setor esta ocupado (antes, so no degrau escolhido); e a busca pela tag
+-- continua a partir do ultimo degrau (P_FindSectorFromLineTag(line, secnum),
+-- com secnum trocado pelo degrau).
 function M.do_stairs(self, line, step, speed)
   local ok = false
-  local secs = sectors_from_tag(self.world, line.tag)
-  for i = 1, #secs do
-    local sec = secs[i]
+  local sectors = self.world.sectors
+  local indice = {}
+  for i = 1, #sectors do
+    indice[sectors[i]] = i
+  end
+  local secnum = 0
+  while true do
+    local achou = nil
+    for i = secnum + 1, #sectors do
+      if sectors[i].tag == line.tag then
+        achou = i
+        break
+      end
+    end
+    if not achou then
+      break
+    end
+    secnum = achou
+    local sec = sectors[secnum]
     if sec.specialdata == nil then
-      local height = sec.floorheight + step
-      sec.specialdata = {
-        kind = "floor",
-        sector = sec,
-        direction = 1,
-        dest = height,
-        speed = speed,
-        crush = false,
-        floorpic = nil,
-        dead = false,
-      }
-      self.thinkers[#self.thinkers + 1] = sec.specialdata
       ok = true
+      local height = sec.floorheight + step
+      start_degrau(self, sec, height, speed)
       local texture = sec.floorpic
-      local cur = sec
-      while true do
-        local nxt = nil
-        for n = 1, #cur.lines do
-          local ln = cur.lines[n]
-          if has(ln.flags, ML_TWOSIDED) then
-            local other = ln.backsector
-            if ln.frontsector ~= cur then
-              other = ln.frontsector
-            end
-            if other and other ~= cur and other.floorpic == texture and other.specialdata == nil then
-              nxt = other
-              break
+      local avancou
+      repeat
+        avancou = false
+        for n = 1, #sec.lines do
+          local ln = sec.lines[n]
+          if has(ln.flags, ML_TWOSIDED) and ln.frontsector == sec and ln.backsector then
+            local tsec = ln.backsector
+            if tsec.floorpic == texture then
+              height = height + step
+              if tsec.specialdata == nil then
+                sec = tsec
+                secnum = indice[tsec]
+                start_degrau(self, sec, height, speed)
+                avancou = true
+                break
+              end
             end
           end
         end
-        if not nxt then
-          break
-        end
-        height = height + step
-        nxt.specialdata = {
-          kind = "floor",
-          sector = nxt,
-          direction = 1,
-          dest = height,
-          speed = speed,
-          crush = false,
-          floorpic = nil,
-          dead = false,
-        }
-        self.thinkers[#self.thinkers + 1] = nxt.specialdata
-        cur = nxt
-      end
+      until not avancou
     end
   end
   return ok
 end
 
-local function start_floor(self, sec, dest, direction, speed, crush, floorpic)
+local function start_floor(self, sec, dest, direction, speed, crush, floorpic, newspecial)
   if sec.specialdata ~= nil then
     return false
   end
@@ -943,14 +895,21 @@ local function start_floor(self, sec, dest, direction, speed, crush, floorpic)
     speed = speed,
     crush = crush and true or false,
     floorpic = floorpic,
+    newspecial = newspecial,             -- C4e: o special do setor no fim
     dead = false,
   }
-  sec.specialdata = floor
-  self.thinkers[#self.thinkers + 1] = floor
+  M.start_floor(self, floor)            -- a task marca sec.specialdata
   return true
 end
 
+-- EV_DoCeiling. C4b: so os esmagadores que vao e voltam esmagam (o que so
+-- desce, 44 e 72, e os que descem ate o chao, 41 e 43, nao); o teto que
+-- sobe (40) vai ate o teto vizinho mais alto; os esmagadores reativam os
+-- parados da tag antes de criar os novos.
 function M.do_crusher(self, line, ctype)
+  if ctype == CEIL_FASTCRUSH or ctype == CEIL_SILENTCRUSH or ctype == CEIL_CRUSHANDRAISE then
+    activate_in_stasis_ceiling(self, line)
+  end
   local ok = false
   local secs = sectors_from_tag(self.world, line.tag)
   for i = 1, #secs do
@@ -958,35 +917,33 @@ function M.do_crusher(self, line, ctype)
     if sec.specialdata == nil then
       local top = sec.ceilingheight
       local bottom = sec.floorheight
-      local crush = ctype ~= CEIL_RAISETOHIGHEST
+      local crush = ctype == CEIL_CRUSHANDRAISE or ctype == CEIL_SILENTCRUSH
+        or ctype == CEIL_FASTCRUSH
       local speed = CEILSPEED
       if ctype == CEIL_FASTCRUSH then
         speed = CEILSPEED * 2
       end
       local direction = -1
-      local dest = bottom
       if ctype == CEIL_RAISETOHIGHEST then
-        dest = highest_ceiling(sec)
+        top = highest_ceiling(sec)
         direction = 1
-        crush = false
       elseif ctype ~= CEIL_LOWERTOFLOOR then
         bottom = bottom + 8 * FRACUNIT
-        dest = bottom
       end
       local ceil = {
         kind = "ceiling",
         sector = sec,
         direction = direction,
-        dest = dest,
         speed = speed,
         crush = crush,
         ctype = ctype,
         topheight = top,
         bottomheight = bottom,
+        parado = false,
         dead = false,
       }
-      sec.specialdata = ceil
-      self.thinkers[#self.thinkers + 1] = ceil
+      ceil.task = start_ceiling(self, ceil)  -- a task marca sec.specialdata
+      add_active_ceiling(self, ceil)
       ok = true
     end
   end
@@ -1014,7 +971,7 @@ function M.do_donut(self, line)
           end
         end
         if s3 then
-          if start_floor(self, s2, s3.floorheight, 1, math.floor(FLOORSPEED / 2), false, s3.floorpic) then
+          if start_floor(self, s2, s3.floorheight, 1, math.floor(FLOORSPEED / 2), false, s3.floorpic, 0) then
             ok = true
           end
           if start_floor(self, s1, s3.floorheight, -1, math.floor(FLOORSPEED / 2), false, nil) then
@@ -1028,6 +985,7 @@ function M.do_donut(self, line)
 end
 
 function M.do_plat_perpetual(self, line)
+  activate_in_stasis(self, line.tag)     -- C4d: P_ActivateInStasis
   local ok = false
   local secs = sectors_from_tag(self.world, line.tag)
   for i = 1, #secs do
@@ -1051,10 +1009,8 @@ function M.do_plat_perpetual(self, line)
         high = high,
         wait = PLATWAIT * TICRATE,
         count = 0,
-        dead = false,
       }
-      sec.specialdata = plat
-      self.thinkers[#self.thinkers + 1] = plat
+      M.start_plat(self, plat)          -- a task marca sec.specialdata
       play(self, "pstart")
       ok = true
     end
@@ -1093,10 +1049,8 @@ function M.do_plat_raise(self, line, amount, change)
         high = high,
         wait = 0,
         count = 0,
-        dead = false,
       }
-      sec.specialdata = plat
-      self.thinkers[#self.thinkers + 1] = plat
+      M.start_plat(self, plat)          -- a task marca sec.specialdata
       play(self, "pstart")
       ok = true
     end
@@ -1104,13 +1058,20 @@ function M.do_plat_raise(self, line, amount, change)
   return ok
 end
 
+-- Para os elevadores com a tag da linha: escreve no registro de cada um
+-- (status = esperando, count enorme); a task Elevador le na sua fase e fica
+-- esperando para sempre (este port nunca reativa; ver docs/DIFERENCAS_DOOM.md).
+-- EV_StopPlat (C4d)
 function M.stop_plat(self, line)
   local ok = false
-  for i = 1, #self.thinkers do
-    local th = self.thinkers[i]
-    if th.kind == "plat" and not th.dead and th.sector.tag == line.tag then
-      th.status = PLAT_WAITING
-      th.count = 2147483647
+  for i = 1, MAXPLATS do
+    local plat = self.plats_ativos[i]
+    if plat and plat.status ~= PLAT_INSTASIS and plat.sector.tag == line.tag then
+      plat.oldstatus = plat.status
+      plat.status = PLAT_INSTASIS
+      if plat.task then
+        toggle(plat.task, false)
+      end
       ok = true
     end
   end
@@ -1130,7 +1091,7 @@ function M.raise_to_texture(self, line)
           for s = 1, 2 do
             local side = ln.sides[s]
             if side and side.bottomtexture > 0 then
-              local h = rdata.texture_height(self.res, side.bottomtexture)
+              local h = self.res:texture_height(side.bottomtexture)
               if h > 0 and h < minsize then
                 minsize = h
               end
@@ -1157,14 +1118,16 @@ function M.lower_and_change(self, line)
     if sec.specialdata == nil then
       local dest = lowest_floor(sec)
       local pic = sec.floorpic
+      local special = sec.special        -- C4e: sem vizinho na altura, nao troca
       local around = surrounding_sectors(sec)
       for n = 1, #around do
         if around[n].floorheight == dest then
           pic = around[n].floorpic
+          special = around[n].special    -- C4e: e o special do vizinho
           break
         end
       end
-      if start_floor(self, sec, dest, -1, FLOORSPEED, false, pic) then
+      if start_floor(self, sec, dest, -1, FLOORSPEED, false, pic, special) then
         ok = true
       end
     end
@@ -1212,6 +1175,33 @@ function M.start_light_strobing(self, line)
   return ok
 end
 
+-- Botao (passo 3e): task Botao de setores.atm na pool "botoes", na ordem de
+-- criacao (a mesma da antiga lista self.buttons). Usado por change_switch e
+-- pelo load (saveg.apply), que passa o timer gravado.
+-- C4f: como o P_StartButton: um botao ativo para a mesma linha impede outro
+-- (antes, o segundo devolvia a textura trocada depois), e mais de
+-- MAXBUTTONS ativos e erro, como no Doom.
+local MAXBUTTONS = 16
+
+function M.start_button(self, line, attr, texture, timer)
+  local pool = self.pools and self.pools.botoes
+  if pool then
+    local ativos = 0
+    for _, t in pairs(pool) do
+      if type(t) == "table" and t.pub and t.pub.timer and t.pub.timer > 0 then
+        if t.pub.linha == line then
+          return nil
+        end
+        ativos = ativos + 1
+      end
+    end
+    if ativos >= MAXBUTTONS then
+      error("P_StartButton: no button slots left!")
+    end
+  end
+  return spawn_task(self, "botoes", "Botao", self, line, attr, texture, timer)
+end
+
 function M.change_switch(self, line, use_again)
   local side = line.sides[1]
   if not side then
@@ -1231,12 +1221,7 @@ function M.change_switch(self, line, use_again)
     local new = self.switch_map[tex]
     if new ~= nil then
       if use_again then
-        self.buttons[#self.buttons + 1] = {
-          line = line,
-          attr = attr,
-          texture = tex,
-          timer = BUTTONTIME,
-        }
+        M.start_button(self, line, attr, tex, BUTTONTIME)
       end
       side[attr] = new
       mark(self)
@@ -1451,7 +1436,7 @@ function M.cross_special(self, line, side, thing)
     [53] = function() return M.do_plat_perpetual(self, line) end,
     [54] = function() return M.stop_plat(self, line) end,
     [56] = function() return M.do_floor(self, line, raise_floor_crush_dest, 1, nil, true) end,
-    [57] = function() return M.stop_plat(self, line) end,
+    [57] = function() return M.stop_ceiling(self, line) end,   -- C4b: para os esmagadores
     [58] = function() return floor_up24() end,
     [59] = function() return floor_up24() end,
     [100] = function() return M.do_stairs(self, line, 16 * FRACUNIT, FLOORSPEED * 4) end,
@@ -1473,7 +1458,7 @@ function M.cross_special(self, line, side, thing)
   local again = {
     [72] = function() return M.do_crusher(self, line, CEIL_LOWERANDCRUSH) end,
     [73] = function() return M.do_crusher(self, line, CEIL_CRUSHANDRAISE) end,
-    [74] = function() return M.stop_plat(self, line) end,
+    [74] = function() return M.stop_ceiling(self, line) end,   -- C4b: para os esmagadores
     [75] = function() return door(VLD_CLOSE, false) end,
     [76] = function() return door(VLD_CLOSE30, true) end,
     [77] = function() return M.do_crusher(self, line, CEIL_FASTCRUSH) end,

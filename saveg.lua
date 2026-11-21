@@ -351,14 +351,15 @@ local function dump_player(p)
     { "itemcount", p.itemcount or 0 },
     { "secretcount", p.secretcount or 0 },
     { "didsecret", p.didsecret and true or false },
-    { "psprite_y", p.psprite_sy or 0 },
-    { "psprite_sy", p.psprite_sy or 0 },
-    { "psprite_state", p.psprite_state or "" },
-    { "psprite_tics", p.psprite_tics or 0 },
-    { "psprite_step", p.psprite_step or 0 },
-    { "psprite_body", p.psprite_body or "" },
-    { "psprite_flash", p.psprite_flash or "" },
-    { "flash_tics", p.flash_tics or 0 },
+    -- C3: os dois psprites (a arma e o clarao), como o P_ArchivePlayers
+    { "psp0_state", p.psprites[0].state },
+    { "psp0_tics", p.psprites[0].tics },
+    { "psp0_sx", p.psprites[0].sx },
+    { "psp0_sy", p.psprites[0].sy },
+    { "psp1_state", p.psprites[1].state },
+    { "psp1_tics", p.psprites[1].tics },
+    { "psp1_sx", p.psprites[1].sx },
+    { "psp1_sy", p.psprites[1].sy },
     { "powers", num_list(p.powers or {}, 6) },
   }
 end
@@ -400,6 +401,7 @@ local function dump_thinker(th, world)
       { "high", th.high or 0 },
       { "wait", th.wait or 0 },
       { "count", th.count or 0 },
+      { "oldstatus", th.oldstatus or 0 },   -- C4d: o status de antes de parar
     }
   end
   if th.kind == "floor" then
@@ -452,11 +454,17 @@ local function dump_state(game)
       { "special", ln.special or 0 },
     }
   end
+  -- Movimentadores (passo 3b): tasks na pool "movers" do Nivel, na ordem de
+  -- criacao (a da antiga lista specials.thinkers). O pub de cada uma e o
+  -- registro do movimentador (porta: direction, topcountdown...; elevador:
+  -- status, count...; piso: direction, dest, speed). Os tetos (task Teto)
+  -- nao sao gravados, como antes. O formato gravado nao mudou.
   local thinkers = {}
-  if game.specials and game.specials.thinkers then
-    for i = 1, #game.specials.thinkers do
-      local th = game.specials.thinkers[i]
-      if not th.dead then
+  local movers = game.pools and game.pools.movers
+  if movers then
+    for _, t in pairs(movers) do
+      local th = t.pub
+      if th and not th.dead then
         local rec = dump_thinker(th, world)
         if rec then
           thinkers[#thinkers + 1] = rec
@@ -464,21 +472,27 @@ local function dump_state(game)
       end
     end
   end
+  -- Botoes (passo 3e): tasks Botao na pool "botoes" do Nivel; o estado de
+  -- cada um esta no pub da task (linha, attr, textura, timer). A ordem da
+  -- pool e a de criacao, a mesma da antiga lista specials.buttons.
   local buttons = {}
-  if game.specials and game.specials.buttons then
-    for i = 1, #game.specials.buttons do
-      local btn = game.specials.buttons[i]
-      local line = btn.line
-      local idx = -1
-      if line and line.i_line ~= nil then
-        idx = line.i_line
+  local botoes = game.pools and game.pools.botoes
+  if botoes then
+    for _, t in pairs(botoes) do
+      local btn = t.pub
+      if btn and btn.timer > 0 then
+        local line = btn.linha
+        local idx = -1
+        if line and line.i_line ~= nil then
+          idx = line.i_line
+        end
+        buttons[#buttons + 1] = {
+          { "line", idx },
+          { "where", btn.attr or "toptexture" },
+          { "texture", btn.textura or 0 },
+          { "timer", btn.timer or 0 },
+        }
       end
-      buttons[#buttons + 1] = {
-        { "line", idx },
-        { "where", btn.attr or "toptexture" },
-        { "texture", btn.texture or 0 },
-        { "timer", btn.timer or 0 },
-      }
     end
   end
   return {
@@ -595,13 +609,15 @@ local function apply_player(player, rec)
   player.itemcount = take("itemcount", 0)
   player.secretcount = take("secretcount", 0)
   player.didsecret = rec.didsecret and true or false
-  player.psprite_sy = take("psprite_sy", player.psprite_sy)
-  player.psprite_state = take("psprite_state", player.psprite_state)
-  player.psprite_tics = take("psprite_tics", player.psprite_tics)
-  player.psprite_step = take("psprite_step", 0)
-  player.psprite_body = take("psprite_body", "")
-  player.psprite_flash = take("psprite_flash", "")
-  player.flash_tics = take("flash_tics", 0)
+  -- C3: os psprites; um save de antes do C3 nao os tem, e a arma fica como
+  -- o nivel a montou (subindo)
+  for i = 0, 1 do
+    local psp = player.psprites[i]
+    psp.state = take("psp" .. i .. "_state", psp.state)
+    psp.tics = take("psp" .. i .. "_tics", psp.tics)
+    psp.sx = take("psp" .. i .. "_sx", psp.sx)
+    psp.sy = take("psp" .. i .. "_sy", psp.sy)
+  end
   if rec.powers then
     copy_nums(player.powers, rec.powers)
   end
@@ -639,15 +655,18 @@ local function apply_mobj(mo, rec)
   end
 end
 
+-- Monta o nivel do save e aplica o estado gravado. Nao troca de tela: no
+-- driver Atmos quem entra em "view" e a task Nivel (passo 2).
 function M.apply(game, data)
-  if data == nil or game.start_level == nil then
+  local build = game.build_level or game.start_level
+  if data == nil or build == nil then
     return false
   end
   game.carry = nil
   game.episode = data.episode or game.episode
   game.mapn = data.mapn or game.mapn
   game.skill = data.skill or game.skill
-  game.start_level(game)
+  build(game)
   if game.world == nil or game.player == nil then
     return false
   end
@@ -719,12 +738,18 @@ function M.apply(game, data)
           high = rec.high or 0,
           wait = rec.wait or 0,
           count = rec.count or 0,
+          oldstatus = rec.oldstatus or 0,
           dest = rec.dest or 0,
           dead = false,
         }
-        if th.kind == "door" or th.kind == "plat" or th.kind == "floor" then
-          sector.specialdata = th
-          game.specials.thinkers[#game.specials.thinkers + 1] = th
+        -- passo 3b: recria a task na pool "movers", na ordem gravada
+        local sp = require("specials")
+        if th.kind == "door" then
+          sp.start_door(game.specials, th)       -- a task marca specialdata
+        elseif th.kind == "plat" then
+          sp.start_plat(game.specials, th)       -- idem (passo 3c)
+        elseif th.kind == "floor" then
+          sp.start_floor(game.specials, th)      -- idem (passo 3d)
         end
       end
     end
@@ -734,12 +759,9 @@ function M.apply(game, data)
       local li = rec.line or -1
       local line = world.lines[li + 1]
       if line then
-        game.specials.buttons[#game.specials.buttons + 1] = {
-          line = line,
-          attr = where_attr[rec.where or ""] or "toptexture",
-          texture = rec.texture or 0,
-          timer = rec.timer or 0,
-        }
+        -- passo 3e: recria a task Botao com o timer gravado
+        require("specials").start_button(game.specials, line,
+          where_attr[rec.where or ""] or "toptexture", rec.texture or 0, rec.timer or 0)
       end
     end
   end
@@ -763,7 +785,9 @@ function M.apply(game, data)
     local status = require("status")
     status.reset(game.status, game.player)
   end
-  game.gamestate = "view"
+  if game.build_level == nil then
+    game.gamestate = "view" -- caminho antigo (sem main.atm)
+  end
   return true
 end
 

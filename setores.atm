@@ -1,0 +1,376 @@
+;; Specials de setor como tasks Atmos (passo 3 do docs/PLANO_ATMOS.md).
+;;
+;; Este modulo so define prototipos de task. Quem as cria e o specials.lua,
+;; com spawn_in(pool, T, ...), no mesmo ponto em que antes acrescentava um
+;; item a uma lista (self.lights, self.thinkers...). O spawn e sincrono: a
+;; task roda ate o primeiro await antes de o Lua continuar (propriedade P8),
+;; entao um P_Random do comeco da task e consumido no mesmo ponto em que o
+;; Lua o consumia.
+;;
+;; As pools ficam na task Nivel (main.atm) e acordam com :game.specials, na
+;; ordem de declaracao (P7) e, dentro de cada pool, na ordem de criacao.
+;; Quando o Nivel termina, as pools e todas as tasks terminam juntas: nao ha
+;; lista para reconstruir nem campo "dead".
+;;
+;; Regra: toda task espera :game.specials antes de mexer no setor (CLAUDE.md,
+;; 4.2). O thinker original so agia no proximo specials_mod.tick.
+
+val rng    = require "random"
+val compat = require "compat"
+val S      = require "specials"       ;; geometria (move_plane) e sons
+val band   = compat.band
+
+val GLOWSPEED    = 8
+val STROBEBRIGHT = 5
+
+;; Espera n fases de specials (n tics de nivel).
+val func espera (n) {
+    loop in n {
+        await :game.specials
+    }
+}
+
+;; ---------------------------------------------------------------- luzes
+;; Passo 3a. Antes: um item em self.lights com "kind" e "count", e um
+;; despacho por kind em tick_lights (specials.lua, tag passo2). Agora: cada
+;; tipo e um programa linear; o contador virou o argumento de espera().
+
+;; Luz que pisca ao acaso (setor tipo 1; P_SpawnLightFlash, T_LightFlash).
+val task Pisca (setor, maxl, minl) {
+    espera(band(rng.p_random(), 64) + 1)
+    loop {
+        if setor.lightlevel == maxl {
+            set setor.lightlevel = minl
+            espera(band(rng.p_random(), 7) + 1)
+        } else {
+            set setor.lightlevel = maxl
+            espera(band(rng.p_random(), 64) + 1)
+        }
+    }
+}
+
+;; Luz estroboscopica (setores 2, 3, 4, 12, 13; P_SpawnStrobeFlash,
+;; T_StrobeFlash). Sincronizada: todas comecam juntas, sem P_Random.
+val task Strobe (setor, maxl, minl, escuro, sincronizado) {
+    val primeira = if sincronizado => 1 => (band(rng.p_random(), 7) + 1)
+    espera(primeira)
+    loop {
+        if setor.lightlevel == minl {
+            set setor.lightlevel = maxl
+            espera(STROBEBRIGHT)
+        } else {
+            set setor.lightlevel = minl
+            espera(escuro)
+        }
+    }
+}
+
+;; Luz que pulsa devagar (setor tipo 8; P_SpawnGlowingLight, T_Glow).
+val task Brilho (setor, maxl, minl) {
+    loop {
+        loop {                                ;; escurece ate o minimo
+            await :game.specials
+            set setor.lightlevel = setor.lightlevel - GLOWSPEED
+            until (setor.lightlevel <= minl)
+        }
+        set setor.lightlevel = setor.lightlevel + GLOWSPEED
+        loop {                                ;; clareia ate o maximo
+            await :game.specials
+            set setor.lightlevel = setor.lightlevel + GLOWSPEED
+            until (setor.lightlevel >= maxl)
+        }
+        set setor.lightlevel = setor.lightlevel - GLOWSPEED
+    }
+}
+
+;; Fogo tremulo (setor tipo 17; P_SpawnFireFlicker, T_FireFlicker).
+val task Fogo (setor, maxl, minl) {
+    loop {
+        espera(4)
+        val amount = band(rng.p_random(), 3) * 16
+        set setor.lightlevel = if (setor.lightlevel - amount) < minl => minl => (maxl - amount)
+    }
+}
+
+;; --------------------------------------------------------------- botoes
+;; Passo 3e. Antes: um item em self.buttons (line, attr, texture, timer),
+;; decrementado e removido da lista em M.tick (specials.lua, tag passo2).
+;;
+;; Switch repetivel (P_StartButton, P_UpdateSpecials): depois de "timer"
+;; tics, devolve a textura original ao lado da linha. O contador fica em pub
+;; porque o save precisa dele (saveg.lua le pub.timer); sem o save, seria so
+;; espera(timer). O load recria a task com o timer gravado.
+val task Botao (sp, linha, attr, textura, timer) {
+    set pub = [linha=linha, attr=attr, textura=textura, timer=timer]
+    loop {
+        await :game.specials
+        set pub.timer = pub.timer - 1
+        until (pub.timer <= 0)
+    }
+    val lado = linha.sides@1
+    if lado {
+        set lado@attr = textura
+    }
+    S.play(sp, "swtchn")                  ;; C4f: o botao volta com som
+}
+
+;; ---------------------------------------------------------- movimentadores
+;; Passo 3b. Portas, elevadores, pisos e tetos ficam todos na pool "movers",
+;; na ordem de criacao (a da antiga lista self.thinkers): a ordem entre eles
+;; importa (um mobj na fronteira de dois setores tem o chao e o teto
+;; calculados pelos dois). Desde o passo 3d todos sao tasks (Porta,
+;; Elevador, Piso, Teto); a task ThinkerLua, que embrulhava os thinkers Lua
+;; ainda nao migrados, sumiu.
+
+;; Porta (EV_DoDoor, EV_VerticalDoor, T_VerticalDoor). "porta" e o registro
+;; da porta, compartilhado com o Lua: fica em sector.specialdata e e o pub.
+;;
+;; A fase da porta e porta.direction: 1 abrindo, 0 esperando, -1 fechando.
+;; Ela fica no registro (e nao so na posicao do codigo) por dois motivos:
+;;   * o recado: quando alguem usa a porta de novo, spawn_door (Lua) inverte
+;;     porta.direction no meio do tic; a task percebe na sua fase e muda de
+;;     fase agindo ja nesse tic, como o T_VerticalDoor lia a direcao nova;
+;;   * o save grava direction e topcountdown (o mesmo formato de antes).
+
+;; Anda ate o destino. Devolve :chegou, :troca se o Lua mudou a direcao
+;; (o recado), ou :esmagou se a porta, fechando, bateu em algo e volta a
+;; abrir (C4a; as portas que so fecham, CLOSE e BLAZECLOSE, ficam tentando).
+;; "direto": a fase comeca agindo ja, sem esperar (troca).
+val func mover (sp, porta, dir, direto) {
+    var espera = !direto
+    loop {
+        if espera {
+            await :game.specials
+        }
+        set espera = true
+        until (porta.direction != dir, :troca)
+        val destino = if dir == 1 => porta.topheight => porta.sector.floorheight
+        val r = S.move_plane(sp.world, porta.sector, porta.speed, destino, 1, dir, false)
+        until (r == S.RESULT_PASTDEST, :chegou)
+        val reabre = (porta.type != S.VLD.CLOSE) && (porta.type != S.VLD.BLAZECLOSE)
+        until ((dir == -1) && (r == S.RESULT_CRUSHED) && reabre, :esmagou)
+    }
+}
+
+;; Espera porta.topcountdown tics (o save le esse contador). Devolve :fim,
+;; ou :troca se o Lua mudou a direcao.
+val func esperar_porta (porta) {
+    loop {
+        await :game.specials
+        until (porta.direction != 0, :troca)
+        set porta.topcountdown = porta.topcountdown - 1
+        until (porta.topcountdown <= 0, :fim)
+    }
+}
+
+val task Porta (sp, porta) {
+    val V = S.VLD
+    set pub = porta
+    set porta.sector.specialdata = porta  ;; setor ocupado
+    defer {                               ;; ao terminar ou ser abortada
+        set porta.sector.specialdata = nil
+        set porta.dead = true
+    }
+    var direto = false
+    loop {
+        val d = porta.direction
+        val r = if d == 0 => esperar_porta(porta) => mover(sp, porta, d, direto)
+        set direto = (r == :troca)
+        ifs {
+            (r == :troca) => {}           ;; recado: segue na direcao nova
+            (r == :esmagou) => {          ;; C4a: bateu em algo: volta a abrir
+                set porta.direction = 1
+                S.play(sp, "doropn")
+            }
+            (r == :fim) => {              ;; acabou a espera
+                val t = porta.type
+                ifs {
+                    (t == V.NORMAL) || (t == V.CLOSE) => {
+                        set porta.direction = -1
+                        S.play(sp, "dorcls")
+                    }
+                    (t == V.BLAZERAISE) => {
+                        set porta.direction = -1
+                        S.play(sp, "bdcls")
+                    }
+                    (t == V.CLOSE30) || (t == V.RAISEIN5) => {
+                        set porta.direction = 1
+                        S.play(sp, "doropn")
+                    }
+                }
+            }
+            (d == 1) => {                 ;; chegou em cima
+                until ((porta.type != V.NORMAL) && (porta.type != V.BLAZERAISE))
+                set porta.direction = 0
+                set porta.topcountdown = porta.topwait
+            }
+            else => {                     ;; chegou embaixo
+                if (porta.type == V.BLAZERAISE) || (porta.type == V.BLAZECLOSE) {
+                    S.play(sp, "bdcls")   ;; C4a: as rapidas batem ao fechar
+                }
+                until (porta.type != V.CLOSE30)
+                set porta.direction = 0
+                set porta.topcountdown = S.TICRATE * 30
+            }
+        }
+    }
+}
+
+;; Elevador (EV_DoPlat, T_PlatRaise). Passo 3c. "plat" e o registro do
+;; elevador, compartilhado com o Lua: fica em sector.specialdata e e o pub.
+;;
+;; A fase e plat.status (S.PLAT: DOWN descendo, UP subindo, WAITING
+;; esperando), no registro porque o save grava status e count.
+;;
+;; C4d: parar (linhas 54 e 89) nao e mais um recado. Ate o C3, stop_plat (Lua)
+;; escrevia status = WAITING e count enorme no meio do tic, e a task
+;; percebia na sua fase (o :troca, e a fase seguinte agia ja no mesmo tic);
+;; o elevador parado continuava descontando o count, e por isso o toggle nao
+;; servia (passo 3c, mutacao parar-com-toggle). No Doom, o elevador parado
+;; deixa de pensar (EV_StopPlat tira a funcao do thinker). Agora o Lua desliga
+;; a task com toggle e a liga de novo na reativacao (P_ActivateInStasis); a
+;; task nao ve o status de parado e continua no mesmo await. Ninguem mais
+;; escreve plat.status de fora com a task ligada, e o :troca sumiu.
+
+;; Anda ate o destino da fase "st" (DOWN ou UP). Devolve :chegou, ou :bateu
+;; se o elevador, subindo, bateu em algo (C4d: volta a descer, T_PlatRaise).
+val func mover_plat (sp, plat, st) {
+    val P = S.PLAT
+    val destino = if st == P.UP => plat.high => plat.low
+    val dir = if st == P.UP => 1 => -1
+    loop {
+        await :game.specials
+        val r = S.move_plane(sp.world, plat.sector, plat.speed, destino, 0, dir, false)
+        until (r == S.RESULT_PASTDEST, :chegou)
+        until ((st == P.UP) && (r == S.RESULT_CRUSHED), :bateu)
+    }
+}
+
+;; Espera plat.count tics (o save le esse contador). Devolve :fim.
+val func esperar_plat (plat) {
+    loop {
+        await :game.specials
+        set plat.count = plat.count - 1
+        until (plat.count <= 0, :fim)
+    }
+}
+
+val task Elevador (sp, plat) {
+    val P = S.PLAT
+    set pub = plat
+    set plat.sector.specialdata = plat    ;; setor ocupado
+    defer {                               ;; ao terminar ou ser abortado
+        set plat.sector.specialdata = nil
+        set plat.dead = true
+        S.remover_plat(sp, plat)          ;; C4d: sai dos elevadores ativos
+    }
+    loop {
+        val st = plat.status
+        val r = if st == P.WAITING => esperar_plat(plat) => mover_plat(sp, plat, st)
+        ifs {
+            (r == :fim) => {              ;; acabou a espera: sobe ou desce
+                set plat.status = if plat.sector.floorheight <= plat.low => P.UP => P.DOWN
+                S.play(sp, "pstart")
+            }
+            (r == :bateu) => {            ;; C4d: subindo, bateu: desce
+                set plat.count = plat.wait
+                set plat.status = P.DOWN
+                S.play(sp, "pstart")
+            }
+            else => {                     ;; chegou ao destino
+                S.play(sp, "pstop")
+                until ((st != P.DOWN) && (plat.type != P.PERPETUAL))   ;; subiu: acabou
+                set plat.status = P.WAITING
+                set plat.count = plat.wait
+            }
+        }
+    }
+}
+
+;; Piso (EV_DoFloor, EV_BuildStairs, EV_DoDonut, T_MoveFloor). Passo 3d.
+;; "piso" e o registro do piso (sector, direction, dest, speed, crush,
+;; floorpic, newspecial): fica em sector.specialdata e e o pub, porque o save
+;; grava direction, dest e speed. Ninguem escreve nele de fora (nao ha
+;; recado): o piso anda ate o destino e acaba, trocando a textura do chao e
+;; o special do setor se tiver (donut, baixar e trocar; o special desde o
+;; C4e). Desde o C4e, toca "stnmov" a cada 8 tics e "pstop" ao chegar.
+val task Piso (sp, piso) {
+    set pub = piso
+    set piso.sector.specialdata = piso    ;; setor ocupado
+    defer {                               ;; ao terminar ou ser abortado
+        set piso.sector.specialdata = nil
+        set piso.dead = true
+    }
+    loop {
+        await :game.specials
+        val r = S.move_plane(sp.world, piso.sector, piso.speed, piso.dest, 0, piso.direction, piso.crush)
+        S.som_de_pedra(sp)                ;; C4e: a cada 8 tics andando
+        until (r == S.RESULT_PASTDEST)
+    }
+    if piso.floorpic {
+        set piso.sector.floorpic = piso.floorpic
+        if piso.newspecial {              ;; C4e: e o special (donut, baixar e trocar)
+            set piso.sector.special = piso.newspecial
+        }
+    }
+    S.play(sp, "pstop")                   ;; C4e: chegou
+}
+
+;; Teto e esmagador (EV_DoCeiling, T_MoveCeiling). Passo 3d. Os tetos nao
+;; sao gravados no save e ninguem escreve no registro de fora. Por isso a
+;; fase fica so no codigo: direcao e velocidade sao variaveis locais, e o
+;; registro so marca o setor.
+;;
+;; Teto simples: anda ate o destino e acaba. Esmagador que vai e volta
+;; (CRUSHANDRAISE, FASTCRUSH, SILENTCRUSH): desce, sobe, desce... para
+;; sempre. Ao bater em algo descendo, o comum, o silencioso e o que so desce
+;; (LOWERANDCRUSH) passam a descer devagar (C4b; o rapido nao desacelera).
+;;
+;; C4b: as linhas 57 e 74 param o teto (EV_CeilingCrushStop): o Lua desliga
+;; a task com toggle (o thinker do Doom deixa de ser chamado) e a liga de
+;; novo quando uma linha de esmagador o reativa (P_ActivateInStasisCeiling).
+;; A task continua de onde parou, com a direcao e a velocidade que tinha:
+;; o toggle guarda a fase sem nenhum campo a mais (o olddirection do Doom).
+val task Teto (sp, teto) {
+    val C = S.CEIL
+    set pub = teto
+    set teto.sector.specialdata = teto    ;; setor ocupado
+    defer {
+        set teto.sector.specialdata = nil
+        set teto.dead = true
+        S.remover_teto(sp, teto)          ;; C4b: sai dos tetos ativos
+    }
+    val t = teto.ctype
+    val vai_e_volta = (t == C.CRUSHANDRAISE) || (t == C.FASTCRUSH) || (t == C.SILENTCRUSH)
+    val desacelera = (t == C.CRUSHANDRAISE) || (t == C.SILENTCRUSH) || (t == C.LOWERANDCRUSH)
+    val normal = if t == C.FASTCRUSH => (S.CEILSPEED * 2) => S.CEILSPEED
+    val devagar = math.floor(S.CEILSPEED / 8)
+    var dir = teto.direction
+    var vel = teto.speed
+    loop {
+        val destino = if dir == 1 => teto.topheight => teto.bottomheight
+        val esmaga = (dir == -1) && teto.crush    ;; subindo, nunca esmaga
+        loop {                            ;; anda ate o destino
+            await :game.specials
+            val r = S.move_plane(sp.world, teto.sector, vel, destino, 1, dir, esmaga)
+            if t != C.SILENTCRUSH {
+                S.som_de_pedra(sp)        ;; C4e: a cada 8 tics andando
+            }
+            until (r == S.RESULT_PASTDEST)
+            if desacelera && (dir == -1) && (r == S.RESULT_CRUSHED) {
+                set vel = devagar
+            }
+        }
+        until (!vai_e_volta)
+        if t == C.SILENTCRUSH {
+            S.play(sp, "pstop")
+        }
+        if dir == -1 {                    ;; chegou embaixo: sobe na normal
+            set vel = normal
+        }
+        set dir = if dir == 1 => -1 => 1
+    }
+}
+
+[Pisca=Pisca, Strobe=Strobe, Brilho=Brilho, Fogo=Fogo, Botao=Botao,
+ Porta=Porta, Elevador=Elevador, Piso=Piso, Teto=Teto]

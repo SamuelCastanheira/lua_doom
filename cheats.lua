@@ -219,10 +219,15 @@ local function do_cheat(game, action, param)
       return
     end
     player_mod.set_message(p, "Changing Level...")
-    game.episode = episode
-    game.mapn = mapn
-    if game.start_level then
-      game.start_level(game)
+    if game.request then
+      -- passo 2: a troca de nivel e feita pela task Nivel/Jogo (main.atm)
+      game.request("nivel.trocar", { episode = episode, mapn = mapn })
+    else
+      game.episode = episode
+      game.mapn = mapn
+      if game.start_level then
+        game.start_level(game) -- caminho antigo (sem main.atm)
+      end
     end
   elseif action == "mus" then
     if #param < 2 or param:match("^%d%d$") == nil then

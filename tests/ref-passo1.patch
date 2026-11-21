@@ -1,0 +1,148 @@
+diff --git a/game.lua b/game.lua
+index 3451edb..71a5ae5 100644
+--- a/game.lua
++++ b/game.lua
+@@ -655,6 +655,46 @@ function M.new(argv)
+       end
+       return
+     end
++    if ev.replay_die then
++      -- comando de teste do modo replay (video.lua): o jogador morre
++      if video.replay and game.player and game.player.mo and game.gamestate == "view" then
++        game.damage_mobj(game.player.mo, nil, 10000, nil)
++      end
++      return
++    end
++    if ev.replay_use then
++      -- comando de teste do modo replay (video.lua): "use" na linha N
++      local line = game.world and game.world.lines[ev.replay_use + 1]
++      if video.replay and line and game.player and game.player.mo and game.gamestate == "view" then
++        game.use_special(line, game.player.mo, 0)
++      end
++      return
++    end
++    if ev.replay_cross then
++      -- comando de teste do modo replay (video.lua): cruza a linha N
++      local line = game.world and game.world.lines[ev.replay_cross + 1]
++      if video.replay and line and game.player and game.player.mo and game.gamestate == "view" then
++        game.cross_special(line, 0, game.player.mo)
++      end
++      return
++    end
++    if ev.replay_goto then
++      -- comando de teste do modo replay (video.lua): poe o jogador em (x, y)
++      local mo = game.player and game.player.mo
++      if video.replay and mo and game.gamestate == "view" then
++        collision.unset_thing_position(game.world, mo)
++        mo.x = ev.replay_goto[1] * 65536
++        mo.y = ev.replay_goto[2] * 65536
++        mo.momx, mo.momy, mo.momz = 0, 0, 0
++        local ss = collision.point_in_subsector(game.world, mo.x, mo.y)
++        mo.floorz = ss.sector.floorheight
++        mo.ceilingz = ss.sector.ceilingheight
++        mo.z = mo.floorz
++        collision.set_thing_position(game.world, mo)
++        game.player.viewz = mo.z + game.player.viewheight
++      end
++      return
++    end
+     if ev.mouse then
+       if ev.dx then
+         game.mousex = game.mousex + ev.dx
+@@ -891,11 +931,62 @@ function M.new(argv)
+         local s = world.sectors[i]
+         t[#t + 1] = string.format("%d,%d,%d", s.floorheight, s.ceilingheight, s.lightlevel)
+       end
++      -- lados: texturas e deslocamento (botoes do passo 3e, linhas com
++      -- scroll); acrescentado tambem a referencia (tests/ref-passo1.patch).
++      -- So com DOOM_REPLAY_SIDES=1 (tests/test_drivers.sh, tools/mutacoes.py):
++      -- custa caro e falsearia a medicao de custo (tools/custo_drivers.py).
++      for i = 1, (os.getenv("DOOM_REPLAY_SIDES") == "1") and #world.sides or 0 do
++        local sd = world.sides[i]
++        t[#t + 1] = string.format("s%s,%s,%s,%s", tostring(sd.toptexture),
++          tostring(sd.midtexture), tostring(sd.bottomtexture), tostring(sd.textureoffset))
++      end
++      -- texturas de chao e teto (passo 3d: o donut e "baixar e trocar" trocam
++      -- o floorpic); tambem so com DOOM_REPLAY_SIDES=1
++      for i = 1, (os.getenv("DOOM_REPLAY_SIDES") == "1") and #world.sectors or 0 do
++        local s = world.sectors[i]
++        t[#t + 1] = string.format("f%s,%s", tostring(s.floorpic), tostring(s.ceilingpic))
++      end
++    end
++    -- intermissao e finale (passo 7): o que as telas escrevem e o desenho le;
++    -- tambem so com DOOM_REPLAY_SIDES=1
++    if os.getenv("DOOM_REPLAY_SIDES") == "1" then
++      local wi = game.wi
++      if wi then
++        t[#t + 1] = string.format("w%s,%s,%s,%s,%s,%s,%s,%s,%s", tostring(wi.state),
++          tostring(wi.cnt_kills), tostring(wi.cnt_items), tostring(wi.cnt_secret),
++          tostring(wi.cnt_time), tostring(wi.cnt_par), tostring(wi.snl_pointeron),
++          tostring(wi.bcnt), tostring(wi.accelerate))
++      end
++      local fi = game.finale
++      if fi then
++        t[#t + 1] = string.format("e%s,%s", tostring(fi.stage), tostring(fi.count))
++      end
++      -- o rosto da barra (passo 8b): o que a task Rosto escreve e o desenho le
++      if game.status then
++        t[#t + 1] = string.format("r%s", tostring(game.status.face_index))
++      end
++      -- o menu (passo 8c): a caveira, a tela e o item
++      t[#t + 1] = string.format("m%s,%s,%s", tostring(menu.which_skull),
++        tostring(menu.screen), tostring(menu.item_on))
++      -- o automapa (passo 8d): aberto, seguir, posicao e escala
++      local am = game.automap
++      if am then
++        t[#t + 1] = string.format("am%s,%s,%s,%s,%s", tostring(am.active),
++          tostring(am.followplayer), tostring(am.m_x), tostring(am.m_y), tostring(am.scale_mtof))
++      end
+     end
+     local p = game.player
+     if p then
+       t[#t + 1] = string.format("p%s,%s,%s,%s,%s", tostring(p.health), tostring(p.armorpoints),
+         tostring(p.readyweapon), tostring(p.psprite_state), tostring(p.psprite_sy))
++      -- arma (passo 4a): o resto do que a task Arma escreve; tambem so com
++      -- DOOM_REPLAY_SIDES=1
++      if os.getenv("DOOM_REPLAY_SIDES") == "1" then
++        t[#t + 1] = string.format("a%s,%s,%s,%s,%s,%s,%s,%s,%s", tostring(p.psprite_body),
++          tostring(p.psprite_flash), tostring(p.flash_tics), tostring(p.psprite_tics),
++          tostring(p.psprite_step), tostring(p.pendingweapon), tostring(p.attackdown),
++          tostring(p.refire), tostring(p.extralight))
++      end
+     end
+     return table.concat(t, ";")
+   end
+diff --git a/video.lua b/video.lua
+index 78d8b7e..9942ba9 100644
+--- a/video.lua
++++ b/video.lua
+@@ -29,6 +29,7 @@ local function replay_backend(path)
+   local script = {}
+   for line in io.lines(path) do
+     local n, key, dir = line:match("^%s*(%d+)%s+(%S+)%s*(%S*)")
++    local gx, gy = line:match("^%s*%d+%s+goto%s+(%-?%d+)%s+(%-?%d+)")
+     if n then
+       n = tonumber(n)
+       script[n] = script[n] or {}
+@@ -38,6 +39,21 @@ local function replay_backend(path)
+       elseif key == "exit" then
+         -- so para testes: termina o nivel como o switch de saida
+         ev = { key = "", replay_exit = true, secret = dir == "secret" }
++      elseif key == "die" then
++        -- so para testes: o jogador morre (renasce ao apertar "use")
++        ev = { key = "", replay_die = true }
++      elseif key == "use" then
++        -- so para testes: aciona a linha N (indice do WAD), como o "use" do
++        -- jogador encostado nela; usado para switches repetiveis (passo 3e)
++        ev = { key = "", replay_use = tonumber(dir) }
++      elseif key == "cross" then
++        -- so para testes: cruza a linha N (indice do WAD) pela frente, como o
++        -- jogador andando por cima dela; portas de 30 s etc. (passo 3b)
++        ev = { key = "", replay_cross = tonumber(dir) }
++      elseif key == "goto" then
++        -- so para testes: poe o jogador no ponto (x, y) do mapa, em unidades
++        -- do mapa; usado para ficar embaixo de um esmagador (passo 3d)
++        ev = { key = "", replay_goto = { tonumber(gx), tonumber(gy) } }
+       else
+         ev = { key = key, down = dir ~= "up" }
+       end

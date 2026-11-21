@@ -449,6 +449,56 @@ local function update_no_state(self)
   end
 end
 
+-- Passo 7: a sequencia da intermissao (estatisticas, esperar, mostrar o
+-- proximo mapa, encerrar) e a task Contagem (telas.atm). Aqui ficam as partes
+-- que ela chama; M.ticker (abaixo) continua para os testes sem main.atm.
+
+M.pct = pct
+M.TICRATE = TICRATE
+M.SHOWNEXTLOCDELAY = SHOWNEXTLOCDELAY
+
+-- O comeco de todo tic: contador, musica no primeiro tic, a tecla de acelerar
+-- (lida do teclado: self.accelerate) e as animacoes do mapa.
+function M.tic(self)
+  self.bcnt = self.bcnt + 1
+  if self.bcnt == 1 and self.game.sound and self.game.sound.change_music then
+    if self.wbs.commercial then
+      self.game.sound.change_music("dm2int", true)
+    else
+      self.game.sound.change_music("inter", true)
+    end
+  end
+  check_accelerate(self)
+  update_animated(self)
+end
+
+-- Acelerou no meio das estatisticas: todos os numeros no valor final.
+function M.acelerar_tudo(self)
+  local w = self.wbs
+  self.accelerate = 0
+  self.cnt_kills = pct(w.skills, w.maxkills)
+  self.cnt_items = pct(w.sitems, w.maxitems)
+  self.cnt_secret = pct(w.ssecret, w.maxsecret)
+  self.cnt_time = math.floor(w.stime / TICRATE)
+  self.cnt_par = math.floor(w.partime / TICRATE)
+  if self.game.start_sound then
+    self.game.start_sound("barexp")
+  end
+end
+
+-- O mapa do episodio com o proximo nivel (state = SHOW_NEXT_LOC).
+function M.mostrar_proximo(self)
+  self.state = SHOW_NEXT_LOC
+  self.accelerate = 0
+  init_animated(self)
+end
+
+-- Os ultimos tics antes de sair (state = NO_STATE).
+function M.sem_estado(self)
+  self.state = NO_STATE
+  self.accelerate = 0
+end
+
 function M.ticker(self)
   self.bcnt = self.bcnt + 1
   if self.bcnt == 1 and self.game.sound and self.game.sound.change_music then
