@@ -94,6 +94,15 @@ local function play(self, name)
   end
 end
 
+-- C4e: o barulho de pedra dos pisos e tetos andando, a cada 8 tics
+-- (!(leveltime&7) no T_MoveFloor e no T_MoveCeiling)
+local function som_de_pedra(self)
+  local lt = (self.game and self.game.leveltime) or 0
+  if lt % 8 == 0 then
+    play(self, "stnmov")
+  end
+end
+
 function M.move_plane(world, sector, speed, dest, floor_or_ceiling, direction, crush)
   local last = sector.floorheight
   if floor_or_ceiling ~= 0 then
@@ -694,12 +703,17 @@ end
 local function tick_floor(self, floor)
   local res = M.move_plane(self.world, floor.sector, floor.speed, floor.dest, 0, floor.direction, floor.crush)
   mark(self)
+  som_de_pedra(self)                     -- C4e
   if res == RESULT_PASTDEST then
     if floor.floorpic ~= nil then
       floor.sector.floorpic = floor.floorpic
+      if floor.newspecial ~= nil then    -- C4e: e o special
+        floor.sector.special = floor.newspecial
+      end
     end
     floor.sector.specialdata = nil
     floor.dead = true
+    play(self, "pstop")                  -- C4e
   end
 end
 
@@ -760,6 +774,9 @@ local function tick_ceiling(self, ceil)
   local crush = ceil.direction == -1 and ceil.crush  -- subindo, nunca esmaga
   local res = M.move_plane(self.world, ceil.sector, ceil.speed, dest, 1, ceil.direction, crush)
   mark(self)
+  if ceil.ctype ~= CEIL_SILENTCRUSH then
+    som_de_pedra(self)                   -- C4e
+  end
   local bounce = ceil.ctype == CEIL_CRUSHANDRAISE or ceil.ctype == CEIL_FASTCRUSH or ceil.ctype == CEIL_SILENTCRUSH
   if res == RESULT_PASTDEST then
     if bounce then
@@ -981,65 +998,78 @@ function M.do_floor(self, line, dest_fn, direction, speed, crush)
   return ok
 end
 
+local function start_degrau(self, sec, height, speed)
+  sec.specialdata = {
+    kind = "floor",
+    sector = sec,
+    direction = 1,
+    dest = height,
+    speed = speed,
+    crush = false,
+    floorpic = nil,
+    dead = false,
+  }
+  self.thinkers[#self.thinkers + 1] = sec.specialdata
+end
+
+-- EV_BuildStairs. C4e: como no Doom, o proximo degrau e o setor de tras de
+-- uma linha de dois lados cuja frente e o degrau atual (antes, os dois
+-- lados); a altura soma a cada linha com a mesma textura, antes de testar se
+-- o setor esta ocupado (antes, so no degrau escolhido); e a busca pela tag
+-- continua a partir do ultimo degrau (P_FindSectorFromLineTag(line, secnum),
+-- com secnum trocado pelo degrau).
 function M.do_stairs(self, line, step, speed)
   local ok = false
-  local secs = sectors_from_tag(self.world, line.tag)
-  for i = 1, #secs do
-    local sec = secs[i]
+  local sectors = self.world.sectors
+  local indice = {}
+  for i = 1, #sectors do
+    indice[sectors[i]] = i
+  end
+  local secnum = 0
+  while true do
+    local achou = nil
+    for i = secnum + 1, #sectors do
+      if sectors[i].tag == line.tag then
+        achou = i
+        break
+      end
+    end
+    if not achou then
+      break
+    end
+    secnum = achou
+    local sec = sectors[secnum]
     if sec.specialdata == nil then
-      local height = sec.floorheight + step
-      sec.specialdata = {
-        kind = "floor",
-        sector = sec,
-        direction = 1,
-        dest = height,
-        speed = speed,
-        crush = false,
-        floorpic = nil,
-        dead = false,
-      }
-      self.thinkers[#self.thinkers + 1] = sec.specialdata
       ok = true
+      local height = sec.floorheight + step
+      start_degrau(self, sec, height, speed)
       local texture = sec.floorpic
-      local cur = sec
-      while true do
-        local nxt = nil
-        for n = 1, #cur.lines do
-          local ln = cur.lines[n]
-          if has(ln.flags, ML_TWOSIDED) then
-            local other = ln.backsector
-            if ln.frontsector ~= cur then
-              other = ln.frontsector
-            end
-            if other and other ~= cur and other.floorpic == texture and other.specialdata == nil then
-              nxt = other
-              break
+      local avancou
+      repeat
+        avancou = false
+        for n = 1, #sec.lines do
+          local ln = sec.lines[n]
+          if has(ln.flags, ML_TWOSIDED) and ln.frontsector == sec and ln.backsector then
+            local tsec = ln.backsector
+            if tsec.floorpic == texture then
+              height = height + step
+              if tsec.specialdata == nil then
+                sec = tsec
+                secnum = indice[tsec]
+                start_degrau(self, sec, height, speed)
+                avancou = true
+                break
+              end
             end
           end
         end
-        if not nxt then
-          break
-        end
-        height = height + step
-        nxt.specialdata = {
-          kind = "floor",
-          sector = nxt,
-          direction = 1,
-          dest = height,
-          speed = speed,
-          crush = false,
-          floorpic = nil,
-          dead = false,
-        }
-        self.thinkers[#self.thinkers + 1] = nxt.specialdata
-        cur = nxt
-      end
+      until not avancou
     end
   end
   return ok
 end
 
-local function start_floor(self, sec, dest, direction, speed, crush, floorpic)
+local function start_floor(self, sec, dest, direction, speed, crush, floorpic, newspecial)
   if sec.specialdata ~= nil then
     return false
   end
@@ -1051,6 +1081,7 @@ local function start_floor(self, sec, dest, direction, speed, crush, floorpic)
     speed = speed,
     crush = crush and true or false,
     floorpic = floorpic,
+    newspecial = newspecial,             -- C4e: o special do setor no fim
     dead = false,
   }
   sec.specialdata = floor
@@ -1128,7 +1159,7 @@ function M.do_donut(self, line)
           end
         end
         if s3 then
-          if start_floor(self, s2, s3.floorheight, 1, math.floor(FLOORSPEED / 2), false, s3.floorpic) then
+          if start_floor(self, s2, s3.floorheight, 1, math.floor(FLOORSPEED / 2), false, s3.floorpic, 0) then
             ok = true
           end
           if start_floor(self, s1, s3.floorheight, -1, math.floor(FLOORSPEED / 2), false, nil) then
@@ -1275,14 +1306,16 @@ function M.lower_and_change(self, line)
     if sec.specialdata == nil then
       local dest = lowest_floor(sec)
       local pic = sec.floorpic
+      local special = sec.special        -- C4e: sem vizinho na altura, nao troca
       local around = surrounding_sectors(sec)
       for n = 1, #around do
         if around[n].floorheight == dest then
           pic = around[n].floorpic
+          special = around[n].special    -- C4e: e o special do vizinho
           break
         end
       end
-      if start_floor(self, sec, dest, -1, FLOORSPEED, false, pic) then
+      if start_floor(self, sec, dest, -1, FLOORSPEED, false, pic, special) then
         ok = true
       end
     end
