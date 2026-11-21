@@ -288,10 +288,11 @@ val task Elevador (sp, plat) {
 
 ;; Piso (EV_DoFloor, EV_BuildStairs, EV_DoDonut, T_MoveFloor). Passo 3d.
 ;; "piso" e o registro do piso (sector, direction, dest, speed, crush,
-;; floorpic): fica em sector.specialdata e e o pub, porque o save grava
-;; direction, dest e speed. Ninguem escreve nele de fora (nao ha recado):
-;; o piso anda ate o destino e acaba, trocando a textura do chao se tiver
-;; uma (donut, baixar e trocar).
+;; floorpic, newspecial): fica em sector.specialdata e e o pub, porque o save
+;; grava direction, dest e speed. Ninguem escreve nele de fora (nao ha
+;; recado): o piso anda ate o destino e acaba, trocando a textura do chao e
+;; o special do setor se tiver (donut, baixar e trocar; o special desde o
+;; C4e). Desde o C4e, toca "stnmov" a cada 8 tics e "pstop" ao chegar.
 val task Piso (sp, piso) {
     set pub = piso
     set piso.sector.specialdata = piso    ;; setor ocupado
@@ -302,11 +303,16 @@ val task Piso (sp, piso) {
     loop {
         await :game.specials
         val r = S.move_plane(sp.world, piso.sector, piso.speed, piso.dest, 0, piso.direction, piso.crush)
+        S.som_de_pedra(sp)                ;; C4e: a cada 8 tics andando
         until (r == S.RESULT_PASTDEST)
     }
     if piso.floorpic {
         set piso.sector.floorpic = piso.floorpic
+        if piso.newspecial {              ;; C4e: e o special (donut, baixar e trocar)
+            set piso.sector.special = piso.newspecial
+        }
     }
+    S.play(sp, "pstop")                   ;; C4e: chegou
 }
 
 ;; Teto e esmagador (EV_DoCeiling, T_MoveCeiling). Passo 3d. Os tetos nao
@@ -346,6 +352,9 @@ val task Teto (sp, teto) {
         loop {                            ;; anda ate o destino
             await :game.specials
             val r = S.move_plane(sp.world, teto.sector, vel, destino, 1, dir, esmaga)
+            if t != C.SILENTCRUSH {
+                S.som_de_pedra(sp)        ;; C4e: a cada 8 tics andando
+            }
             until (r == S.RESULT_PASTDEST)
             if desacelera && (dir == -1) && (r == S.RESULT_CRUSHED) {
                 set vel = devagar

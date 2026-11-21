@@ -21,8 +21,8 @@ do C4. Este registro cresce a cada grupo.
 | C4a. Portas | a porta que bate em algo fechando volta a abrir; as rápidas batem ao fechar | `6424c62` / `040d82b` | concluído |
 | C4b. Tetos | linha 40, esmagador que só desce, desaceleração, linhas 57 e 74, reativação, limite | `66f3b67` / `278a16c` | concluído |
 | C4c. Esmagamento | a cada 4 tics, com sangue; corpos viram restos; itens largados somem | `029e48e` / `54c5bf8` | concluído |
-| C4d. Elevadores | volta ao bater subindo; parado de verdade (estase) e reativação; limite | (este) | concluído |
-| C4e. Pisos | troca do special; escada; sons de piso e teto | – | a fazer |
+| C4d. Elevadores | volta ao bater subindo; parado de verdade (estase) e reativação; limite | `9efd93d` / `9339673` | concluído |
+| C4e. Pisos | troca do special; escada; sons de piso e teto | (este) | concluído |
 | C4f. Botões | não duplica; som ao voltar; limite | – | a fazer |
 | C4g. Save | a descrição digitada | – | a fazer |
 
@@ -524,3 +524,86 @@ stateDiagram-v2
 `docs/DIFERENCAS_DOOM.md`; não foi corrigido aqui porque muda o cenário do
 roteiro `ordem` (a porta e o elevador vizinhos andando juntos por 10 tics,
 que detecta a mutação `portas-fora-de-movers`).
+
+---
+
+## C4e: pisos (o special, a escada) e os sons de piso e teto
+
+### Resumo
+
+| Diferença | Antes | Depois (como no Doom) |
+|---|---|---|
+| Piso não troca o special | o donut e o "baixar e trocar" trocavam só a textura do chão | trocam também o `special` do setor (`newspecial`): o donut zera o do anel que sobe; o "baixar e trocar" copia o do vizinho na altura de destino |
+| Escada | seguia linhas pelos dois lados, somava a altura só no degrau escolhido e percorria todos os setores da tag | `EV_BuildStairs`: o próximo degrau é o setor de trás de uma linha de dois lados cuja frente é o degrau atual; a altura soma a cada linha com a mesma textura, antes de testar se o setor está ocupado; a busca pela tag continua a partir do último degrau (`P_FindSectorFromLineTag(line, secnum)`) |
+| Sons | silenciosos | pisos e tetos tocam `stnmov` a cada 8 tics andando (`!(leveltime&7)`; o esmagador silencioso não); o piso toca `pstop` ao chegar |
+
+O `special` do setor entrou no hash de estado (com `DOOM_REPLAY_SIDES=1`,
+ao lado das texturas de chão e teto), nas duas branches: sem isso, a troca
+do special não aparecia no oráculo (a lição do passo 3e: o que o código
+novo escreve tem de estar no hash).
+
+### Antes e depois
+
+**A task `Piso`** ganhou duas linhas no fim e uma no laço:
+
+```
+loop {
+    await :game.specials
+    val r = S.move_plane(sp.world, piso.sector, piso.speed, piso.dest, 0, piso.direction, piso.crush)
+    S.som_de_pedra(sp)                ;; C4e: a cada 8 tics andando
+    until (r == S.RESULT_PASTDEST)
+}
+if piso.floorpic {
+    set piso.sector.floorpic = piso.floorpic
+    if piso.newspecial {              ;; C4e: e o special (donut, baixar e trocar)
+        set piso.sector.special = piso.newspecial
+    }
+}
+S.play(sp, "pstop")                   ;; C4e: chegou
+```
+
+Na branch `lua`, o mesmo em `tick_floor`. Os sons precisam do `leveltime`:
+o jogo passou a guardar a si mesmo em `specials.game` ao montar o nível.
+
+**A escada** (`do_stairs`, o mesmo texto nas duas branches, com a criação
+do degrau diferente: `M.start_floor` na `atmos`, um registro em
+`self.thinkers` na `lua`):
+
+```mermaid
+flowchart TD
+    subgraph antes["antes (c3)"]
+        A1["para cada setor da tag (lista pronta)"] --> A2{"livre?"}
+        A2 -->|sim| A3["degrau: altura + passo"]
+        A3 --> A4["procura linha de dois lados<br/>(qualquer lado) com o outro setor<br/>da mesma textura e livre"]
+        A4 -->|achou| A5["altura + passo; degrau"] --> A4
+        A4 -->|nao| A1
+    end
+    subgraph depois["depois (C4e, EV_BuildStairs)"]
+        B1["proximo setor da tag depois de secnum"] --> B2{"livre?"}
+        B2 -->|sim| B3["degrau: altura + passo"]
+        B3 --> B4["para cada linha de dois lados<br/>com a frente no degrau atual"]
+        B4 --> B5{"atras: mesma textura?"}
+        B5 -->|sim| B6["altura + passo"]
+        B6 --> B7{"atras livre?"}
+        B7 -->|sim| B8["degrau; secnum = atras"] --> B4
+        B7 -->|nao| B4
+        B5 -->|nao| B4
+        B4 -->|acabaram as linhas| B1
+    end
+```
+
+### Validação
+
+**Roteiro `pisos`** (sem mudança): o donut do E2M2 (`use 220`) agora zera o
+special do anel que sobe; o hash o mostra. As escadas dos roteiros (E2M2,
+linha 638, tipo 8; E2M4, `use 65`, tipo 7) dão os mesmos degraus pelas duas
+regras: conferido com prints numa cópia de `G.state_string` (a `atmos`
+atual) e numa cópia do `state_string` da tag `c3` (o código antigo), os
+mesmos setores (93 a 98 no E2M2, 76 a 81 no E2M4) com as mesmas alturas de
+destino. Os mapas do `doom.wad` foram feitos de um jeito em que as duas
+regras concordam; a correção vale para mapas em que elas diferem.
+
+**Contra a branch `lua`:** `pisos` (2.618 quadros) e `correcoes` (3.480)
+idênticos.
+
+**Os sons** não aparecem no replay; foram conferidos pela leitura.

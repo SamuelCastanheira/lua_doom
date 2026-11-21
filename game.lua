@@ -490,6 +490,7 @@ function M.new(argv)
     self.res = res
     self.player = nil
     self.specials = specials_mod.new(world, res, sound, self.pools)
+    self.specials.game = self            -- C4e: o leveltime dos sons
     local kills, items = thinker.spawn_map(world, self.skill, self)
     local secrets = 0
     for i = 1, #world.sectors do
@@ -1211,7 +1212,8 @@ function M.new(argv)
       -- o floorpic); tambem so com DOOM_REPLAY_SIDES=1
       for i = 1, (os.getenv("DOOM_REPLAY_SIDES") == "1") and #world.sectors or 0 do
         local s = world.sectors[i]
-        t[#t + 1] = string.format("f%s,%s", tostring(s.floorpic), tostring(s.ceilingpic))
+        t[#t + 1] = string.format("f%s,%s,%s", tostring(s.floorpic), tostring(s.ceilingpic),
+          tostring(s.special))  -- C4e: o special (donut, baixar e trocar)
       end
     end
     -- intermissao e finale (passo 7): o que as telas escrevem e o desenho le;
