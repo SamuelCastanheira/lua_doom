@@ -293,6 +293,7 @@ function M.new(world, res, sound)
     secret_exit = false,
     switch_map = {},
     stamp = 0,
+    tetos_ativos = {},                   -- C4b
   }
   for i = 1, #SWITCH_PAIRS do
     local ia = res:texture_num_for_name(SWITCH_PAIRS[i][1])
@@ -652,16 +653,62 @@ local function tick_floor(self, floor)
   end
 end
 
-local function tick_ceiling(self, ceil)
-  local dest = ceil.dest
-  if ceil.ctype ~= 0 then
-    if ceil.direction == 1 then
-      dest = ceil.topheight
-    else
-      dest = ceil.bottomheight
+-- C4b: os tetos ativos (activeceilings do Doom, MAXCEILINGS lugares). As
+-- linhas 57 e 74 param os tetos da tag (EV_CeilingCrushStop) e as linhas de
+-- esmagador reativam os parados (P_ActivateInStasisCeiling). Um teto criado
+-- com a lista cheia anda, mas nao pode ser parado. Parado, o thinker do Doom
+-- deixa de ser chamado: aqui, tick_ceiling nao faz nada.
+local MAXCEILINGS = 30
+
+local function add_active_ceiling(self, ceil)
+  for i = 1, MAXCEILINGS do
+    if self.tetos_ativos[i] == nil then
+      self.tetos_ativos[i] = ceil
+      return
     end
   end
-  local res = M.move_plane(self.world, ceil.sector, ceil.speed, dest, 1, ceil.direction, ceil.crush)
+end
+
+local function remover_teto(self, ceil)
+  for i = 1, MAXCEILINGS do
+    if self.tetos_ativos[i] == ceil then
+      self.tetos_ativos[i] = nil
+      return
+    end
+  end
+end
+
+function M.stop_ceiling(self, line)
+  local ok = false
+  for i = 1, MAXCEILINGS do
+    local ceil = self.tetos_ativos[i]
+    if ceil and ceil.sector.tag == line.tag and not ceil.parado then
+      ceil.parado = true
+      ok = true
+    end
+  end
+  return ok
+end
+
+local function activate_in_stasis_ceiling(self, line)
+  for i = 1, MAXCEILINGS do
+    local ceil = self.tetos_ativos[i]
+    if ceil and ceil.sector.tag == line.tag and ceil.parado then
+      ceil.parado = false
+    end
+  end
+end
+
+local function tick_ceiling(self, ceil)
+  if ceil.parado then
+    return                               -- C4b: em estase
+  end
+  local dest = ceil.bottomheight
+  if ceil.direction == 1 then
+    dest = ceil.topheight
+  end
+  local crush = ceil.direction == -1 and ceil.crush  -- subindo, nunca esmaga
+  local res = M.move_plane(self.world, ceil.sector, ceil.speed, dest, 1, ceil.direction, crush)
   mark(self)
   local bounce = ceil.ctype == CEIL_CRUSHANDRAISE or ceil.ctype == CEIL_FASTCRUSH or ceil.ctype == CEIL_SILENTCRUSH
   if res == RESULT_PASTDEST then
@@ -684,13 +731,12 @@ local function tick_ceiling(self, ceil)
     else
       ceil.sector.specialdata = nil
       ceil.dead = true
+      remover_teto(self, ceil)
     end
-  elseif res == RESULT_CRUSHED and bounce then
-    local slow = math.floor(CEILSPEED / 8)
-    if slow < 1 then
-      slow = 1
-    end
-    ceil.speed = slow
+  elseif res == RESULT_CRUSHED and ceil.direction == -1
+      and (ceil.ctype == CEIL_CRUSHANDRAISE or ceil.ctype == CEIL_SILENTCRUSH
+        or ceil.ctype == CEIL_LOWERANDCRUSH) then
+    ceil.speed = math.floor(CEILSPEED / 8)  -- C4b: o rapido nao desacelera
   end
 end
 
@@ -961,7 +1007,14 @@ local function start_floor(self, sec, dest, direction, speed, crush, floorpic)
   return true
 end
 
+-- EV_DoCeiling. C4b: so os esmagadores que vao e voltam esmagam (o que so
+-- desce, 44 e 72, e os que descem ate o chao, 41 e 43, nao); o teto que
+-- sobe (40) vai ate o teto vizinho mais alto; os esmagadores reativam os
+-- parados da tag antes de criar os novos.
 function M.do_crusher(self, line, ctype)
+  if ctype == CEIL_FASTCRUSH or ctype == CEIL_SILENTCRUSH or ctype == CEIL_CRUSHANDRAISE then
+    activate_in_stasis_ceiling(self, line)
+  end
   local ok = false
   local secs = sectors_from_tag(self.world, line.tag)
   for i = 1, #secs do
@@ -969,35 +1022,34 @@ function M.do_crusher(self, line, ctype)
     if sec.specialdata == nil then
       local top = sec.ceilingheight
       local bottom = sec.floorheight
-      local crush = ctype ~= CEIL_RAISETOHIGHEST
+      local crush = ctype == CEIL_CRUSHANDRAISE or ctype == CEIL_SILENTCRUSH
+        or ctype == CEIL_FASTCRUSH
       local speed = CEILSPEED
       if ctype == CEIL_FASTCRUSH then
         speed = CEILSPEED * 2
       end
       local direction = -1
-      local dest = bottom
       if ctype == CEIL_RAISETOHIGHEST then
-        dest = highest_ceiling(sec)
+        top = highest_ceiling(sec)
         direction = 1
-        crush = false
       elseif ctype ~= CEIL_LOWERTOFLOOR then
         bottom = bottom + 8 * FRACUNIT
-        dest = bottom
       end
       local ceil = {
         kind = "ceiling",
         sector = sec,
         direction = direction,
-        dest = dest,
         speed = speed,
         crush = crush,
         ctype = ctype,
         topheight = top,
         bottomheight = bottom,
+        parado = false,
         dead = false,
       }
       sec.specialdata = ceil
       self.thinkers[#self.thinkers + 1] = ceil
+      add_active_ceiling(self, ceil)
       ok = true
     end
   end
@@ -1462,7 +1514,7 @@ function M.cross_special(self, line, side, thing)
     [53] = function() return M.do_plat_perpetual(self, line) end,
     [54] = function() return M.stop_plat(self, line) end,
     [56] = function() return M.do_floor(self, line, raise_floor_crush_dest, 1, nil, true) end,
-    [57] = function() return M.stop_plat(self, line) end,
+    [57] = function() return M.stop_ceiling(self, line) end,   -- C4b: para os esmagadores
     [58] = function() return floor_up24() end,
     [59] = function() return floor_up24() end,
     [100] = function() return M.do_stairs(self, line, 16 * FRACUNIT, FLOORSPEED * 4) end,
@@ -1484,7 +1536,7 @@ function M.cross_special(self, line, side, thing)
   local again = {
     [72] = function() return M.do_crusher(self, line, CEIL_LOWERANDCRUSH) end,
     [73] = function() return M.do_crusher(self, line, CEIL_CRUSHANDRAISE) end,
-    [74] = function() return M.stop_plat(self, line) end,
+    [74] = function() return M.stop_ceiling(self, line) end,   -- C4b: para os esmagadores
     [75] = function() return door(VLD_CLOSE, false) end,
     [76] = function() return door(VLD_CLOSE30, true) end,
     [77] = function() return M.do_crusher(self, line, CEIL_FASTCRUSH) end,
