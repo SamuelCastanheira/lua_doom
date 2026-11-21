@@ -228,8 +228,13 @@ function M.new(argv)
   function game.damage_mobj(target, source, damage, inflictor)
     enemy.damage_mobj(game, target, source, damage, inflictor)
   end
-  collision.dano_esmagar = function(thing, damage)
-    game.damage_mobj(thing, nil, damage, nil)
+  -- O esmagamento (C1: pelo dano do jogo; C4c: como o PIT_ChangeSector, so
+  -- a cada 4 tics, !(leveltime&3), com um jato de sangue)
+  collision.esmagar = function(world, thing)
+    if (game.leveltime or 0) % 4 == 0 then
+      game.damage_mobj(thing, nil, 10, nil)
+      collision.jato_de_sangue(world, thing, game)
+    end
   end
 
   local function copy_list(src, n)

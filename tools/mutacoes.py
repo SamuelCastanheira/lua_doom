@@ -583,7 +583,7 @@ MUTACOES = [
      "main.atm", "correcoes"),
     ("esmagar-sem-dano-do-jogo",
      "O esmagamento volta a tirar a vida direto (sem damage_mobj: o jogador nao morre)",
-     "          if crush and M.dano_esmagar then\n",
+     "          if crush and M.esmagar then\n",
      "          if crush and false then\n",
      "collision.lua", "pisos"),
     # --- C2: o menu e a tecla Pause param o mundo (roteiro "correcoes")

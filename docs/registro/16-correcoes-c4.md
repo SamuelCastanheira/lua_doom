@@ -19,8 +19,8 @@ do C4. Este registro cresce a cada grupo.
 | Grupo | O que corrige | Commits (`atmos` / `lua`) | Situação |
 |---|---|---|---|
 | C4a. Portas | a porta que bate em algo fechando volta a abrir; as rápidas batem ao fechar | `6424c62` / `040d82b` | concluído |
-| C4b. Tetos | linha 40, esmagador que só desce, desaceleração, linhas 57 e 74, reativação, limite | (este) | concluído |
-| C4c. Esmagamento | a cada 4 tics, com sangue; corpos viram restos; itens largados somem | – | a fazer |
+| C4b. Tetos | linha 40, esmagador que só desce, desaceleração, linhas 57 e 74, reativação, limite | `66f3b67` / `278a16c` | concluído |
+| C4c. Esmagamento | a cada 4 tics, com sangue; corpos viram restos; itens largados somem | (este) | concluído |
 | C4d. Elevadores | volta ao bater subindo; parado de verdade (estase) e reativação; limite | – | a fazer |
 | C4e. Pisos | troca do special; escada; sons de piso e teto | – | a fazer |
 | C4f. Botões | não duplica; som ao voltar; limite | – | a fazer |
@@ -281,3 +281,98 @@ flowchart LR
 
 **Contra a branch `lua`:** `correcoes` (2.998 quadros) e `pisos` (2.618)
 idênticos.
+
+---
+
+## C4c: o esmagamento (a cada 4 tics, com sangue e restos)
+
+### Resumo
+
+O `PIT_ChangeSector` do Doom, chamado para cada mobj quando um piso ou um
+teto se move, decide quatro casos para quem não cabe: o corpo vira restos
+(`S_GIBS`, sem raio nem altura); o item largado por um monstro
+(`MF_DROPPED`) some; quem não é atingível (`MF_SHOOTABLE`) é ignorado; os
+outros não cabem (o plano volta) e, se o plano esmaga, levam 10 de dano
+**a cada 4 tics** (`!(leveltime&3)`), com um jato de sangue (`MT_BLOOD`, com
+`P_Random`). O C1 já tinha posto o dano no `P_DamageMobj`; faltavam a
+cadência, o sangue, os restos e os itens.
+
+### Antes (`collision.change_sector`, igual nas duas branches)
+
+```lua
+if (thing.health or 0) <= 0 then
+  thing.flags = band(thing.flags or 0, bnot(MF_SOLID))
+  thing.height = 0
+elseif has(thing.flags, MF_SHOOTABLE) then
+  nofit = true
+  if crush and M.dano_esmagar then
+    M.dano_esmagar(thing, 10)          -- a cada tic, sem sangue
+  ...
+```
+
+### Solução
+
+`collision.lua` (igual nas duas branches) tem os quatro casos, na ordem do
+Doom, e percorre uma cópia da lista de mobjs (o esmagamento cria sangue e
+remove itens). O gancho do C1 virou `collision.esmagar(world, thing)`,
+ligado pelo jogo, porque precisa do `leveltime` e do dano do jogo; o jato de
+sangue é `collision.jato_de_sangue` (um `MT_BLOOD` no meio da altura, com
+`(P_Random() - P_Random()) << 12` em cada eixo, depois do sorteio do
+`lastlook` que o `P_SpawnMobj` também faz):
+
+```lua
+-- game.lua (atmos) e main.lua (lua), o mesmo texto
+collision.esmagar = function(world, thing)
+  if (game.leveltime or 0) % 4 == 0 then
+    game.damage_mobj(thing, nil, 10, nil)
+    collision.jato_de_sangue(world, thing, game)
+  end
+end
+```
+
+O corpo de um monstro com task (a task `Monstro`) vira restos por
+`set_mobj_state(S_GIBS)`, de fora; a task percebe o salto e, como `S_GIBS`
+não é de nenhum comportamento do tipo, segue a tabela pelo caso `estranho`
+(um quadro sem fim: `mobj_parado`). O mobj do jogador e os efeitos (`fx`,
+o puff e o sangue de tiro deste port) não têm estados: perdem raio e
+altura, sem o `S_GIBS`.
+
+### Diagrama
+
+**O `change_sector` para cada mobj com o centro no setor, antes e depois:**
+
+```mermaid
+flowchart TD
+    A["mobj com o centro no setor"] --> B{"cabe? (thing_height_clip)"}
+    B -->|sim| OK["segue"]
+    B -->|nao| C{"vida <= 0?"}
+    C -->|sim| G["antes: sem MF_SOLID, altura 0<br/>depois: + S_GIBS e raio 0"]
+    C -->|nao| D{"depois: MF_DROPPED?"}
+    D -->|sim| R["depois: o item some"]
+    D -->|nao| E{"MF_SHOOTABLE?"}
+    E -->|nao| OK
+    E -->|sim| F["nao cabe (o plano volta)"]
+    F --> H{"o plano esmaga?"}
+    H -->|nao| OK
+    H -->|sim| I{"depois: leveltime % 4 == 0?"}
+    I -->|nao| OK
+    I -->|sim| J["10 de dano (P_DamageMobj)<br/>depois: + jato de sangue (MT_BLOOD, P_Random)"]
+```
+
+### Validação
+
+**Roteiro `pisos`** (sem mudança): no E2M2, o jogador sem o modo deus
+embaixo do esmagador da tag 16 perde 10 de vida a cada 4 tics, com um
+`MT_BLOOD` a cada dano, e morre 36 tics depois do primeiro (prints numa
+cópia de `G.state_string`: vida 90, 80... 0 nos tics 682, 685, 689... 717;
+até 6 mobjs de sangue vivos ao mesmo tempo). Antes, perdia 10 por tic.
+
+**Contra a branch `lua`:** `pisos` (2.618 quadros) e `correcoes` (2.998)
+idênticos.
+
+**Fica diferente.** No Doom, um mobj criado por um thinker de setor entra
+no fim da lista de thinkers e pensa no mesmo tic; neste port, os mobjs
+pensam antes dos specials (fase 6 do tic, antes da 7), e o sangue do
+esmagamento só pensa no tic seguinte. É a separação entre mobjs e specials
+que o port tem desde antes da migração; não muda nada visível além do
+primeiro tic do sangue.
