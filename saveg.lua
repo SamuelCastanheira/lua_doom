@@ -401,6 +401,7 @@ local function dump_thinker(th, world)
       { "high", th.high or 0 },
       { "wait", th.wait or 0 },
       { "count", th.count or 0 },
+      { "oldstatus", th.oldstatus or 0 },   -- C4d: o status de antes de parar
     }
   end
   if th.kind == "floor" then
@@ -737,6 +738,7 @@ function M.apply(game, data)
           high = rec.high or 0,
           wait = rec.wait or 0,
           count = rec.count or 0,
+          oldstatus = rec.oldstatus or 0,
           dest = rec.dest or 0,
           dead = false,
         }

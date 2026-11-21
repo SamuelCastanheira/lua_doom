@@ -40,6 +40,7 @@ local RESULT_PASTDEST = 2
 local PLAT_DOWN = 0
 local PLAT_UP = 1
 local PLAT_WAITING = 2
+local PLAT_INSTASIS = 3                  -- C4d: parado (in_stasis do Doom)
 local PLAT_DWUS = 0
 local PLAT_PERPETUAL = 1
 local PLAT_BLAZEDWUS = 2
@@ -101,7 +102,7 @@ M.VLD = {
   BLAZECLOSE = VLD_BLAZECLOSE,
 }
 M.PLAT = {
-  DOWN = PLAT_DOWN, UP = PLAT_UP, WAITING = PLAT_WAITING,
+  DOWN = PLAT_DOWN, UP = PLAT_UP, WAITING = PLAT_WAITING, INSTASIS = PLAT_INSTASIS,
   DWUS = PLAT_DWUS, PERPETUAL = PLAT_PERPETUAL, BLAZEDWUS = PLAT_BLAZEDWUS,
 }
 M.CEIL = {
@@ -316,6 +317,7 @@ function M.new(world, res, sound, pools)
     switch_map = {},
     stamp = 0,
     tetos_ativos = {},                   -- C4b
+    plats_ativos = {},                   -- C4d
   }
   for i = 1, #SWITCH_PAIRS do
     local ia = res:texture_num_for_name(SWITCH_PAIRS[i][1])
@@ -437,11 +439,65 @@ function M.start_door(self, porta)
 end
 
 -- Elevador (passo 3c): task Elevador de setores.atm, na mesma pool. "plat" e
--- o registro do elevador (kind, sector, type, status, speed, low, high, wait,
--- count): fica em sector.specialdata e e o pub da task. stop_plat (Lua) ainda
--- escreve status e count no registro (o recado), e a task le na sua fase.
+-- o registro do elevador (kind, sector, type, status, oldstatus, speed, low,
+-- high, wait, count): fica em sector.specialdata e e o pub da task.
+--
+-- C4d: os elevadores ativos (activeplats do Doom, MAXPLATS lugares; cheia,
+-- o Doom para com erro). As linhas 54 e 89 param os elevadores da tag
+-- (EV_StopPlat): status in_stasis, o status de antes em oldstatus, e o
+-- thinker deixa de pensar; aqui, a task Elevador e desligada (toggle). As
+-- linhas de elevador perpetuo (53, 87) os religam (P_ActivateInStasis).
+-- Antes do C4d, stop_plat escrevia status = WAITING e count enorme no
+-- registro (o recado), e o elevador parado continuava descontando o count.
+local MAXPLATS = 30
+
+local function add_active_plat(self, plat)
+  for i = 1, MAXPLATS do
+    if self.plats_ativos[i] == nil then
+      self.plats_ativos[i] = plat
+      return
+    end
+  end
+  error("P_AddActivePlat: no more plats!")
+end
+
+function M.remover_plat(self, plat)
+  for i = 1, MAXPLATS do
+    if self.plats_ativos[i] == plat then
+      self.plats_ativos[i] = nil
+      return
+    end
+  end
+end
+
+-- Cria a task do elevador (EV_DoPlat e o load). Parado no save, ela nasce
+-- no status de antes e e desligada em seguida.
 function M.start_plat(self, plat)
-  return spawn_task(self, "movers", "Elevador", self, plat)
+  local parado = plat.status == PLAT_INSTASIS
+  if parado then
+    plat.status = plat.oldstatus
+  end
+  plat.task = spawn_task(self, "movers", "Elevador", self, plat)
+  if parado then
+    plat.status = PLAT_INSTASIS
+    if plat.task then
+      toggle(plat.task, false)
+    end
+  end
+  add_active_plat(self, plat)
+  return plat.task
+end
+
+local function activate_in_stasis(self, tag)
+  for i = 1, MAXPLATS do
+    local plat = self.plats_ativos[i]
+    if plat and plat.sector.tag == tag and plat.status == PLAT_INSTASIS then
+      plat.status = plat.oldstatus
+      if plat.task then
+        toggle(plat.task, true)
+      end
+    end
+  end
 end
 
 local function spawn_light_flash(self, sector)
@@ -905,6 +961,7 @@ function M.do_donut(self, line)
 end
 
 function M.do_plat_perpetual(self, line)
+  activate_in_stasis(self, line.tag)     -- C4d: P_ActivateInStasis
   local ok = false
   local secs = sectors_from_tag(self.world, line.tag)
   for i = 1, #secs do
@@ -980,17 +1037,17 @@ end
 -- Para os elevadores com a tag da linha: escreve no registro de cada um
 -- (status = esperando, count enorme); a task Elevador le na sua fase e fica
 -- esperando para sempre (este port nunca reativa; ver docs/DIFERENCAS_DOOM.md).
+-- EV_StopPlat (C4d)
 function M.stop_plat(self, line)
   local ok = false
-  local movers = self.pools and self.pools.movers
-  if not movers then
-    return false
-  end
-  for _, t in pairs(movers) do
-    local th = t.pub
-    if th and th.kind == "plat" and not th.dead and th.sector.tag == line.tag then
-      th.status = PLAT_WAITING
-      th.count = 2147483647
+  for i = 1, MAXPLATS do
+    local plat = self.plats_ativos[i]
+    if plat and plat.status ~= PLAT_INSTASIS and plat.sector.tag == line.tag then
+      plat.oldstatus = plat.status
+      plat.status = PLAT_INSTASIS
+      if plat.task then
+        toggle(plat.task, false)
+      end
       ok = true
     end
   end

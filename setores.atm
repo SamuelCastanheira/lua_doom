@@ -219,40 +219,36 @@ val task Porta (sp, porta) {
 ;; elevador, compartilhado com o Lua: fica em sector.specialdata e e o pub.
 ;;
 ;; A fase e plat.status (S.PLAT: DOWN descendo, UP subindo, WAITING
-;; esperando), no registro pelos mesmos motivos da porta:
-;;   * o recado: stop_plat (Lua) poe status = WAITING e count enorme no meio
-;;     do tic; a task percebe na sua fase e passa a esperar ja nesse tic, como
-;;     o tick antigo lia o status novo;
-;;   * o save grava status e count (o mesmo formato de antes).
+;; esperando), no registro porque o save grava status e count.
+;;
+;; C4d: parar (linhas 54 e 89) nao e mais um recado. Ate o C3, stop_plat (Lua)
+;; escrevia status = WAITING e count enorme no meio do tic, e a task
+;; percebia na sua fase (o :troca, e a fase seguinte agia ja no mesmo tic);
+;; o elevador parado continuava descontando o count, e por isso o toggle nao
+;; servia (passo 3c, mutacao parar-com-toggle). No Doom, o elevador parado
+;; deixa de pensar (EV_StopPlat tira a funcao do thinker). Agora o Lua desliga
+;; a task com toggle e a liga de novo na reativacao (P_ActivateInStasis); a
+;; task nao ve o status de parado e continua no mesmo await. Ninguem mais
+;; escreve plat.status de fora com a task ligada, e o :troca sumiu.
 
-;; Anda ate o destino da fase "st" (DOWN ou UP). Devolve :chegou, ou :troca
-;; se o Lua mudou plat.status.
-val func mover_plat (sp, plat, st, direto) {
-    var espera = !direto
+;; Anda ate o destino da fase "st" (DOWN ou UP). Devolve :chegou, ou :bateu
+;; se o elevador, subindo, bateu em algo (C4d: volta a descer, T_PlatRaise).
+val func mover_plat (sp, plat, st) {
+    val P = S.PLAT
+    val destino = if st == P.UP => plat.high => plat.low
+    val dir = if st == P.UP => 1 => -1
     loop {
-        if espera {
-            await :game.specials
-        }
-        set espera = true
-        until (plat.status != st, :troca)
-        val P = S.PLAT
-        val destino = if st == P.UP => plat.high => plat.low
-        val dir = if st == P.UP => 1 => -1
+        await :game.specials
         val r = S.move_plane(sp.world, plat.sector, plat.speed, destino, 0, dir, false)
         until (r == S.RESULT_PASTDEST, :chegou)
+        until ((st == P.UP) && (r == S.RESULT_CRUSHED), :bateu)
     }
 }
 
-;; Espera plat.count tics (o save le esse contador; um elevador parado por
-;; stop_plat tem count enorme e fica aqui). Devolve :fim, ou :troca.
-val func esperar_plat (plat, direto) {
-    var espera = !direto
+;; Espera plat.count tics (o save le esse contador). Devolve :fim.
+val func esperar_plat (plat) {
     loop {
-        if espera {
-            await :game.specials
-        }
-        set espera = true
-        until (plat.status != S.PLAT.WAITING, :troca)
+        await :game.specials
         set plat.count = plat.count - 1
         until (plat.count <= 0, :fim)
     }
@@ -265,16 +261,19 @@ val task Elevador (sp, plat) {
     defer {                               ;; ao terminar ou ser abortado
         set plat.sector.specialdata = nil
         set plat.dead = true
+        S.remover_plat(sp, plat)          ;; C4d: sai dos elevadores ativos
     }
-    var direto = false
     loop {
         val st = plat.status
-        val r = if st == P.WAITING => esperar_plat(plat, direto) => mover_plat(sp, plat, st, direto)
-        set direto = (r == :troca)
+        val r = if st == P.WAITING => esperar_plat(plat) => mover_plat(sp, plat, st)
         ifs {
-            (r == :troca) => {}           ;; recado: segue no status novo
             (r == :fim) => {              ;; acabou a espera: sobe ou desce
                 set plat.status = if plat.sector.floorheight <= plat.low => P.UP => P.DOWN
+                S.play(sp, "pstart")
+            }
+            (r == :bateu) => {            ;; C4d: subindo, bateu: desce
+                set plat.count = plat.wait
+                set plat.status = P.DOWN
                 S.play(sp, "pstart")
             }
             else => {                     ;; chegou ao destino

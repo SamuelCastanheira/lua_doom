@@ -52,6 +52,7 @@ Até lá, cada passo só acrescenta itens aqui. Na hora de corrigir:
 | Botão duplicado | `change_switch` | `P_StartButton` não cria um segundo botão para a mesma linha | apertar de novo antes de voltar cria outro botão, que devolve a textura trocada depois |
 | Botão sem som ao voltar | task `Botao` | `P_UpdateSpecials` toca "swtchn" ao devolver a textura | silencioso |
 | Sem limites | `specials.lua` | `MAXPLATS` (30), `MAXCEILINGS` (30), `MAXBUTTONS` (16); estourar dá erro | sem limite |
+| Velocidade do elevador "desce, espera, sobe" | `do_plat_dwus` | `EV_DoPlat` (`downWaitUpStay`): `PLATSPEED * 4` (4 unidades por tic) | `PLATSPEED` (1 por tic). Achado no C4d; corrigir muda o cenário do roteiro `ordem` (B2) |
 
 Caminhos sem cobertura possível no `doom.wad` (migrados, mas nenhum mapa os
 usa): linha 17 (strobe criado por linha), setores 10 e 14 (portas que

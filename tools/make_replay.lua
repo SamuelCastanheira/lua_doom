@@ -228,7 +228,7 @@ if elevadores then
   -- Load D: main 3 -> 2 Load -> slot 3 -> 2
   keys({ "escape" }); up(1); keys({ "return" }); wait(10); up(1); keys({ "return" })
   wait(100)
-  cross(114); wait(200)                                -- nao reativa
+  cross(114); wait(200)                                -- reativa (C4d; antes, nao reativava)
   lines[#lines + 1] = string.format("%d quit", f + 20)
   local fh = assert(io.open(out_path, "w"))
   fh:write(table.concat(lines, "\n"), "\n")
@@ -355,6 +355,14 @@ if correcoes then
   use(329); wait(60)
   for _ = 1, 80 do
     goto_xy(-1900, -2524); wait(4)
+  end
+  goto_xy(-1472, -3344); wait(40)
+  -- C4d: o elevador do setor 40 (linha 800, tipo 62) desce; o jogador fica
+  -- nele com o corpo sobre o setor 35 (teto 192): subindo, o elevador bate
+  -- quando o piso passa de 136 e volta a descer (antes, ficava tentando)
+  use(800); wait(140)
+  for _ = 1, 60 do
+    goto_xy(-1088, -1336); wait(4)
   end
   goto_xy(-1472, -3344); wait(40)
   -- C4b, no E2M2: o esmagador da tag 16 (linha 728, tipo 73) desce; a

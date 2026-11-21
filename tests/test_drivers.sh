@@ -197,7 +197,8 @@ if [ "$EXITS" = "portas" ] && [ $status -eq 0 ]; then
 fi
 # No roteiro "elevadores" (passo 3c): um save em cada fase do elevador
 # (slot 5 descendo, 4 esperando, 3 subindo), um com elevadores parados
-# (slot 2: esperando, count enorme), quatro loads, E1M3 e E2M3.
+# (slot 2: desde o C4d, status 3, in_stasis; antes, esperando com count
+# enorme), quatro loads, E1M3 e E2M3.
 if [ "$EXITS" = "elevadores" ] && [ $status -eq 0 ]; then
   fase_p() {
     got=$(grep -ao '"kind":"plat"[^}]*' "$OUT/run_atm/doomsav$1.dsg" 2>/dev/null | grep -c "\"status\":$2,")
@@ -207,7 +208,7 @@ if [ "$EXITS" = "elevadores" ] && [ $status -eq 0 ]; then
     fi
   }
   fase_p 5 0; fase_p 4 2; fase_p 3 1
-  grep -aq '"count":21474' "$OUT/run_atm/doomsav2.dsg" 2>/dev/null || { echo "COBERTURA INCOMPLETA: o slot 2 nao tem elevador parado"; status=1; }
+  fase_p 2 3
   n=$(grep -c "^pedido jogo.carregar" "$OUT/atm.out" || true)
   [ "$n" -ge 4 ] || { echo "COBERTURA INCOMPLETA: $n loads (esperado 4)"; status=1; }
   grep -q "^vista E2M3" "$OUT/ref.out" || { echo "COBERTURA INCOMPLETA: nao chegou ao E2M3"; status=1; }

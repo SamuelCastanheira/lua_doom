@@ -20,8 +20,8 @@ do C4. Este registro cresce a cada grupo.
 |---|---|---|---|
 | C4a. Portas | a porta que bate em algo fechando volta a abrir; as rápidas batem ao fechar | `6424c62` / `040d82b` | concluído |
 | C4b. Tetos | linha 40, esmagador que só desce, desaceleração, linhas 57 e 74, reativação, limite | `66f3b67` / `278a16c` | concluído |
-| C4c. Esmagamento | a cada 4 tics, com sangue; corpos viram restos; itens largados somem | (este) | concluído |
-| C4d. Elevadores | volta ao bater subindo; parado de verdade (estase) e reativação; limite | – | a fazer |
+| C4c. Esmagamento | a cada 4 tics, com sangue; corpos viram restos; itens largados somem | `029e48e` / `54c5bf8` | concluído |
+| C4d. Elevadores | volta ao bater subindo; parado de verdade (estase) e reativação; limite | (este) | concluído |
 | C4e. Pisos | troca do special; escada; sons de piso e teto | – | a fazer |
 | C4f. Botões | não duplica; som ao voltar; limite | – | a fazer |
 | C4g. Save | a descrição digitada | – | a fazer |
@@ -376,3 +376,151 @@ pensam antes dos specials (fase 6 do tic, antes da 7), e o sangue do
 esmagamento só pensa no tic seguinte. É a separação entre mobjs e specials
 que o port tem desde antes da migração; não muda nada visível além do
 primeiro tic do sangue.
+
+---
+
+## C4d: elevadores (volta ao bater, parado de verdade, reativação, limite)
+
+### Resumo
+
+| Diferença | Antes | Depois (como no Doom) |
+|---|---|---|
+| Elevador subindo que bate em algo | ficava tentando subir | volta a descer (`T_PlatRaise`: `res == crushed && !plat->crush`), com `pstart` |
+| Parar (linhas 54 e 89) | `stop_plat` escrevia `status = WAITING` e `count` enorme: o elevador continuava descontando o `count` | `EV_StopPlat`: `status = in_stasis`, o status de antes em `oldstatus`, e o thinker deixa de pensar |
+| Reativar (linhas 53 e 87, elevador perpétuo) | não existia: um elevador parado ficava parado | `P_ActivateInStasis` devolve o status de antes |
+| Limite | sem limite | 30 elevadores ativos (`MAXPLATS`); cheia, o Doom para com erro (`P_AddActivePlat: no more plats!`), e aqui também |
+
+### Antes
+
+**`atmos`** (`setores.atm`, task `Elevador`, `1ab5725`). A fase ficava em
+`plat.status` por dois motivos: o save e o recado. `stop_plat` escrevia
+`status = WAITING` no meio do tic; `mover_plat` e `esperar_plat` testavam
+`until (plat.status != st, :troca)` a cada tic, e a fase nova começava
+agindo no mesmo tic (`direto`). No passo 3c, parar com `toggle` foi testado
+e não era equivalente (mutação `parar-com-toggle`, detectada só pela
+comparação dos saves), porque o elevador parado deste port continuava
+descontando o `count`.
+
+**`lua`** (`specials.lua`, `tick_plat` e `stop_plat`, tag `c3`): o mesmo, no
+tick.
+
+### Solução
+
+O Doom tira a função do thinker do elevador parado, e no C4d o parar virou
+`toggle`, como os tetos no C4b. `start_plat` (usado na criação e no load)
+guarda a task no registro e põe o elevador na lista de ativos; um elevador
+gravado parado nasce no status de antes e é desligado em seguida:
+
+```lua
+-- specials.lua (atmos)
+function M.start_plat(self, plat)
+  local parado = plat.status == PLAT_INSTASIS
+  if parado then
+    plat.status = plat.oldstatus
+  end
+  plat.task = spawn_task(self, "movers", "Elevador", self, plat)
+  if parado then
+    plat.status = PLAT_INSTASIS
+    if plat.task then
+      toggle(plat.task, false)
+    end
+  end
+  add_active_plat(self, plat)
+  return plat.task
+end
+```
+
+**O recado do elevador sumiu.** Com o parar fora da task (desligada antes
+de o status mudar, e religada depois de o status voltar), ninguém mais
+escreve `plat.status` com a task ligada. A task `Elevador` perdeu o
+`:troca`, o `direto` e os testes de status a cada tic; ganhou o `:bateu`:
+
+```
+val func mover_plat (sp, plat, st) {
+    val P = S.PLAT
+    val destino = if st == P.UP => plat.high => plat.low
+    val dir = if st == P.UP => 1 => -1
+    loop {
+        await :game.specials
+        val r = S.move_plane(sp.world, plat.sector, plat.speed, destino, 0, dir, false)
+        until (r == S.RESULT_PASTDEST, :chegou)
+        until ((st == P.UP) && (r == S.RESULT_CRUSHED), :bateu)
+    }
+}
+```
+
+O status continua no registro, mas agora só porque o save o grava e o Lua
+precisa dele para decidir quem parar e quem reativar (o `in_stasis`).
+
+**Save.** O registro do elevador ganhou `oldstatus` (o `plat_t` do Doom o
+grava); a cobertura do roteiro `elevadores` agora procura, no slot 2, um
+elevador com `"status":3` (antes, `count` enorme).
+
+### Diagramas
+
+**Máquina de estados da task `Elevador`, antes (`1ab5725`):**
+
+```mermaid
+stateDiagram-v2
+    [*] --> Descendo: DWUS (status down)
+    [*] --> Subindo: raise (status up)
+    [*] --> Descendo: perpetuo (P_Random)
+    Descendo --> Esperando: chegou embaixo (pstop)
+    Esperando --> Subindo: fim do count, embaixo (pstart)
+    Esperando --> Descendo: fim do count, em cima (pstart)
+    Subindo --> Esperando: chegou em cima (perpetuo)
+    Subindo --> [*]: chegou em cima (DWUS, raise)
+    Subindo --> Subindo: bateu (tenta de novo)
+    Descendo --> Esperando: recado stop_plat (count enorme, continua contando)
+    Subindo --> Esperando: recado stop_plat
+```
+
+**Depois (C4d):**
+
+```mermaid
+stateDiagram-v2
+    [*] --> Descendo: DWUS (status down)
+    [*] --> Subindo: raise (status up)
+    [*] --> Descendo: perpetuo (P_Random)
+    Descendo --> Esperando: chegou embaixo (pstop)
+    Esperando --> Subindo: fim do count, embaixo (pstart)
+    Esperando --> Descendo: fim do count, em cima (pstart)
+    Subindo --> Esperando: chegou em cima (perpetuo)
+    Subindo --> [*]: chegou em cima (DWUS, raise)
+    Subindo --> Descendo: bateu (pstart)
+    Descendo --> Parado: linha 54 ou 89 (toggle false)
+    Subindo --> Parado: linha 54 ou 89 (toggle false)
+    Esperando --> Parado: linha 54 ou 89 (toggle false)
+    Parado --> Descendo: linha 53 ou 87, se descia (toggle true)
+    Parado --> Subindo: linha 53 ou 87, se subia (toggle true)
+    Parado --> Esperando: linha 53 ou 87, se esperava (toggle true)
+```
+
+### Validação
+
+**Roteiros.**
+
+- `elevadores` (sem mudança nos eventos): no E2M3, o elevador perpétuo é
+  parado (linha 324, tipo 89), gravado parado (slot 2, `status` 3,
+  `oldstatus` gravado) e carregado; a linha 114 (tipo 87) agora o reativa
+  (o comentário do roteiro dizia "não reativa").
+- `correcoes`, no E1M3 (novo): o elevador do setor 40 (linha 800, tipo 62)
+  desce; o jogador fica nele, com o centro em (−1088, −1336), a 8 unidades
+  da linha 800, e o corpo sobre o setor 35, de teto 192. Subindo com o
+  jogador, o elevador bate quando o piso passa de 136 (192 − 56) e volta a
+  descer (prints numa cópia de `G.state_string`: o piso vai de 64 a 133,
+  o status passa de 1 a 0 e o piso volta a 64). Antes, ele ficaria em 136
+  tentando subir. O setor foi achado por um script que procura, em todos os
+  mapas, elevadores com um vizinho de teto entre a altura de baixo + 56 e a
+  de cima + 56.
+
+**Contra a branch `lua`:** `correcoes` (3.480 quadros), `elevadores`
+(2.098) e `ordem` (815) idênticos.
+
+**Achado: a velocidade do elevador "desce, espera, sobe".** No Doom, o
+`downWaitUpStay` anda a `PLATSPEED * 4` (4 unidades por tic); neste port,
+`do_plat_dwus` usa `PLATSPEED` (1 por tic). O registro do B2 já mencionava
+"neste port, 1 unidade por tic" sem marcar como diferença. Acrescentado a
+`docs/DIFERENCAS_DOOM.md`; não foi corrigido aqui porque muda o cenário do
+roteiro `ordem` (a porta e o elevador vizinhos andando juntos por 10 tics,
+que detecta a mutação `portas-fora-de-movers`).
