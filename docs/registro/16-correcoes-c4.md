@@ -23,8 +23,8 @@ do C4. Este registro cresce a cada grupo.
 | C4c. Esmagamento | a cada 4 tics, com sangue; corpos viram restos; itens largados somem | `029e48e` / `54c5bf8` | concluído |
 | C4d. Elevadores | volta ao bater subindo; parado de verdade (estase) e reativação; limite | `9efd93d` / `9339673` | concluído |
 | C4e. Pisos | troca do special; escada; sons de piso e teto | `eb75953` / `21f9219` | concluído |
-| C4f. Botões | não duplica; som ao voltar; limite | (este) | concluído |
-| C4g. Save | a descrição digitada | – | a fazer |
+| C4f. Botões | não duplica; som ao voltar; limite | `5b4b42f` / `7b06b63` | concluído |
+| C4g. Save | a descrição digitada | (este) | concluído |
 
 ---
 
@@ -674,3 +674,86 @@ Antes, um segundo botão a trocaria de novo para 107 no tic 182.
 
 **Contra a branch `lua`:** `botoes` (861 quadros) e `correcoes` (3.480)
 idênticos.
+
+---
+
+## C4g: a descrição do save
+
+### Resumo
+
+No Doom, escolher um slot no menu de save começa a digitação da descrição
+(`M_SaveSelect`): um slot vazio começa em branco, um gravado começa com a
+descrição antiga; as letras entram em maiúsculas, `backspace` apaga,
+`escape` desiste e devolve a descrição antiga, `enter` grava, mas só se a
+descrição não estiver vazia (`M_Responder`, `saveStringEnter`). Este port
+gravava na hora, com o nome do mapa como descrição.
+
+### Antes e depois (`menu.lua`, igual nas duas branches nesta parte)
+
+```lua
+-- antes (c3): a acao "saveslot" grava na hora
+elseif action == "saveslot" then
+  local name = "save"
+  if self.game.world and self.game.world.mapname then
+    name = self.game.world.mapname
+  end
+  if self.game.save_game and self.game.save_game(self.game, choice, name) then
+  ...
+
+-- depois (C4g): a acao comeca a digitacao; o responder a trata antes de
+-- qualquer outra tecla (o saveStringEnter vem primeiro no M_Responder)
+elseif action == "saveslot" then
+  self.save_string_enter = true
+  self.save_slot = choice
+  self.save_old = self.save_strings[choice + 1]
+  if self.save_old == LOADSAVEEMPTY then
+    self.save_strings[choice + 1] = ""
+  end
+```
+
+A digitação aceita letras e dígitos (em maiúsculas) e espaço, `-`, `=`,
+`,`, `.`; no máximo 23 caracteres e 176 pixels de largura (`SAVESTRINGSIZE -
+1` e `(SAVESTRINGSIZE - 2) * 8`, com a largura medida pela fonte do HUD,
+como o `M_StringWidth`). O desenho põe o cursor `_` depois do texto do slot
+(`M_DrawSave`).
+
+### Diagrama
+
+**O menu de save, antes e depois:**
+
+```mermaid
+stateDiagram-v2
+    state "antes (c3)" as A {
+        [*] --> Slots
+        Slots --> Gravado: enter no slot (descricao = nome do mapa)
+        Gravado --> [*]: menu fecha
+    }
+    state "depois (C4g)" as D {
+        [*] --> Slots2
+        Slots2 --> Digitando: enter no slot (vazio comeca em branco)
+        Digitando --> Digitando: letra, digito, sinal / backspace
+        Digitando --> Slots2: escape (volta a descricao antiga)
+        Digitando --> Slots2: enter com a descricao vazia
+        Digitando --> Gravado2: enter com descricao (M_DoSave)
+        Gravado2 --> [*]: menu fecha
+    }
+```
+
+### Os roteiros
+
+Todo save dos roteiros passava por "enter no slot". Agora, depois desse
+`enter`, o slot vazio espera a descrição, e sem ela o `enter` seguinte não
+grava. `tools/make_replay.lua` ganhou `descricao()` (a letra "s" e
+`enter`), chamada depois dos 13 saves dos roteiros (`elevadores`, 4;
+`portas`, 3; `monstro`, `familia`, `arma`, `pisos`, `botoes`, `fluxo`, 1
+cada). São 6 quadros, um número par: as entradas seguintes continuam caindo
+no começo de um par de tics (seção 2.5 do `CLAUDE.md`). Com o menu aberto o
+mundo está parado (C2), então o estado gravado é o mesmo; só os números dos
+quadros depois de cada save andam 6.
+
+### Validação
+
+Um quadro gravado (`DOOM_REPLAY_DUMP`) mostra o slot com o texto e o cursor
+`_` antes e depois da letra; os saves dos testes têm a descrição `S`.
+`make test-branches`: idêntico à branch `lua` nos 14 roteiros, com a
+cobertura de todos (os saves e loads dos roteiros continuam acontecendo).

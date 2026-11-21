@@ -142,6 +142,14 @@ end
 local function wait(n)
   f = f + n
 end
+-- C4g: depois de escolher o slot de save, o Doom deixa digitar a descricao
+-- (um slot vazio comeca em branco, e sem descricao o save nao grava): uma
+-- letra e "enter" (6 quadros, um numero par: as entradas seguintes continuam
+-- no comeco de um par de tics)
+local function descricao()
+  type_text("s")
+  tap("return")
+end
 
 local MOVES = { "up", "up", "up", "down", "left", "right", "comma", "period" }
 local function play(n)
@@ -197,19 +205,19 @@ if elevadores then
   wait(20)
   -- Save A (descendo), slot 5: main 0 -> 3 Save -> slot 0 -> 5
   keys({ "escape" }); down(3); keys({ "return" }); wait(10); down(5)
-  use(E); wait(8); keys({ "return" })
+  use(E); wait(8); keys({ "return" }); descricao()
   wait(10)
   -- Load A: main 3 -> 2 Load -> slot 0 -> 5
   keys({ "escape" }); up(1); keys({ "return" }); wait(10); down(5); keys({ "return" })
   wait(180)                                            -- chega embaixo; espera
   -- Save B (esperando), slot 4: main 2 -> 3 Save -> slot 5 -> 4
-  keys({ "escape" }); down(1); keys({ "return" }); wait(10); up(1); keys({ "return" })
+  keys({ "escape" }); down(1); keys({ "return" }); wait(10); up(1); keys({ "return" }); descricao()
   wait(10)
   -- Load B: main 3 -> 2 Load -> slot 5 -> 4
   keys({ "escape" }); up(1); keys({ "return" }); wait(10); up(1); keys({ "return" })
   wait(130)                                            -- termina a espera; sobe
   -- Save C (subindo), slot 3: main 2 -> 3 Save -> slot 4 -> 3
-  keys({ "escape" }); down(1); keys({ "return" }); wait(10); up(1); keys({ "return" })
+  keys({ "escape" }); down(1); keys({ "return" }); wait(10); up(1); keys({ "return" }); descricao()
   wait(10)
   -- Load C: main 3 -> 2 Load -> slot 4 -> 3
   keys({ "escape" }); up(1); keys({ "return" }); wait(10); up(1); keys({ "return" })
@@ -223,7 +231,7 @@ if elevadores then
   cross(114); wait(330)                                -- perpetuo
   cross(324); wait(60)                                 -- parar
   -- Save D (parado), slot 2: main 2 -> 3 Save -> slot 3 -> 2
-  keys({ "escape" }); down(1); keys({ "return" }); wait(10); up(1); keys({ "return" })
+  keys({ "escape" }); down(1); keys({ "return" }); wait(10); up(1); keys({ "return" }); descricao()
   wait(30)
   -- Load D: main 3 -> 2 Load -> slot 3 -> 2
   keys({ "escape" }); up(1); keys({ "return" }); wait(10); up(1); keys({ "return" })
@@ -443,7 +451,7 @@ if familia then
   goto_xy(144, 1056); wait(20)                         -- Spectres (288, 1104) e (0, 1376)
   play(600)
   -- Save no meio da briga, slot 5: main 0 -> 3 Save -> slot 0 -> 5
-  keys({ "escape" }); down(3); keys({ "return" }); wait(10); down(5); keys({ "return" })
+  keys({ "escape" }); down(3); keys({ "return" }); wait(10); down(5); keys({ "return" }); descricao()
   wait(10)
   -- Load: main 3 -> 2 Load -> slot 0 -> 5
   keys({ "escape" }); up(1); keys({ "return" }); wait(10); down(5); keys({ "return" })
@@ -472,7 +480,7 @@ if monstro then
   hold("3", 3); wait(40)                               -- escopeta
   play(700)                                            -- anda e atira
   -- Save no meio da briga, slot 5: main 0 -> 3 Save -> slot 0 -> 5
-  keys({ "escape" }); down(3); keys({ "return" }); wait(10); down(5); keys({ "return" })
+  keys({ "escape" }); down(3); keys({ "return" }); wait(10); down(5); keys({ "return" }); descricao()
   wait(10)
   -- Load: main 3 -> 2 Load -> slot 0 -> 5
   keys({ "escape" }); up(1); keys({ "return" }); wait(10); down(5); keys({ "return" })
@@ -523,7 +531,7 @@ if arma then
   arma_n("7"); wait(40)                                   -- BFG
   -- Save no meio do tiro do BFG (60 tics), slot 5: main 0 -> 3 Save -> slot 0 -> 5
   hold("ctrl", 3)
-  keys({ "escape" }); down(3); keys({ "return" }); wait(10); down(5); keys({ "return" })
+  keys({ "escape" }); down(3); keys({ "return" }); wait(10); down(5); keys({ "return" }); descricao()
   wait(10)
   -- Load: main 3 -> 2 Load -> slot 0 -> 5
   keys({ "escape" }); up(1); keys({ "return" }); wait(10); down(5); keys({ "return" })
@@ -564,7 +572,7 @@ if pisos then
   use(698); cross(1038); cross(713); cross(638); use(220)
   wait(30)
   -- Save A (pisos andando), slot 5: main 0 -> 3 Save -> slot 0 -> 5
-  keys({ "escape" }); down(3); keys({ "return" }); wait(10); down(5); keys({ "return" })
+  keys({ "escape" }); down(3); keys({ "return" }); wait(10); down(5); keys({ "return" }); descricao()
   wait(10)
   -- Load A: main 3 -> 2 Load -> slot 0 -> 5
   keys({ "escape" }); up(1); keys({ "return" }); wait(10); down(5); keys({ "return" })
@@ -626,13 +634,13 @@ if portas then
   use(P); wait(120)                                    -- quadro: segue fechando
   -- Save A (abrindo), slot 5: main 0 -> 3 Save -> slot 0 -> 5
   keys({ "escape" }); down(3); keys({ "return" }); wait(10); down(5)
-  use(P); wait(8); keys({ "return" })
+  use(P); wait(8); keys({ "return" }); descricao()
   wait(10)
   -- Load A: main 3 -> 2 Load -> slot 0 -> 5
   keys({ "escape" }); up(1); keys({ "return" }); wait(10); down(5); keys({ "return" })
   wait(120)                                            -- termina de abrir; espera
   -- Save B (esperando), slot 4: main 2 -> 3 Save -> slot 5 -> 4
-  keys({ "escape" }); down(1); keys({ "return" }); wait(10); up(1); keys({ "return" })
+  keys({ "escape" }); down(1); keys({ "return" }); wait(10); up(1); keys({ "return" }); descricao()
   wait(20)
   -- Load B: main 3 -> 2 Load -> slot 5 -> 4
   keys({ "escape" }); up(1); keys({ "return" }); wait(10); up(1); keys({ "return" })
@@ -640,7 +648,7 @@ if portas then
   -- Save C (fechando), slot 3: main 2 -> 3 Save -> slot 4 -> 3
   use(P); wait(90)                                     -- abre e espera no topo
   keys({ "escape" }); down(1); keys({ "return" }); wait(10); up(1)
-  use(P); wait(5); keys({ "return" })                  -- esperando -> fechando
+  use(P); wait(5); keys({ "return" }); descricao()                  -- esperando -> fechando
   wait(10)
   -- Load C: main 3 -> 2 Load -> slot 4 -> 3
   keys({ "escape" }); up(1); keys({ "return" }); wait(10); up(1); keys({ "return" })
@@ -678,7 +686,7 @@ if botoes then
   wait(10)
   keys({ "down", "down", "down", "down", "down" })
   wait(5)
-  keys({ "return" })                                   -- grava (botao no meio)
+  keys({ "return" }); descricao()                      -- grava (botao no meio)
   wait(100)
   -- Load: main (item 3) -> 2 Load Game -> slot 0 -> 5
   keys({ "escape", "up", "return" })
@@ -737,7 +745,7 @@ if fluxo then
   -- Save: main (item 0) -> 3 Save Game -> slot 0 -> 5
   keys({ "escape", "down", "down", "down", "return" })
   wait(10)
-  keys({ "down", "down", "down", "down", "down", "return" })
+  keys({ "down", "down", "down", "down", "down", "return" }); descricao()
   wait(40); play(150)
   cmd("die"); wait(80); keys({ "space" })              -- morte -> renasce E1M4
   wait(40); play(100)
