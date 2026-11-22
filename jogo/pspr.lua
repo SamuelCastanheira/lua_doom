@@ -223,11 +223,20 @@ local function noise_alert(player, game)
   end
 end
 
+-- C8: o estado do corpo do jogador (o mobj), que o p_pspr.c troca ao
+-- atirar (S_PLAY_ATK1, S_PLAY_ATK2) e ao voltar a arma pronta (S_PLAY)
+local function corpo(player, st, game)
+  if player.mo and player.mo.istate then
+    require("thinker").set_mobj_state(player.mo, st, game and game.world, game)
+  end
+end
+
 -- P_FireWeapon: comeca o tiro (se houver municao)
 local function fire_weapon(player, game)
   if not check_ammo(player, game) then
     return
   end
+  corpo(player, info.S_PLAY_ATK1, game)  -- C8: o corpo atira
   M.set_psprite(player, PS_WEAPON, WEAPONINFO[player.readyweapon].atk, game)
   noise_alert(player, game)
 end
@@ -276,6 +285,11 @@ ACOES = {
   -- A_WeaponReady: troca pedida (ou morto): baixa; gatilho: atira (o
   -- lanca-foguetes e o BFG pedem soltar antes); senao, balanca a arma
   WeaponReady = function(player, psp, game)
+    -- C8: o corpo sai do tiro
+    local mo = player.mo
+    if mo and (mo.istate == info.S_PLAY_ATK1 or mo.istate == info.S_PLAY_ATK2) then
+      corpo(player, info.S_PLAY, game)
+    end
     if player.readyweapon == WP_CHAINSAW and psp.state == info.S_SAW then
       som(game, "sawidl")
     end
@@ -416,6 +430,7 @@ ACOES = {
 
   FirePistol = function(player, psp, game)
     som(game, "pistol")
+    corpo(player, info.S_PLAY_ATK2, game)  -- C8
     player.ammo[WEAPONINFO[player.readyweapon].ammo] = player.ammo[WEAPONINFO[player.readyweapon].ammo] - 1
     flash(player, game, WEAPONINFO[player.readyweapon].flash)
     gun_shot(player, game, player.refire == 0, bullet_slope(player, game))
@@ -423,6 +438,7 @@ ACOES = {
 
   FireShotgun = function(player, psp, game)
     som(game, "shotgn")
+    corpo(player, info.S_PLAY_ATK2, game)  -- C8
     player.ammo[WEAPONINFO[player.readyweapon].ammo] = player.ammo[WEAPONINFO[player.readyweapon].ammo] - 1
     flash(player, game, WEAPONINFO[player.readyweapon].flash)
     local slope = bullet_slope(player, game)
@@ -433,6 +449,7 @@ ACOES = {
 
   FireShotgun2 = function(player, psp, game)
     som(game, "dshtgn")
+    corpo(player, info.S_PLAY_ATK2, game)  -- C8
     player.ammo[WEAPONINFO[player.readyweapon].ammo] = player.ammo[WEAPONINFO[player.readyweapon].ammo] - 2
     flash(player, game, WEAPONINFO[player.readyweapon].flash)
     local slope = bullet_slope(player, game)
@@ -466,6 +483,7 @@ ACOES = {
     if player.ammo[ammo] == 0 then
       return
     end
+    corpo(player, info.S_PLAY_ATK2, game)  -- C8
     player.ammo[ammo] = player.ammo[ammo] - 1
     flash(player, game, WEAPONINFO[player.readyweapon].flash + psp.state - info.S_CHAIN1)
     gun_shot(player, game, player.refire == 0, bullet_slope(player, game))

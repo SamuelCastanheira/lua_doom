@@ -17,6 +17,11 @@ local collision = require("collision")
 local rng = require("random")
 local pspr = require("pspr")
 
+local info = require("info")
+local MF_FLOAT = 16384
+local MF_JUSTHIT = 128
+local BASETHRESHOLD = 100
+
 local M = {}
 
 local band, bnot = compat.band, compat.bnot
@@ -126,7 +131,8 @@ local WEAPON_AMMO = {
 -- C3: as tabelas proprias da arma (WEAPON_PATCH, WEAPON_FIRE_BODY,
 -- WEAPON_ATK, WEAPON_READY) sairam; a arma segue info.STATES (pspr.lua).
 
-function M.damage_mobj(target, source, damage, inflictor)
+-- C8: game (5o argumento) para os sons e o mundo dos estados do corpo
+function M.damage_mobj(target, source, damage, inflictor, game)
   if target == nil or target.alive == false or not has(target.flags, MF_SHOOTABLE) then
     return
   end
@@ -150,19 +156,51 @@ function M.damage_mobj(target, source, damage, inflictor)
     end
     damage = damage - saved
     player.health = player.health - damage
-    target.health = player.health
+    if player.health < 0 then
+      player.health = 0
+    end
     player.damagecount = (player.damagecount or 0) + damage
     if player.damagecount > 100 then
       player.damagecount = 100
     end
     player.attacker = source
-    if player.health <= 0 then
-      player.health = 0
-      target.health = 0
+    -- C8: o mobj perde o dano inteiro (fica negativo na morte: abaixo de
+    -- -spawnhealth, o corpo explode), como o target->health do P_DamageMobj
+    target.health = (target.health or 0) - damage
+    local thinker = require("thinker")
+    local row = info.MOBJINFO[target.type or 0]
+    if target.health <= 0 then
+      -- P_KillMobj
+      target.flags = band(target.flags, bnot(MF_SHOOTABLE + MF_FLOAT + MF_SKULLFLY + MF_NOGRAVITY))
+      target.flags = compat.bor(target.flags, MF_CORPSE + MF_DROPOFF)
+      target.height = target.height // 4
+      target.flags = band(target.flags, bnot(MF_SOLID))
       player.playerstate = PST_DEAD
       target.alive = false
-      target.flags = band(target.flags, bnot(MF_SOLID + MF_SHOOTABLE))
       pspr.soltar_arma(player, nil)  -- C3: P_KillMobj -> P_DropWeapon
+      local st = row[info.MI_DEATHSTATE]
+      if target.health < -row[info.MI_SPAWNHEALTH] and row[info.MI_XDEATHSTATE] ~= 0 then
+        st = row[info.MI_XDEATHSTATE]
+      end
+      thinker.set_mobj_state(target, st, game and game.world, game)
+      target.tics = target.tics - band(rng.p_random(), 3)
+      if target.tics < 1 then
+        target.tics = 1
+      end
+      return
+    end
+    -- a dor (painchance 255: quase sempre) e o alvo, como num monstro
+    if rng.p_random() < row[info.MI_PAINCHANCE] and not has(target.flags, MF_SKULLFLY) then
+      target.flags = compat.bor(target.flags, MF_JUSTHIT)
+      thinker.set_mobj_state(target, row[info.MI_PAINSTATE], game and game.world, game)
+    end
+    target.reactiontime = 0
+    if (target.threshold or 0) == 0 and source ~= nil and source ~= target then
+      target.target = source
+      target.threshold = BASETHRESHOLD
+      if target.istate == row[info.MI_SPAWNSTATE] and row[info.MI_SEESTATE] ~= 0 then
+        thinker.set_mobj_state(target, row[info.MI_SEESTATE], game and game.world, game)
+      end
     end
     return
   end
@@ -200,6 +238,10 @@ function M.spawn(world, start, cheats)
     type = 0,
     sprite = "PLAY",
     frame = 0,
+    istate = info.S_PLAY,   -- C8: P_SpawnPlayer, o spawnstate do MT_PLAYER
+    tics = -1,
+    threshold = 0,
+    target = nil,
     alive = true,
     player = nil,
     damage = 0,
@@ -355,6 +397,10 @@ function M.xy_movement(world, mo, game)
   local cmd = player and player.cmd
   local idle = player == nil or (cmd.forwardmove == 0 and cmd.sidemove == 0)
   if mo.momx > -STOPSPEED and mo.momx < STOPSPEED and mo.momy > -STOPSPEED and mo.momy < STOPSPEED and idle then
+    -- C8: P_XYMovement: parou num quadro de corrida, volta ao S_PLAY
+    if player and mo.istate and mo.istate >= info.S_PLAY_RUN1 and mo.istate <= info.S_PLAY_RUN4 then
+      require("thinker").set_mobj_state(mo, info.S_PLAY, world, game)
+    end
     mo.momx, mo.momy = 0, 0
   else
     mo.momx = fixed_mul(mo.momx, FRICTION)
@@ -529,6 +575,10 @@ function M.think(world, player, game, leveltime)
   end
   if cmd.sidemove ~= 0 and onground then
     M.thrust(mo, as_u32(mo.angle - ANG90), cmd.sidemove * 2048)
+  end
+  -- C8: P_MovePlayer: andando, o corpo sai do S_PLAY para a corrida
+  if (cmd.forwardmove ~= 0 or cmd.sidemove ~= 0) and mo.istate == info.S_PLAY then
+    require("thinker").set_mobj_state(mo, info.S_PLAY_RUN1, world, game)
   end
   M.xy_movement(world, mo, game)
   M.z_movement(mo, world, game)

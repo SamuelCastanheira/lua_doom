@@ -170,7 +170,24 @@ function M.set_mobj_state(mo, state, world, game)
   end
 end
 
+-- C8: o corpo do jogador (o mobj), na posicao dele em world.mobjs, como o
+-- P_MobjThinker do Doom: so os tics do estado, porque o movimento do mobj
+-- do jogador fica no tic do jogador (player.mover). As acoes dos estados
+-- (A_Pain, A_PlayerScream, A_Fall, A_XScream) so tocam sons e mexem nas
+-- flags: nao consomem P_Random.
+function M.estado_jogador(world, mo, game)
+  if mo.tics ~= -1 then
+    mo.tics = mo.tics - 1
+    if mo.tics <= 0 then
+      M.set_mobj_state(mo, info.STATES[mo.istate][4], world, game)
+    end
+  end
+end
+
 function M.mobj_thinker(world, mo, game)
+  if mo.player then
+    return M.estado_jogador(world, mo, game)
+  end
   local enemy = require("enemy")
   if (mo.momx or 0) ~= 0 or (mo.momy or 0) ~= 0 or band(mo.flags or 0, MF_SKULLFLY) ~= 0 then
     enemy.p_xy_movement(world, mo, game)
@@ -341,7 +358,7 @@ function M.tick(world, game)
   end
   for i = 1, #list do
     local mo = list[i]
-    if mo ~= player.mo and not mo.fx then
+    if not mo.fx then          -- C8: o mobj do jogador tambem (o corpo)
       M.mobj_thinker(world, mo, game)
     end
   end

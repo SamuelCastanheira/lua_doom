@@ -1286,9 +1286,9 @@ function M.change_sector(world, sector, crush)
     if M.point_in_subsector(world, thing.x, thing.y).sector == sector then
       if not M.thing_height_clip(world, thing) then
         if (thing.health or 0) <= 0 then
-          -- C4c: o corpo vira restos (S_GIBS); o mobj do jogador e os
-          -- efeitos (fx) deste port nao tem estados
-          if thing.istate and not thing.player and not thing.fx then
+          -- C4c: o corpo vira restos (S_GIBS); os efeitos (fx) deste port
+          -- nao tem estados. C8: o corpo do jogador tambem
+          if thing.istate and not thing.fx then
             require("thinker").set_mobj_state(thing, require("info").S_GIBS, world, nil)
           end
           thing.flags = band(thing.flags or 0, bnot(MF_SOLID))
