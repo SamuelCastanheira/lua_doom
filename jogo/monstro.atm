@@ -83,6 +83,25 @@ val DEMONIO = [
     levantar = faixa(info.S_SARG_RAISE1, info.S_SARG_RAISE6),
 ]
 
+;; C8: o corpo do jogador (MT_PLAYER, sprite PLAY). Os mesmos comportamentos
+;; com outro sentido: "procurar" e o jogador parado (S_PLAY, sem fim), e
+;; quase todas as entradas vem de fora (P_MovePlayer poe a correr,
+;; P_FireWeapon e A_FirePistol poem a atirar, o dano poe em dor ou morte).
+;; Atirar e sentir dor voltam ao S_PLAY (o "volta"), nao a correr. O mobj do
+;; jogador se move no tic do jogador (player.mover): a task so conta os tics
+;; ("sem_mover").
+val JOGADOR = [
+    procurar = [info.S_PLAY],                                ;; parado, sem fim
+    correr   = faixa(info.S_PLAY_RUN1, info.S_PLAY_RUN4),    ;; () x4
+    atacar   = [info.S_PLAY_ATK2, info.S_PLAY_ATK1],         ;; ATK2 (clarao) -> ATK1 -> S_PLAY
+    dor      = faixa(info.S_PLAY_PAIN, info.S_PLAY_PAIN2),   ;; (), (A_Pain)
+    morrer   = faixa(info.S_PLAY_DIE1, info.S_PLAY_DIE7),    ;; DIE2 (A_PlayerScream), DIE3 (A_Fall); DIE7 sem fim
+    explodir = faixa(info.S_PLAY_XDIE1, info.S_PLAY_XDIE9),  ;; XDIE2 (A_XScream), XDIE3 (A_Fall); XDIE9 sem fim
+    levantar = [],
+    volta    = info.S_PLAY,
+    sem_mover = true,
+]
+
 ;; O tipo de cada mobj com task. O Spectre (MT_SHADOWS) e o Demon com
 ;; MF_SHADOW (o renderer o desenha translucido): a mesma tabela.
 val TIPOS = []
@@ -90,6 +109,7 @@ set TIPOS@(info.MT_POSSESSED) = ZUMBI
 set TIPOS@(info.MT_SHOTGUY)   = SOLDADO
 set TIPOS@(info.MT_SERGEANT)  = DEMONIO
 set TIPOS@(info.MT_SHADOWS)   = DEMONIO
+set TIPOS@(info.MT_PLAYER)    = JOGADOR   ;; C8
 
 ;; Posicao do estado st na sequencia seq (0 se nao estiver). O valor do
 ;; until nao serve aqui: "until (c, v)" devolve c quando v e nil ou false.
@@ -107,13 +127,16 @@ val func indice (seq, st) {
 }
 
 ;; Conta os tics do estado atual, um :mobj.tic por vez (movimento primeiro,
-;; como mobj_thinker). Devolve :fim (acabaram os tics), :salto (o estado foi
-;; trocado de fora; o tic ja descontou o estado novo) ou :fora (removido).
-val func contar (mo, game) {
+;; como mobj_thinker; o corpo do jogador nao se move aqui, C8). Devolve :fim
+;; (acabaram os tics), :salto (o estado foi trocado de fora; o tic ja
+;; descontou o estado novo) ou :fora (removido).
+val func contar (mo, game, C) {
     val st = mo.istate
     loop {
         await :mobj.tic
-        until (!T.mobj_mover(game.world, mo, game), :fora)
+        if !C.sem_mover {
+            until (!T.mobj_mover(game.world, mo, game), :fora)
+        }
         if mo.tics == -1 {
             T.mobj_parado(game.world, mo, game)   ;; corpo: pesadelo (-respawn)
             until (mo.alive == false, :fora)
@@ -138,9 +161,9 @@ val func entrar (mo, game, st) {
 ;; Roda a sequencia seq a partir do estado atual (ja aplicado). "vencido":
 ;; os tics do estado atual ja acabaram neste tic (salto de fora com tics 0).
 ;; "repete": volta ao comeco no fim. Devolve :fim, :salto, :aplicado ou :fora.
-val func sequencia (mo, game, seq, vencido, repete) {
+val func sequencia (mo, game, C, seq, vencido, repete) {
     var i = indice(seq, mo.istate)
-    var r = if vencido => :fim => contar(mo, game)
+    var r = if vencido => :fim => contar(mo, game, C)
     loop {
         until (r != :fim, r)
         set i = i + 1
@@ -150,7 +173,7 @@ val func sequencia (mo, game, seq, vencido, repete) {
         until (i > #seq, :fim)
         val e = entrar(mo, game, seq@i)
         until (e != :ok, e)
-        set r = contar(mo, game)
+        set r = contar(mo, game, C)
     }
 }
 
@@ -172,19 +195,19 @@ val task Monstro (mo, game, C) {
         val st = mo.istate
         ;; o comportamento do estado atual; ao terminar, o proximo
         val r = ifs {
-            (indice(C.procurar, st) > 0) => sequencia(mo, game, C.procurar, vencido, true)
-            (indice(C.correr, st) > 0)   => sequencia(mo, game, C.correr, vencido, true)
-            (indice(C.atacar, st) > 0)   => sequencia(mo, game, C.atacar, vencido, false)
-            (indice(C.dor, st) > 0)      => sequencia(mo, game, C.dor, vencido, false)
-            (indice(C.levantar, st) > 0) => sequencia(mo, game, C.levantar, vencido, false)
-            (indice(C.morrer, st) > 0)   => sequencia(mo, game, C.morrer, vencido, false)
-            (indice(C.explodir, st) > 0) => sequencia(mo, game, C.explodir, vencido, false)
-            (indice(RESTOS, st) > 0)     => sequencia(mo, game, RESTOS, vencido, false)
+            (indice(C.procurar, st) > 0) => sequencia(mo, game, C, C.procurar, vencido, true)
+            (indice(C.correr, st) > 0)   => sequencia(mo, game, C, C.correr, vencido, true)
+            (indice(C.atacar, st) > 0)   => sequencia(mo, game, C, C.atacar, vencido, false)
+            (indice(C.dor, st) > 0)      => sequencia(mo, game, C, C.dor, vencido, false)
+            (indice(C.levantar, st) > 0) => sequencia(mo, game, C, C.levantar, vencido, false)
+            (indice(C.morrer, st) > 0)   => sequencia(mo, game, C, C.morrer, vencido, false)
+            (indice(C.explodir, st) > 0) => sequencia(mo, game, C, C.explodir, vencido, false)
+            (indice(RESTOS, st) > 0)     => sequencia(mo, game, C, RESTOS, vencido, false)
             else => error("monstro: estado " ++ tostring(st) ++ " fora da tabela do tipo " ++ tostring(mo.type))
         }
         set vencido = (r == :salto) && (mo.tics <= 0)  ;; trocado de fora, ja vencido
         val prox = ifs {
-            (r == :fim) => entrar(mo, game, C.correr@1)  ;; atacar, dor e levantar voltam a correr
+            (r == :fim) => entrar(mo, game, C.volta || (C.correr@1))  ;; atacar, dor e levantar voltam a correr (o jogador, ao S_PLAY)
             else => r                         ;; :salto, :aplicado: segue o estado novo
         }
         until (prox == :fora)

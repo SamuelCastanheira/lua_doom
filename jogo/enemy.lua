@@ -180,7 +180,7 @@ function M.damage_mobj(game, target, source, damage, inflictor)
   end
   if target.player then
     local player_mod = require("player")
-    player_mod.damage_mobj(target, source, damage, inflictor)
+    player_mod.damage_mobj(target, source, damage, inflictor, game)  -- C8: com game
     return
   end
   target.health = (target.health or 0) - damage

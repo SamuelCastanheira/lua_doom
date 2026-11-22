@@ -70,6 +70,8 @@ local function criar_task(mo, game)
   end
 end
 
+M.criar_task = criar_task
+
 function M.spawn_mobj(world, x, y, z, typ, game)
   local row = info.MOBJINFO[typ]
   local sub = collision.point_in_subsector(world, x, y)
@@ -234,7 +236,24 @@ function M.aplicar_estado(mo, state, world, game)
   return true
 end
 
+-- C8: o corpo do jogador (o mobj), na posicao dele em world.mobjs, como o
+-- P_MobjThinker do Doom: so os tics do estado, porque o movimento do mobj
+-- do jogador fica no tic do jogador (player.mover). As acoes dos estados
+-- (A_Pain, A_PlayerScream, A_Fall, A_XScream) so tocam sons e mexem nas
+-- flags: nao consomem P_Random.
+function M.estado_jogador(world, mo, game)
+  if mo.tics ~= -1 then
+    mo.tics = mo.tics - 1
+    if mo.tics <= 0 then
+      M.set_mobj_state(mo, info.STATES[mo.istate][4], world, game)
+    end
+  end
+end
+
 function M.mobj_thinker(world, mo, game)
+  if mo.player then
+    return M.estado_jogador(world, mo, game)
+  end
   if not M.mobj_mover(world, mo, game) then
     return
   end
@@ -364,6 +383,7 @@ function M.spawn_map(world, skill, game)
         if typ == 1 and game ~= nil and game.player == nil then
           local player_mod = require("player")
           game.player = player_mod.spawn(world, mt, 0)
+          criar_task(game.player.mo, game)   -- C8: o corpo do jogador
         end
       elseif band(mt.options, bit) ~= 0 and band(mt.options, 16) == 0 then
         local mt_type = info.mobj_type_for_doomednum(typ)
@@ -410,7 +430,7 @@ function M.pensantes(world, game)
   local list = {}
   for i = 1, #world.mobjs do
     local mo = world.mobjs[i]
-    if mo ~= player.mo and not mo.fx then
+    if not mo.fx then          -- C8: o mobj do jogador tambem (o corpo)
       list[#list + 1] = mo
     end
   end

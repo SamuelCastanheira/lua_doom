@@ -104,12 +104,8 @@ PENDENTES = {
     # Desde o B2, as tres mutacoes que estavam aqui (usar-antes-de-mover,
     # portas-fora-de-movers e a mesma no roteiro fluxo) ganharam o roteiro
     # "ordem" (docs/registro/12-mutacoes-pendentes.md).
-    "corpo-sem-restos":
-        "C4c: nenhum roteiro esmaga o corpo de um monstro (os esmagadores dos "
-        "roteiros, no E2M2 e no E2M4, nao tem monstros nos setores, conferido "
-        "com prints; o jogador morto, que e esmagado, nao tem estados). Falta "
-        "um cenario: matar um monstro dentro de um setor de esmagador e "
-        "ligar o esmagador",
+    # C8: a "corpo-sem-restos" saiu daqui: o corpo do jogador, esmagado no
+    # roteiro "pisos", passou a ter estados e vira restos (S_GIBS).
 }
 
 # Trechos do Nivel (main.atm) para as mutacoes de ordem das pools, extraidos
@@ -417,8 +413,8 @@ MUTACOES = [
      "monstro.atm", "monstro"),
     ("dor-volta-a-procurar",
      "Depois de atacar ou sentir dor, o zumbi volta a procurar (nao a correr)",
-     "            (r == :fim) => entrar(mo, game, C.correr@1)",
-     "            (r == :fim) => entrar(mo, game, C.procurar@1)",
+     "            (r == :fim) => entrar(mo, game, C.volta || (C.correr@1))",
+     "            (r == :fim) => entrar(mo, game, C.volta || (C.procurar@1))",
      "monstro.atm", "monstro"),
     ("salto-sem-vencido",
      "Depois de um salto de fora com os tics ja no fim, o zumbi espera mais um tic",
@@ -547,8 +543,8 @@ MUTACOES = [
     # --- passo 9: a familia de monstros (roteiro "familia": E1M5, -respawn)
     ("tipo-volta-como-zumbi",
      "Depois de atacar ou sentir dor, todo tipo volta a correr como Zombieman (a generalizacao esqueceu um estado)",
-     "            (r == :fim) => entrar(mo, game, C.correr@1)",
-     "            (r == :fim) => entrar(mo, game, info.S_POSS_RUN1)",
+     "            (r == :fim) => entrar(mo, game, C.volta || (C.correr@1))",
+     "            (r == :fim) => entrar(mo, game, C.volta || info.S_POSS_RUN1)",
      "monstro.atm", "familia"),
     ("demonio-nao-morde",
      "A sequencia de ataque do Demon termina antes do quadro da mordida",
@@ -790,6 +786,46 @@ MUTACOES = [
      "  index = 0\n  m_index = 0\n",
      "  index = 0\n",
      "random.lua", "fluxo"),
+    ("jogador-dor-sem-random",
+     "A dor do jogador sem o P_Random do painchance (o Doom sorteia ate para o jogador)",
+     "    if rng.p_random() < row[info.MI_PAINCHANCE] and not has(target.flags, MF_SKULLFLY) then\n",
+     "    if not has(target.flags, MF_SKULLFLY) then\n",
+     "player.lua", "semente1"),
+    ("jogador-morte-sem-random",
+     "A morte do jogador nao desconta P_Random & 3 dos tics (P_KillMobj)",
+     "      target.tics = target.tics - band(rng.p_random(), 3)\n",
+     "",
+     "player.lua", "pisos"),
+    ("jogador-sem-explodir",
+     "O jogador morto com a vida abaixo de -100 nao explode (sempre o deathstate)",
+     "      if target.health < -row[info.MI_SPAWNHEALTH] and row[info.MI_XDEATHSTATE] ~= 0 then\n",
+     "      if false then\n",
+     "player.lua", "arma"),
+    ("jogador-nao-corre",
+     "O corpo do jogador nao corre ao andar (P_MovePlayer)",
+     "  if (cmd.forwardmove ~= 0 or cmd.sidemove ~= 0) and mo.istate == info.S_PLAY then\n",
+     "  if false then\n",
+     "player.lua", "semente1"),
+    ("jogador-nao-para",
+     "O corpo do jogador continua correndo depois de parar (P_XYMovement)",
+     "    if player and mo.istate and mo.istate >= info.S_PLAY_RUN1 and mo.istate <= info.S_PLAY_RUN4 then\n",
+     "    if false then\n",
+     "player.lua", "semente1"),
+    ("jogador-nao-atira",
+     "O corpo do jogador nao entra no tiro (P_FireWeapon)",
+     "  corpo(player, info.S_PLAY_ATK1, game)  -- C8: o corpo atira\n",
+     "",
+     "pspr.lua", "arma"),
+    ("jogador-sem-restos",
+     "O corpo do jogador esmagado nao vira restos (antes do C8)",
+     "          if thing.istate and not thing.fx then\n",
+     "          if thing.istate and not thing.player and not thing.fx then\n",
+     "collision.lua", "pisos"),
+    ("corpo-fora-do-laco",
+     "O corpo do jogador fora do laco dos mobjs (os tics do estado nao correm)",
+     "    if not mo.fx then          -- C8: o mobj do jogador tambem (o corpo)\n",
+     "    if mo ~= player.mo and not mo.fx then\n",
+     "thinker.lua", "arma"),
     ("load-perde-oldstatus",
      "O load nao restaura o status de antes de parar (a reativacao o perde)",
      "          oldstatus = rec.oldstatus or 0,\n",

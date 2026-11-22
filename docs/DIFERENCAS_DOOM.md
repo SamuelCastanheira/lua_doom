@@ -36,6 +36,12 @@ Até lá, cada passo só acrescenta itens aqui. Na hora de corrigir:
 ## 1. Specials de setor
 
 Os itens desta seção foram corrigidos no C4 e no C6 (seção "Corrigido").
+Achados no C8 (no `P_PlayerInSpecialSector`, ao ler o `P_DamageMobj`):
+
+| Falta ou difere | Onde | No Doom original | Aqui |
+|---|---|---|---|
+| Setor 11 (o fim do E1M8) | `player.special_sector` | tira o modo deus, fere 20 a cada 32 tics sem deixar morrer (o `P_DamageMobj` limita o dano à vida menos 1 nesse setor) e termina o nível quando a vida chega a 10 (`G_ExitLevel`); o traje não protege | tratado como os setores 4 e 16: o traje protege, o modo deus vale, o jogador pode morrer e o nível não termina |
+| Setores 4 e 16 com o traje | `player.special_sector` | com o traje, ainda fere quando `P_Random() < 5` (e consome o sorteio) | o traje protege sempre, sem sortear |
 
 Caminhos sem cobertura possível no `doom.wad` (migrados, mas nenhum mapa os
 usa): linha 17 (strobe criado por linha), setores 10 e 14 (portas que
@@ -64,7 +70,6 @@ botões e os alvos dos monstros continuam gravados, por decisão do autor).
 |---|---|---|
 | Demos | tela de título (`main.atm`, task `Titulo`) | o Doom alterna TITLEPIC → créditos → demos gravadas (`DEMO1`..`DEMO3`) e grava/reproduz demos (`-record`, `-playdemo`). Para o TCC: o demo é o "replay" do próprio Doom |
 | Multiplayer | – | cooperativo e deathmatch ausentes |
-| Estados do mobj do jogador | `player.lua` (o mobj do jogador não tem `istate`) | o `p_pspr.c` põe o mobj do jogador em `S_PLAY_ATK1`/`S_PLAY_ATK2` ao atirar e volta a `S_PLAY` no `A_WeaponReady`; o `P_MovePlayer` o põe em `S_PLAY_RUN1` ao andar; esmagado morto, vira `S_GIBS`. Aqui o mobj do jogador não tem estados; no single player ele não aparece. Visto no C3 |
 | Índices do `P_Random` e do `M_Random` zerados a cada nível | `game.build_level` (`rng.clear()`) | o Doom só os zera no `G_InitNew` (jogo novo, `M_ClearRandom`); a sequência continua de um nível para o outro. Não aparece na tela, só no alinhamento da sequência (as demos dependeriam disso). Achado no C7 |
 | `M_Random` dos sons | `sound.lua` | o `S_StartSound` do `linuxdoom` sorteia a altura de quase todo som com `M_Random` (e consome um valor por som). Sem altura variável aqui (som posicional fora do escopo), o `M_Random` não é consumido pelos sons, e a sequência do wipe, da intermissão e do rosto não é a do Doom. Achado no C7 |
 
@@ -110,7 +115,7 @@ fase de correção.
 | Arma (seção 4) | os dois psprites do Doom (a arma e o clarão) com os estados de `info.STATES` e as ações do `p_pspr.c` (`pspr.lua`); a task `Arma` com as fases do Doom por arma; o desenho só lê os psprites; a tecla 1, a motosserra e o soco como no Doom (`docs/registro/15-correcoes-c3.md`) | C3, tag `c3` |
 | Porta não reabre ao esmagar (specials) | a porta fechando que bate em algo volta a abrir, menos as que só fecham; as rápidas tocam `bdcls` ao fechar (`docs/registro/16-correcoes-c4.md`, C4a) | C4a, tag `c4` |
 | Teto que sobe não sobe; esmagador que só desce; desaceleração; esmagador não para; esmagador parado não volta; limite dos tetos (specials) | a linha 40 sobe até o teto vizinho mais alto; 44, 72, 41 e 43 não esmagam; desaceleram o comum, o silencioso e o que só desce; as linhas 57 e 74 param os tetos (a task `Teto` desligada com `toggle`) e as de esmagador os reativam; 30 tetos ativos (C4b) | C4b, tag `c4` |
-| Esmagamento sem sangue nem restos (specials) | a cada 4 tics, com um jato de sangue (`MT_BLOOD`, `P_Random`); corpos viram restos (`S_GIBS`); itens largados somem (C4c). O mobj do jogador, sem estados, não vira restos (seção 4) | C4c, tag `c4` |
+| Esmagamento sem sangue nem restos (specials) | a cada 4 tics, com um jato de sangue (`MT_BLOOD`, `P_Random`); corpos viram restos (`S_GIBS`); itens largados somem (C4c). O mobj do jogador, sem estados, não virava restos; desde o C8, vira | C4c, tag `c4` |
 | Elevador que sobe não volta ao bater; elevador parado não volta; limite dos elevadores (specials) | subindo, o elevador que bate volta a descer; parado (`in_stasis`, `oldstatus` no save) não pensa (a task `Elevador` desligada com `toggle`; o recado do passo 3c sumiu) e as linhas 53 e 87 o reativam; 30 elevadores ativos, erro se estourar (C4d) | C4d, tag `c4` |
 | Piso não troca o special; escada; sons de piso e teto (specials) | o donut e o "baixar e trocar" trocam o special (no hash de estado desde então); a escada do `EV_BuildStairs`; `stnmov` a cada 8 tics e `pstop` (C4e) | C4e, tag `c4` |
 | Botão duplicado; botão sem som ao voltar; limite dos botões (specials) | um botão ativo para a linha impede outro; `swtchn` ao voltar; 16 botões, erro se estourar (C4f) | C4f, tag `c4` |
@@ -118,5 +123,6 @@ fase de correção.
 | Load aplica os mobjs por índice (seção 5); tetos não gravados, pisos pela metade, luzes não gravadas (save game) | o save tem o conteúdo do save do Doom: grava o mobj inteiro, com o tipo, e o load apaga o que o nível montou e recria tudo a partir do save (`P_UnArchiveThinkers`, `P_UnArchiveSpecials`); grava os tetos (com o parado), as luzes (o fogo também) e os pisos inteiros. A task `Monstro` perdeu o caso `estranho` (`docs/registro/17-save-formato-doom.md`) | C5, tag `c5` |
 | Velocidade do elevador "desce, espera, sobe" (specials) | `do_plat_dwus` anda a `PLATSPEED * 4`, como o `EV_DoPlat` (`downWaitUpStay`); antes, `PLATSPEED`. Achado no C4d. O cenário 2 do roteiro `ordem` e as esperas do roteiro `elevadores` foram recalibrados (`docs/registro/19-correcoes-c6.md`) | C6, tag `c6` |
 | Transição de tela (wipe) e intermissão com `math.random`; rosto com gerador próprio (seção 4) | o `M_Random` do Doom (`random.m_random`, índice próprio sobre a tabela do `P_Random`) no wipe (`wipe_initMelt`), nas animações do fundo da intermissão (`WI_initAnimatedBack`) e no olhar do rosto (`ST_Ticker`); o replay não fixa mais a semente (`docs/registro/20-correcoes-c7.md`) | C7, tag `c7` |
+| Estados do mobj do jogador (seção 4) | o mobj do jogador nasce no `S_PLAY` e segue os estados do `MT_PLAYER`: corre e para (`P_MovePlayer`, `P_XYMovement`), atira (`P_FireWeapon`, `A_FirePistol`, `A_FireShotgun`, `A_FireShotgun2`, `A_FireCGun`, `A_WeaponReady`), sente dor (o `P_Random` do `painchance`, o alvo e o `threshold` do `P_DamageMobj`), morre e explode (`P_KillMobj`: flags de corpo, altura / 4, `tics - (P_Random & 3)`; vida do mobj negativa) e vira restos esmagado. Os sons da dor e da morte vêm das ações dos estados. Na `atmos`, o corpo é a task `Monstro` com a tabela `JOGADOR` (`docs/registro/21-correcoes-c8.md`) | C8, tag `c8` |
 | Rosto da barra fora do hash de estado (seção 5) | `face_index` no `G.state_string` (`r<face_index>`), nos três lugares: `atmos`, `tests/ref-passo1.patch` e a branch `lua` (`docs/registro/10-interface-e-mundo.md`, passo 8b). Só teste: o jogo não mudou | passo 8 (tag `passo8`) |
 | Mutações pendentes de cobertura (seção 5) | roteiro `ordem` (E1M3): "use" no tic em que a linha entra no alcance; porta e elevador vizinhos no mesmo tic, com o jogador na fronteira (`docs/registro/12-mutacoes-pendentes.md`). Só teste: o jogo não mudou | B2 (sem tag nova) |

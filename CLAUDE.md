@@ -43,7 +43,8 @@ Atmos) e escreve em **português**. Responda em português.
 | tag `c4` (branch `lua`) | a branch `lua` com o C4 (os specials do DIFERENCAS e a descrição do save) |
 | tag `c5` (branch `lua`) | a branch `lua` com o C5 (o save no formato do Doom: o load recria os mobjs e os specials) |
 | tag `c6` (branch `lua`) | a branch `lua` com o C6 (o elevador "desce, espera, sobe" a 4 por tic) |
-| tag `c7` (branch `lua`) | a branch `lua` com o C7 (o wipe, a intermissão e o rosto com `M_Random`). **Referência de equivalência atual** (`REF_TAG` padrão) |
+| tag `c7` (branch `lua`) | a branch `lua` com o C7 (o wipe, a intermissão e o rosto com `M_Random`) |
+| tag `c8` (branch `lua`) | a branch `lua` com o C8 (os estados do mobj do jogador). **Referência de equivalência atual** (`REF_TAG` padrão) |
 | tag `luaV.1` | marco antigo do usuário (sem relação com a migração) |
 | commit `522b06f` | renderer 100% Lua (referência pixel a pixel do renderer em C, usada por `make compare`) |
 
@@ -561,7 +562,7 @@ automapa, `-`/`=` mudam o tamanho da tela.
 ### 5.2 Equivalência da lógica (driver Atmos × referência)
 
 ```sh
-make test-drivers          # semantica do Atmos (P1-P9) + 14 roteiros contra a tag c7; saves comparados byte a byte
+make test-drivers          # semantica do Atmos (P1-P9) + 14 roteiros contra a tag c8; saves comparados byte a byte
 sh tests/test_drivers.sh 0 1 fluxo         # roteiro com todas as transicoes
 sh tests/test_drivers.sh 4000 1            # pseudoaleatorio, 4000 quadros, semente 1
 sh tests/test_drivers.sh 6000 2 exits      # tambem termina niveis
@@ -580,7 +581,7 @@ REF_TAG=passo1 sh tests/test_drivers.sh 0 1 fluxo   # outra referencia (passo1: 
 ```
 
 - Argumentos: `quadros semente [exits|fluxo] [args do jogo]`.
-- A referência é **`REF_TAG`** (padrão `c7`, desde o C7; antes, `c6`, `c5`, `c4`, `c3`, `c2`, `c1` e `passo1`). O script cria um worktree
+- A referência é **`REF_TAG`** (padrão `c8`, desde o C8; antes, `c7`, `c6`, `c5`, `c4`, `c3`, `c2`, `c1` e `passo1`). O script cria um worktree
   em `build/ref-<tag>`, aplica `tests/ref-<tag>.patch` se existir, compila e
   roda o `lua5.4 main.lua` de lá. Compara com `atmos main.atm` e com
   `lua5.4 main.lua` atuais.
@@ -603,7 +604,7 @@ Se a tag nova não tiver algum comando de teste do replay, crie
 ### 5.3 Sensibilidade, métricas e custo
 
 ```sh
-make test-mutacoes         # tools/mutacoes.py: 122/123 detectadas (C5), 8 equivalentes, 1 pendente (corpo-sem-restos)
+make test-mutacoes         # tools/mutacoes.py: 136/136 detectadas (C8), 8 equivalentes, nenhuma pendente
 make metricas              # tools/metricas_passo2.py + tools/custo_drivers.py
 python3 tools/metricas_finais.py --custo --memoria   # tabelas finais de todos os passos (le build/test-drivers.log e build/mutacoes.log)
 python3 tools/custo_drivers.py 5           # ms/quadro dos 3 drivers
@@ -758,6 +759,17 @@ revisões do próprio port na seção 5). No fim, as correções são feitas nas
   da barra, como o `ST_Ticker`). Antes: `math.random` com a semente fixa do
   replay, e um gerador próprio na barra. Registro:
   `docs/registro/20-correcoes-c7.md`.
+- **Corrigido no C8** (tag `c8`): o mobj do jogador tem os estados do
+  `MT_PLAYER` (parado, correr, atirar, dor, morrer, explodir, restos). Ele
+  entra no laço dos mobjs (`thinker.pensantes`), na posição dele em
+  `world.mobjs`, mas só conta os tics (`thinker.estado_jogador`): o
+  movimento continua em `player.mover`. Na `atmos`, a task `Monstro` com a
+  tabela `JOGADOR` (`volta = S_PLAY`, `sem_mover`), criada no
+  `spawn_map` e de novo no load. As transições vêm de fora (Lua): `mover`,
+  `xy_movement`, `pspr.lua` (`corpo`) e `player.damage_mobj`, que agora
+  recebe `game` (5º argumento) e faz a dor e a morte do Doom (com os dois
+  `P_Random`). Um save de antes do C8 carrega com o corpo em `S_PLAY`.
+  Registro: `docs/registro/21-correcoes-c8.md`.
 - Sprites e arma usam a luz do setor (como o Doom); flashes de arma
   (`PISFA0`, `SHT2I0`…) são `FF_FULLBRIGHT`, lidos de `info.STATES`.
 

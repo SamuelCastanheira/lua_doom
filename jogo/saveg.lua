@@ -897,11 +897,19 @@ function M.apply(game, data)
     local campos = campos_mobj(recs[i])
     if recs[i].is_player then
       local mo = game.player.mo
+      -- C8: um save de antes do C8 nao tem o estado do corpo do jogador (ou
+      -- tem 0): fica o S_PLAY do mobj novo
+      if (campos.istate or 0) == 0 then
+        campos.istate, campos.tics, campos.sprite, campos.frame = nil, nil, nil, nil
+      end
       for k, v in pairs(campos) do
         mo[k] = v
       end
       world.mobjs[#world.mobjs + 1] = mo
       collision.set_thing_position(world, mo)
+      -- C8: o corpo do jogador volta com a task, no estado gravado (um save
+      -- de antes do C8 nao tem o estado: fica o S_PLAY do mobj novo)
+      thinker.criar_task(mo, game)
       novos[i] = mo
     else
       novos[i] = thinker.recriar_mobj(world, campos, game)
