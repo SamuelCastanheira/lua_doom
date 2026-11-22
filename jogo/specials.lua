@@ -961,7 +961,8 @@ end
 
 function M.do_plat_dwus(self, line, blaze)
   local ok = false
-  local speed = PLATSPEED
+  -- C6: EV_DoPlat (downWaitUpStay) anda a PLATSPEED * 4 (4 unidades por tic)
+  local speed = PLATSPEED * 4
   if blaze then
     speed = PLATSPEED * 8
   end
