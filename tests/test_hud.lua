@@ -73,13 +73,24 @@ local player = {
 v.fill(fb, 0)
 status_mod.draw(bar, fb, player, true)
 local sum, roll = sig(fb)
+require("random").clear()
 status_mod.ticker(bar, player)
-assert(bar.face_index == 0 and bar.face_count == 16 and bar.rnd == 1103527590, "rosto")
+-- C7: o olhar vem do M_Random; o primeiro valor da tabela e 8 (8 % 3 = 2)
+assert(bar.face_index == 8 % 3 and bar.face_count == 16, "rosto")
 v.fill(fb, 0)
 status_mod.draw(bar, fb, player, true)
 local sum2, roll2 = sig(fb)
 assert(sum == 1083692 and roll == 2753326764, "barra")
-assert(sum2 == sum and roll2 == roll, "barra depois do tic")
+-- C7: o rosto sorteado (2) muda o desenho; com o rosto de volta a 0, o resto
+-- da barra e o mesmo de antes do tic
+assert(sum2 ~= sum or roll2 ~= roll, "rosto sorteado no desenho")
+local face = bar.face_index
+bar.face_index = 0
+v.fill(fb, 0)
+status_mod.draw(bar, fb, player, true)
+local sum3, roll3 = sig(fb)
+bar.face_index = face
+assert(sum3 == sum and roll3 == roll, "barra depois do tic")
 
 local game = {
   wad = w,

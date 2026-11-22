@@ -1,0 +1,217 @@
+;; A familia de monstros como task Atmos: o Zombieman (passo 5) e, desde o
+;; passo 9, o Shotgun Guy, o Demon e o Spectre, todos com a mesma task
+;; Monstro, cada um com a tabela do seu tipo.
+;;
+;; Antes: o mobj e interpretado pela tabela info.STATES. Cada linha e um
+;; quadro (sprite, tics, acao, proximo estado); mobj_thinker (thinker.lua)
+;; desconta os tics a cada tic e set_mobj_state aplica o proximo. O
+;; comportamento ("procura, corre, ataca, sente dor, morre") so existe
+;; implicito nos ponteiros "proximo" da tabela.
+;;
+;; Agora: a task Monstro "descompila" a parte da tabela que e do tipo em
+;; comportamentos com nome (as sequencias de quadros abaixo) e escreve no
+;; codigo as transicoes entre eles: atacar, dor e levantar voltam a correr;
+;; procurar e correr se repetem; morrer e explodir terminam num quadro sem
+;; fim (o corpo). Cada quadro continua vindo da tabela
+;; (thinker.aplicar_estado: sprite, tics, acao), porque o renderer, o save e
+;; o hash leem istate e tics.
+;;
+;; Os tipos diferem nas acoes dos quadros (atirar com pistola ou espingarda,
+;; morder; funcoes de enemy.lua), na escolha entre ataque de perto e de
+;; longe (A_Chase) e nos dados (MOBJINFO, tics). A forma (o que vem depois
+;; de que) e a mesma: por isso uma task so, com uma tabela por tipo.
+;;
+;; Saltos de fora: as acoes (A_Look ve o jogador e poe o monstro a correr;
+;; A_Chase decide atacar) e o dano (dor, morte) trocam istate no meio do tic,
+;; por set_mobj_state no Lua. A task percebe o salto e vai para o
+;; comportamento do estado novo, no mesmo ponto em que o thinker o seguiria.
+;; E o mesmo "recado" das portas e da arma, aqui imposto pela tabela.
+;;
+;; A task acorda com :mobj.tic, emitido pelo Nivel (main.atm) direto para
+;; ela, na posicao do mobj em world.mobjs (ordem do P_Random).
+
+val T    = require "thinker"
+val info = require "info"
+
+;; Os estados de a ate b, em sequencia (cada comportamento ocupa uma faixa
+;; continua de info.STATES, na ordem de info.c).
+val func faixa (a, b) {
+    val seq = []
+    var st = a
+    loop {
+        until (st > b)
+        set seq@(#seq + 1) = st
+        set st = st + 1
+    }
+    seq
+}
+
+;; Os comportamentos de cada tipo. Entre parenteses, as acoes dos quadros.
+;; "correr@1" e o estado de voltar a correr (o MI_SEESTATE do tipo).
+
+;; Zombieman (MT_POSSESSED, sprite POSS)
+val ZUMBI = [
+    procurar = faixa(info.S_POSS_STND, info.S_POSS_STND2),   ;; (A_Look) x2
+    correr   = faixa(info.S_POSS_RUN1, info.S_POSS_RUN8),    ;; (A_Chase) x8
+    atacar   = faixa(info.S_POSS_ATK1, info.S_POSS_ATK3),    ;; (A_FaceTarget), (A_PosAttack), ()
+    dor      = faixa(info.S_POSS_PAIN, info.S_POSS_PAIN2),   ;; (), (A_Pain)
+    morrer   = faixa(info.S_POSS_DIE1, info.S_POSS_DIE5),    ;; DIE2 (A_Scream), DIE3 (A_Fall); DIE5 sem fim
+    explodir = faixa(info.S_POSS_XDIE1, info.S_POSS_XDIE9),  ;; XDIE2 (A_XScream), XDIE3 (A_Fall); XDIE9 sem fim
+    levantar = faixa(info.S_POSS_RAISE1, info.S_POSS_RAISE4),;; ressurreicao pelo Arch-vile (Doom 2)
+]
+
+;; Shotgun Guy (MT_SHOTGUY, sprite SPOS): a mesma forma do Zombieman
+val SOLDADO = [
+    procurar = faixa(info.S_SPOS_STND, info.S_SPOS_STND2),   ;; (A_Look) x2
+    correr   = faixa(info.S_SPOS_RUN1, info.S_SPOS_RUN8),    ;; (A_Chase) x8
+    atacar   = faixa(info.S_SPOS_ATK1, info.S_SPOS_ATK3),    ;; (A_FaceTarget), (A_SPosAttack), ()
+    dor      = faixa(info.S_SPOS_PAIN, info.S_SPOS_PAIN2),   ;; (), (A_Pain)
+    morrer   = faixa(info.S_SPOS_DIE1, info.S_SPOS_DIE5),    ;; DIE2 (A_Scream), DIE3 (A_Fall); DIE5 sem fim
+    explodir = faixa(info.S_SPOS_XDIE1, info.S_SPOS_XDIE9),  ;; XDIE2 (A_XScream), XDIE3 (A_Fall); XDIE9 sem fim
+    levantar = faixa(info.S_SPOS_RAISE1, info.S_SPOS_RAISE5),
+]
+
+;; Demon (MT_SERGEANT, sprite SARG): ataca de perto (MI_MELEESTATE) e nao
+;; explode em pedacos (sem XDEATH)
+val DEMONIO = [
+    procurar = faixa(info.S_SARG_STND, info.S_SARG_STND2),   ;; (A_Look) x2
+    correr   = faixa(info.S_SARG_RUN1, info.S_SARG_RUN8),    ;; (A_Chase) x8
+    atacar   = faixa(info.S_SARG_ATK1, info.S_SARG_ATK3),    ;; (A_FaceTarget) x2, (A_SargAttack)
+    dor      = faixa(info.S_SARG_PAIN, info.S_SARG_PAIN2),   ;; (), (A_Pain)
+    morrer   = faixa(info.S_SARG_DIE1, info.S_SARG_DIE6),    ;; DIE2 (A_Scream), DIE4 (A_Fall); DIE6 sem fim
+    explodir = [],
+    levantar = faixa(info.S_SARG_RAISE1, info.S_SARG_RAISE6),
+]
+
+;; C8: o corpo do jogador (MT_PLAYER, sprite PLAY). Os mesmos comportamentos
+;; com outro sentido: "procurar" e o jogador parado (S_PLAY, sem fim), e
+;; quase todas as entradas vem de fora (P_MovePlayer poe a correr,
+;; P_FireWeapon e A_FirePistol poem a atirar, o dano poe em dor ou morte).
+;; Atirar e sentir dor voltam ao S_PLAY (o "volta"), nao a correr. O mobj do
+;; jogador se move no tic do jogador (player.mover): a task so conta os tics
+;; ("sem_mover").
+val JOGADOR = [
+    procurar = [info.S_PLAY],                                ;; parado, sem fim
+    correr   = faixa(info.S_PLAY_RUN1, info.S_PLAY_RUN4),    ;; () x4
+    atacar   = [info.S_PLAY_ATK2, info.S_PLAY_ATK1],         ;; ATK2 (clarao) -> ATK1 -> S_PLAY
+    dor      = faixa(info.S_PLAY_PAIN, info.S_PLAY_PAIN2),   ;; (), (A_Pain)
+    morrer   = faixa(info.S_PLAY_DIE1, info.S_PLAY_DIE7),    ;; DIE2 (A_PlayerScream), DIE3 (A_Fall); DIE7 sem fim
+    explodir = faixa(info.S_PLAY_XDIE1, info.S_PLAY_XDIE9),  ;; XDIE2 (A_XScream), XDIE3 (A_Fall); XDIE9 sem fim
+    levantar = [],
+    volta    = info.S_PLAY,
+    sem_mover = true,
+]
+
+;; O tipo de cada mobj com task. O Spectre (MT_SHADOWS) e o Demon com
+;; MF_SHADOW (o renderer o desenha translucido): a mesma tabela.
+val TIPOS = []
+set TIPOS@(info.MT_POSSESSED) = ZUMBI
+set TIPOS@(info.MT_SHOTGUY)   = SOLDADO
+set TIPOS@(info.MT_SERGEANT)  = DEMONIO
+set TIPOS@(info.MT_SHADOWS)   = DEMONIO
+set TIPOS@(info.MT_PLAYER)    = JOGADOR   ;; C8
+
+;; Posicao do estado st na sequencia seq (0 se nao estiver). O valor do
+;; until nao serve aqui: "until (c, v)" devolve c quando v e nil ou false.
+val func indice (seq, st) {
+    var achou = 0
+    var i = 0
+    loop {
+        set i = i + 1
+        until (i > #seq)
+        if (seq@i) == st {
+            set achou = i
+        }
+    }
+    achou
+}
+
+;; Conta os tics do estado atual, um :mobj.tic por vez (movimento primeiro,
+;; como mobj_thinker; o corpo do jogador nao se move aqui, C8). Devolve :fim
+;; (acabaram os tics), :salto (o estado foi trocado de fora; o tic ja
+;; descontou o estado novo) ou :fora (removido).
+val func contar (mo, game, C) {
+    val st = mo.istate
+    loop {
+        await :mobj.tic
+        if !C.sem_mover {
+            until (!T.mobj_mover(game.world, mo, game), :fora)
+        }
+        if mo.tics == -1 {
+            T.mobj_parado(game.world, mo, game)   ;; corpo: pesadelo (-respawn)
+            until (mo.alive == false, :fora)
+        } else {
+            set mo.tics = mo.tics - 1
+            until (mo.istate != st, :salto)
+            until (mo.tics <= 0, :fim)
+        }
+    }
+}
+
+;; Aplica o estado st. Devolve :ok, :aplicado (a acao pulou para outro
+;; estado, ja aplicado) ou :fora.
+val func entrar (mo, game, st) {
+    ifs {
+        !T.aplicar_estado(mo, st, game.world, game) => :fora
+        (mo.istate != st) => :aplicado
+        else => :ok
+    }
+}
+
+;; Roda a sequencia seq a partir do estado atual (ja aplicado). "vencido":
+;; os tics do estado atual ja acabaram neste tic (salto de fora com tics 0).
+;; "repete": volta ao comeco no fim. Devolve :fim, :salto, :aplicado ou :fora.
+val func sequencia (mo, game, C, seq, vencido, repete) {
+    var i = indice(seq, mo.istate)
+    var r = if vencido => :fim => contar(mo, game, C)
+    loop {
+        until (r != :fim, r)
+        set i = i + 1
+        if repete && (i > #seq) {
+            set i = 1
+        }
+        until (i > #seq, :fim)
+        val e = entrar(mo, game, seq@i)
+        until (e != :ok, e)
+        set r = contar(mo, game, C)
+    }
+}
+
+;; Restos (S_GIBS, um quadro sem fim): o corpo esmagado (C4c) vira restos
+;; por set_mobj_state, de fora. Ate o C4, o caso "estranho" seguia a tabela
+;; para qualquer estado fora do tipo, porque o load aplicava os registros
+;; gravados por indice e um monstro podia receber o estado de outro tipo; o
+;; C5 recria os mobjs pelo tipo gravado, e um estado fora da tabela passou a
+;; ser erro (no passo 9, o "estranho" calou um erro de tabela).
+val RESTOS = [info.S_GIBS]
+
+val task Monstro (mo, game, C) {
+    set pub = mo
+    defer {
+        set mo.task = nil
+    }
+    var vencido = false
+    loop {
+        val st = mo.istate
+        ;; o comportamento do estado atual; ao terminar, o proximo
+        val r = ifs {
+            (indice(C.procurar, st) > 0) => sequencia(mo, game, C, C.procurar, vencido, true)
+            (indice(C.correr, st) > 0)   => sequencia(mo, game, C, C.correr, vencido, true)
+            (indice(C.atacar, st) > 0)   => sequencia(mo, game, C, C.atacar, vencido, false)
+            (indice(C.dor, st) > 0)      => sequencia(mo, game, C, C.dor, vencido, false)
+            (indice(C.levantar, st) > 0) => sequencia(mo, game, C, C.levantar, vencido, false)
+            (indice(C.morrer, st) > 0)   => sequencia(mo, game, C, C.morrer, vencido, false)
+            (indice(C.explodir, st) > 0) => sequencia(mo, game, C, C.explodir, vencido, false)
+            (indice(RESTOS, st) > 0)     => sequencia(mo, game, C, RESTOS, vencido, false)
+            else => error("monstro: estado " ++ tostring(st) ++ " fora da tabela do tipo " ++ tostring(mo.type))
+        }
+        set vencido = (r == :salto) && (mo.tics <= 0)  ;; trocado de fora, ja vencido
+        val prox = ifs {
+            (r == :fim) => entrar(mo, game, C.volta || (C.correr@1))  ;; atacar, dor e levantar voltam a correr (o jogador, ao S_PLAY)
+            else => r                         ;; :salto, :aplicado: segue o estado novo
+        }
+        until (prox == :fora)
+    }
+}
+
+[Monstro=Monstro, TIPOS=TIPOS]

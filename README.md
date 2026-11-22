@@ -54,7 +54,7 @@ What it is meant to teach:
 
 Suggested way to study:
 
-1. Run `run.bat`, then `run.bat jit`, and read `main.lua` — boot, tic, input.
+1. Run `make` and `lua5.4 main.lua`, and read `main.lua` — boot, tic, input.
 2. Compare `compat.lua` with `python_doom/doom/compat.py`.
 3. Open `render.lua` next to `python_doom/doom/render.py`.
 4. Follow a door from **Space** (`use_lines` in `collision.lua`) through `specials.lua`.
@@ -78,7 +78,7 @@ Python lists are 0-based. Lua tables used as arrays are 1-based. WAD lumps, BSP 
 | `a // b` | `math.floor` |
 | `fixed_mul` / `fixed_div` | `fixed_mul` / `fixed_div` |
 | `bytearray` framebuffer | table of bytes, length 64000 |
-| pygame | SDL2: FFI on LuaJIT, `video_c.dll` on Lua 5.4 |
+| pygame | SDL2: FFI on LuaJIT, `ponte/video_c.so` (or `.dll`) on Lua 5.4 |
 | `+=` | `x = x + ...` |
 
 A table is a reference, so a field write is visible to the caller, the same way a Python object is.
@@ -97,12 +97,12 @@ Lua (`player.lua`):
 
 ```lua
 function M.thrust(mo, angle, move)
-  mo.momx = mo.momx + fixed_mul(move, tables.fine_cos(angle))
-  mo.momy = mo.momy + fixed_mul(move, tables.fine_sin(angle))
+  mo.momx = mo.momx + fixed_mul(move, tabela:fine_cos(angle))
+  mo.momy = mo.momy + fixed_mul(move, tabela:fine_sin(angle))
 end
 ```
 
-`.` stays `.`. There is no `+=`. `mo` is a table, so the new momentum stays on the mobj the caller already holds.
+`.` stays `.`; the tables come from C (`tables_c`), so they are called as methods (`tabela:fine_cos`). There is no `+=`. `mo` is a table, so the new momentum stays on the mobj the caller already holds.
 
 ---
 
@@ -115,7 +115,7 @@ end
 | Palette blit / CRT | Lua, then the SDL texture | numpy |
 | MIDI (Windows) | winmm MCI | the same idea, outside pygame |
 | IWAD | the same lumps | the same lumps |
-| Build | none for LuaJIT. `build_video.bat` only when `src/video_c.c` changes | `pip install -r requirements.txt` |
+| Build | none for LuaJIT. `make` builds the C modules | `pip install -r requirements.txt` |
 
 The renderer is Lua. The C file is only the Lua 5.4 bridge.
 
@@ -134,13 +134,13 @@ Tools, on MSYS2 UCRT64:
 From this directory:
 
 ```
-run.bat
-run.bat jit
-run.bat -warp 1 1 -skill 2
-run.bat jit -fps -crt
+make
+lua5.4 main.lua
+lua5.4 main.lua -warp 1 1 -skill 2
+lua5.4 main.lua -fps -scale 4
 ```
 
-`run.bat` opens the window with Lua 5.4. `run.bat jit` opens the same game with LuaJIT. The window is 640×400. Without `-crt`, the 320×200 texture is stretched with nearest-neighbor.
+`make` builds the C modules (into `ponte/`); `lua5.4 main.lua` opens the window. The window is 640×400. Without `-crt`, the 320×200 texture is stretched with nearest-neighbor.
 
 ---
 
@@ -213,48 +213,53 @@ Type these during a level, with the menu closed. No Enter. On Nightmare skill on
 | `-nosound` | No sound effects |
 | `-nomusic` | No MIDI |
 
-A level change melts the screen. Starting a new game from the title does not. Shareware map 8 writes `E1TEXT` on `FLOOR4_8`. Saves are `doomsav0.dsg` through `doomsav5.dsg`, next to the IWAD, with the header `DOOMPY01`.
+A level change melts the screen. Starting a new game from the title does not. Shareware map 8 writes `E1TEXT` on `FLOOR4_8`. Saves are `doomsav0.dsg` through `doomsav5.dsg`, in `saves/` next to the IWAD, with the header `DOOMPY01`.
 
 ---
 
 ## Layout
 
 ```
-main.lua             entry
-run.bat              Lua 5.4, or `jit` for LuaJIT
-video_ffi.lua        SDL2 through the LuaJIT FFI
-src/video_c.c        the same API for Lua 5.4
-build_video.bat      rebuild that bridge
+main.lua             entry (Lua 5.4)
+main.atm             the game loop and the screen flow in Atmos
+caminhos.lua         puts jogo/, render/ and ponte/ on the module path
+jogo/                game logic (and the Atmos tasks, *.atm)
+render/              the renderer side in Lua (render, sprites, v_video, wipe)
+ponte/               the bridge to C: video, keys, sound, mus2mid, the Atmos environment (atmos/),
+                     and the compiled modules (*.so / *.dll) built by `make`
+src/                 the C sources (renderer, video, framebuffer, tables)
+saves/               doomsav0.dsg .. doomsav5.dsg
+musica/              temporary MIDI files while the music plays
 screenshot/doom.png  the picture at the top
 ```
 
 | Path | Python |
 | --- | --- |
-| `compat.lua` | `doom/compat.py` |
-| `wad.lua` | `doom/wad.py` |
-| `video.lua` | `doom/video.py` |
-| `v_video.lua` | `doom/v_video.py` |
-| `tables.lua` | `doom/tables.py` |
-| `r_data.lua` | `doom/r_data.py` |
-| `render.lua` | `doom/render.py` |
-| `world.lua` | `doom/world.py` |
-| `collision.lua` | `doom/collision.py` |
-| `player.lua` | `doom/player.py` |
-| `specials.lua` | `doom/specials.py` |
-| `info.lua` | `doom/info.py` |
-| `sprites.lua` | `doom/sprites.py` |
-| `enemy.lua` | `doom/enemy.py` |
-| `thinker.lua` | `doom/thinker.py` |
-| `status.lua` | `doom/status.py` |
-| `sound.lua` | `doom/sound.py` |
-| `mus2mid.lua` | `doom/mus2mid.py` |
-| `menu.lua` | `doom/menu.py` |
-| `wi_stuff.lua` | `doom/wi_stuff.py` |
-| `wipe.lua` | `doom/wipe.py` |
-| `cheats.lua` | cheat machine in `doom/game.py` |
-| `am_map.lua` | `doom/am_map.py` |
-| `finale.lua` | `doom/finale.py` |
-| `saveg.lua` | `doom/saveg.py` |
+| `jogo/compat.lua` | `doom/compat.py` |
+| `jogo/wad.lua` | `doom/wad.py` |
+| `ponte/video.lua` | `doom/video.py` |
+| `render/v_video.lua` | `doom/v_video.py` |
+| `tests/referencia/tables.lua` (oracle for `tables_c`) | `doom/tables.py` |
+| `tests/referencia/r_data.lua` (oracle for `r_data_c`) | `doom/r_data.py` |
+| `render/render.lua` | `doom/render.py` |
+| `jogo/world.lua` | `doom/world.py` |
+| `jogo/collision.lua` | `doom/collision.py` |
+| `jogo/player.lua` | `doom/player.py` |
+| `jogo/specials.lua` | `doom/specials.py` |
+| `jogo/info.lua` | `doom/info.py` |
+| `render/sprites.lua` | `doom/sprites.py` |
+| `jogo/enemy.lua` | `doom/enemy.py` |
+| `jogo/thinker.lua` | `doom/thinker.py` |
+| `jogo/status.lua` | `doom/status.py` |
+| `ponte/sound.lua` | `doom/sound.py` |
+| `ponte/mus2mid.lua` | `doom/mus2mid.py` |
+| `jogo/menu.lua` | `doom/menu.py` |
+| `jogo/wi_stuff.lua` | `doom/wi_stuff.py` |
+| `render/wipe.lua` | `doom/wipe.py` |
+| `jogo/cheats.lua` | cheat machine in `doom/game.py` |
+| `jogo/am_map.lua` | `doom/am_map.py` |
+| `jogo/finale.lua` | `doom/finale.py` |
+| `jogo/saveg.lua` | `doom/saveg.py` |
 | `main.lua` | the Python entry |
 
 ---

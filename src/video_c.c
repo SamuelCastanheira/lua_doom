@@ -30,6 +30,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "gammatable.h"
+
 static SDL_Window *window = NULL;
 static SDL_Renderer *renderer = NULL;
 static SDL_Texture *texture = NULL;
@@ -159,18 +161,50 @@ static int l_init(lua_State *L) {
   return 0;
 }
 
+/* Correcao de gama (I_SetPalette do original): a paleta crua fica guardada
+ * para reaplicar quando o nivel muda (F11). */
+static unsigned char raw_palette[768];
+static int have_raw_palette = 0;
+static int usegamma = 0;
+
+static void apply_palette(void) {
+  const unsigned char *g = gammatable[usegamma];
+  for (int i = 0; i < 256; i++) {
+    pal_r[i] = g[raw_palette[i * 3]];
+    pal_g[i] = g[raw_palette[i * 3 + 1]];
+    pal_b[i] = g[raw_palette[i * 3 + 2]];
+    palette32[i] = SDL_MapRGBA(pixfmt, pal_r[i], pal_g[i], pal_b[i], 255);
+  }
+}
+
 static int l_palette(lua_State *L) {
   size_t n = 0;
   const unsigned char *p = (const unsigned char *)luaL_checklstring(L, 1, &n);
   if (!pixfmt) luaL_error(L, "SDL ainda nao foi iniciado");
   if (n < 768) luaL_error(L, "paleta precisa de 768 bytes RGB");
-  for (int i = 0; i < 256; i++) {
-    pal_r[i] = p[i * 3];
-    pal_g[i] = p[i * 3 + 1];
-    pal_b[i] = p[i * 3 + 2];
-    palette32[i] = SDL_MapRGBA(pixfmt, pal_r[i], pal_g[i], pal_b[i], 255);
-  }
+  memcpy(raw_palette, p, sizeof(raw_palette));
+  have_raw_palette = 1;
+  apply_palette();
   return 0;
+}
+
+/* video.set_gamma(nivel 0..4): reaplica a paleta atual. Retorna o nivel. */
+static int l_set_gamma(lua_State *L) {
+  lua_Integer level = luaL_checkinteger(L, 1);
+  if (level < 0) level = 0;
+  if (level > 4) level = 4;
+  usegamma = (int)level;
+  if (pixfmt && have_raw_palette) apply_palette();
+  lua_pushinteger(L, usegamma);
+  return 1;
+}
+
+/* video.gamma_lut(nivel): os 256 valores da tabela (para testes). */
+static int l_gamma_lut(lua_State *L) {
+  lua_Integer level = luaL_checkinteger(L, 1);
+  luaL_argcheck(L, level >= 0 && level <= 4, 1, "nivel 0..4");
+  lua_pushlstring(L, (const char *)gammatable[level], 256);
+  return 1;
 }
 
 static void crt_build(int dw, int dh) {
@@ -513,6 +547,20 @@ static int l_music_volume(lua_State *L) {
     return 0;
 }
 
+static int l_music_pause(lua_State *L) {
+    int on = lua_toboolean(L, 1);
+
+    if (music) {
+        if (on) {
+            Mix_PauseMusic();
+        } else {
+            Mix_ResumeMusic();
+        }
+    }
+
+    return 0;
+}
+
 static int l_music_close(lua_State *L) {
     (void)L;
 
@@ -529,6 +577,8 @@ static const luaL_Reg regs[] = {
   {"init", l_init},
   {"shutdown", l_shutdown},
   {"set_palette", l_palette},
+  {"set_gamma", l_set_gamma},
+  {"gamma_lut", l_gamma_lut},
   {"present", l_present},
   {"set_crt", l_set_crt},
   {"mouse_relative", l_mouse_relative},
@@ -544,6 +594,7 @@ static const luaL_Reg regs[] = {
   {"music_status", l_music_status},
   {"music_play", l_music_play},
   {"music_volume", l_music_volume},
+  {"music_pause", l_music_pause},
   {"music_close", l_music_close},
   {NULL, NULL},
 };

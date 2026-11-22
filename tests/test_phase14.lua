@@ -144,9 +144,12 @@ if letters < 10 then
   error("finale sem letras " .. tostring(letters))
 end
 
-local dir = (os.getenv("TEMP") or ".") .. "\\doomphase14"
-os.execute('mkdir "' .. dir .. '" >nul 2>&1')
-game.iwad_path = dir .. "\\DOOM1.WAD"
+-- Uma pasta em build/ (antes, TEMP com "\\" e ">nul": fora do Windows,
+-- criava ".\\doomphase14" e um arquivo "nul" na raiz). A barra "/" serve
+-- tambem no Windows.
+local dir = "build/doomphase14"
+os.execute('mkdir "' .. dir .. '"')
+game.iwad_path = dir .. "/DOOM1.WAD"
 game.leveltime = 35
 local wrote = saveg.write(game, 0, "E1M1")
 eq("gravou", wrote, true)

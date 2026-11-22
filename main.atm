@@ -1,0 +1,375 @@
+;; DOOM com concorrencia estruturada (Atmos).
+;;
+;;   atmos main.atm -- -fps -scale 4     (ou: lua5.4 main.lua -fps -scale 4)
+;;
+;; (o "--" e necessario: sem ele o executavel atmos tenta ler -fps como opcao)
+;;
+;; O estado e as regras de cada tela continuam em game.lua (Lua). Este arquivo
+;; tem o laco do jogo e, desde o passo 2, TODO o fluxo de telas:
+;;
+;;   Fluxo ── Titulo
+;;        └── Jogo ── Nivel ──────────── (fim: :morte | :saida | :trocar)
+;;                └── Saida ── Intermissao
+;;                         └── Finale
+;;
+;; Cada tela e uma task. Ela monta o que precisa (via game.lua), entra na tela
+;; (G.enter) e devolve como terminou. Quem decide a proxima tela e o codigo
+;; logo acima dela. Pedidos externos (menu, cheats, janela) chegam como
+;; eventos e abortam o escopo certo:
+;;
+;;   :jogo.novo     menu "New Game"     Fluxo descarta o Jogo atual
+;;   :jogo.carregar menu "Load Game"    Fluxo descarta o Jogo atual
+;;   :jogo.fim      menu "End Game"     Fluxo descarta o Jogo, volta ao titulo
+;;   :nivel.trocar  cheat idclev        Nivel termina, Jogo vai ao mapa pedido
+;;   :jogo.sair     menu "Quit", janela termina o programa depois do quadro
+;;
+;; Regra de seguranca: o Lua nunca emite. Ele registra pedidos
+;; (game.request) e este arquivo os emite nas fronteiras de fase (funcao
+;; pedidos). Assim nenhuma task e abortada no meio de uma chamada Lua.
+;;
+;; Equivalencia com a versao imperativa (tag passo1): tests/test_drivers.sh.
+;;
+;; Os modulos ficam em jogo/, render/ e ponte/ (caminhos.lua).
+
+require "caminhos"
+
+val env  = require "atmos.env.doom"
+val game = require "game"
+val G    = game.new(game.atmos_args(arg))
+val telas = require "telas"
+val barra = require "barra"
+val interface = require "interface"  ;; passo 8: menu e automapa          ;; passo 8b: o rosto da barra de status          ;; passo 7: intermissao e finale
+val jogador = require "jogador"      ;; passo 4c: task Jogador (e a Arma, filha)
+
+;; Emite, em ordem, os pedidos que o Lua registrou na fase que acabou.
+;; Os mobjs do tic, na ordem de world.mobjs (passo 5; antes, thinker.tick em
+;; Lua). Um monstro com task recebe :mobj.tic na sua posicao (emit
+;; direcionado: so ele acorda); os outros pensam pelo thinker Lua, em
+;; sequencia, dentro de G.pensar_ate_task (uma volta deste laco por monstro
+;; com task, nao por mobj). A ordem e a do P_Random.
+func mobjs () {
+    val lista = G.pensantes()
+    var i = G.pensar_ate_task(lista, 1)
+    loop {
+        until (i == 0)
+        val mo = lista@i
+        emit @(mo.task) (:mobj.tic)
+        set i = G.pensar_ate_task(lista, i + 1)
+    }
+}
+
+func pedidos () {
+    loop _, r in G.take_requests() {
+        emit(r)
+    }
+}
+
+;; ------------------------------------------------------- regras do Doom
+;; G_DoCompleted: proximo mapa depois de uma saida.
+
+val VOLTA_DO_SECRETO = [4, 6, 7, 3]   ;; do mapa 9 de cada episodio
+
+func proximo_mapa (episode, mapn, secreta) {
+    ifs {
+        secreta       => 9
+        (mapn == 9)   => (VOLTA_DO_SECRETO@episode) || 1
+        else          => mapn + 1
+    }
+}
+
+;; ---------------------------------------------------------------- telas
+
+;; Titulo: so o menu funciona. Termina com o pedido de novo jogo ou load.
+task Titulo () {
+    spawn {                               ;; passo 6: a tela desenha a si mesma
+        loop on :game.frame { G.pintar_titulo() }
+    }
+    G.enter(:title)
+    await <:jogo.novo || :jogo.carregar>
+}
+
+;; Specials de setor (passo 3): a cada tic, o Mundo emite :game.specials.
+;; Quem acorda, na ordem em que esta declarado abaixo (propriedade P7),
+;; reproduz a ordem do antigo specials_mod.tick: luzes -> scroll ->
+;; portas/elevadores/pisos/tetos -> botoes.
+task Mundo (r) {
+    ;; O mundo do nivel (passo 8a): o que o Doom chama de P_Ticker. Contem as
+    ;; pools dos specials e dos monstros e o Jogador; acorda com :mundo.tic,
+    ;; emitido pelo Nivel, e devolve em r.fim o resultado do tic (nil,
+    ;; "morte" ou "saida"). O automapa e a barra de status ficam fora, no
+    ;; Nivel, como o AM_Ticker e o ST_Ticker do Doom: com a pausa ou o menu, o
+    ;; Nivel desliga o Mundo com um toggle (C2; docs/NOTAS_MONOGRAFIA.md,
+    ;; secao 11).
+    ;;
+    ;; Specials de setor, na ordem do antigo specials_mod.tick (P7). As pools
+    ;; existem antes de montar o nivel: build_level cria as luzes e o load
+    ;; (saveg.apply) recria os botoes. O spawn do Mundo roda ate o primeiro
+    ;; await, entao elas ficam prontas antes de o Nivel montar o nivel.
+    pin luzes = tasks()                   ;; 3a: luzes (setores.atm)
+    spawn {                               ;; ainda em Lua: linhas com scroll
+        loop on :game.specials {
+            G.specials_resto()
+        }
+    }
+    pin movers = tasks()                  ;; 3b-3d: portas, elevadores, pisos
+                                          ;; e tetos (setores.atm)
+    pin botoes = tasks()                  ;; 3e: botoes (setores.atm)
+    pin monstros = tasks()                ;; 5: monstros com task (monstro.atm);
+                                          ;; acordam pelo emit direcionado
+    G.set_pools([luzes=luzes, movers=movers, botoes=botoes, monstros=monstros])
+    defer {
+        G.set_pools(nil)
+    }
+    await :mundo.pronto                   ;; o Nivel montou o nivel
+    ;; O jogador (passo 4c), com a arma como filha: acorda com :game.jogador.
+    ;; O jogador e o do nivel; o load ja restaurou o estado dele e a arma.
+    spawn jogador.Jogador(G.game.player, G.game)
+    loop {
+        await :mundo.tic
+        emit :game.jogador                ;; passo 4c: task Jogador
+        val meio = G.tic_view_meio()      ;; "segue" | "morte"
+        set r.fim = ifs {
+            (meio == :morte) => :morte
+            else => {
+                mobjs()                   ;; passo 5: os mobjs, em ordem
+                emit :game.specials
+                G.tic_mundo_fim()         ;; nil | "saida"
+            }
+        }
+    }
+}
+
+;; Uma instancia de nivel: do carregamento ate morrer, sair ou trocar
+;; (idclev). Morrer e renascer cria outra instancia (G_DoReborn).
+;;
+;; A cada tic: o automapa, o mundo (task Mundo, passo 8a) e, se o mundo
+;; seguiu, a barra de status. Com a pausa ou o menu aberto (C2), o mundo fica
+;; desligado (toggle), como o P_Ticker do Doom; o automapa e a barra andam.
+task Nivel (save) {
+    val r = [fim=nil]
+    pin mundo = spawn Mundo(r)            ;; pools prontas antes de montar
+    var parado = false                    ;; C2: o mundo esta desligado
+    defer {
+        G.pausar(false)                   ;; C2: a pausa e do Nivel: nao
+    }                                     ;; sobrevive a ele (G_InitNew)
+    if save {
+        G.load_level(save)
+    } else {
+        G.start_level()
+    }
+    G.enter(:view)
+    emit @(mundo) (:mundo.pronto)
+    pin rosto = spawn barra.Rosto(G.game.status, G.game.player)      ;; 8b, fora do mundo
+    pin automapa = spawn interface.Automapa(G.game.automap, G.game)  ;; 8d, fora do mundo
+    spawn {                               ;; passo 6: a vista desenha a si mesma
+        loop on :game.frame { G.pintar_vista() }
+    }
+    par :any {
+        loop on :game.tic {
+            val antes = G.tic_view_antes()    ;; "segue" | "parado"
+            val fim = ifs {
+                (antes == :segue) => {
+                    emit @(automapa) (:automapa.tic)   ;; passo 8d: o automapa
+                    G.tic_comando()                    ;; o comando do jogador
+                                                       ;; (G_BuildTiccmd, fora do
+                                                       ;; P_Ticker no Doom) e a
+                                                       ;; tecla Pause
+                    val parar = G.mundo_parado()       ;; C2: pausa ou menu
+                    if parar != parado {
+                        toggle mundo(!parar)           ;; desligado, nao acorda
+                        set parado = parar             ;; nem com o :mundo.tic
+                    }
+                    emit @(mundo) (:mundo.tic)         ;; passo 8a: o tic do mundo
+                    if !r.fim {
+                        emit @(rosto) (:barra.tic)     ;; passo 8b: o rosto
+                        G.redesenhar()
+                    }
+                    r.fim
+                }
+                else => nil
+            }
+            if fim == :saida {
+                env.cancel_catchup()      ;; nao recupera mais tics neste quadro
+            }
+            until (fim, [fim=fim])
+        }
+    } with {
+        val t = await :nivel.trocar
+        [fim=:trocar, episode=t.episode, mapn=t.mapn]
+    }
+}
+
+task Intermissao (nxt) {
+    G.make_intermission(nxt)
+    spawn {
+        loop on :game.frame { G.pintar_intermissao() }
+    }
+    G.enter(:intermission)
+    await telas.Contagem(G.game.wi, G)    ;; passo 7: a sequencia da tela
+    G.fim_intermissao()
+}
+
+;; Texto/arte final. Devolve a acao: "title" ou "worlddone" (Doom 2).
+task Finale (anuncia) {
+    G.make_finale(anuncia)
+    spawn {
+        loop on :game.frame { G.pintar_finale() }
+    }
+    G.enter(:finale)
+    val acao = await telas.Texto(G.game.finale, G)   ;; passo 7
+    G.fim_finale()
+    if acao != "" => acao => :title
+}
+
+;; Depois do finale: "worlddone" segue para o mapa pendente.
+func depois_do_finale (acao) {
+    ifs {
+        (acao == :worlddone) => {
+            G.set_mapn(G.game.pending_map)
+            true
+        }
+        else => false
+    }
+}
+
+;; Saida do nivel (G_ExitLevel -> G_DoCompleted -> G_WorldDone).
+;; Devolve true se o jogo continua noutro mapa, false se volta ao titulo.
+task Saida () {
+    val secreta = G.end_level()
+    ifs {
+        (!G.commercial()) && (G.game.mapn == 8) => {
+            ;; fim de episodio do Doom 1: texto final
+            depois_do_finale(await Finale(true))
+        }
+        else => {
+            val nxt = proximo_mapa(G.game.episode, G.game.mapn, secreta)
+            await Intermissao(nxt)
+            ifs {
+                G.commercial() && G.commercial_finale() => {
+                    ;; Doom 2: texto entre mapas
+                    depois_do_finale(await Finale(false))
+                }
+                !G.map_exists(nxt) => false
+                else => {
+                    G.set_mapn(nxt)
+                    true
+                }
+            }
+        }
+    }
+}
+
+;; Um jogo: niveis em sequencia ate o fim do episodio.
+task Jogo (pedido) {
+    defer {
+        set G.game.carry = nil          ;; o carry e do Jogo: nao sobrevive a ele
+    }                                   ;; (nem quando :jogo.novo o aborta)
+    var save = nil
+    if pedido.tag == "jogo.carregar" {
+        set save = pedido.data
+    } else {
+        G.new_game(pedido.episode, pedido.mapn, pedido.skill)
+    }
+    loop {
+        val r = await Nivel(save)
+        set save = nil
+        val continua = ifs {
+            (r.fim == :morte)  => true            ;; renasce no mesmo mapa
+            (r.fim == :trocar) => {
+                G.set_level(r.episode, r.mapn)
+                true
+            }
+            else => await Saida()
+        }
+        until (!continua)
+    }
+    G.to_title()
+}
+
+;; O programa: titulo e jogos, um de cada vez. Um pedido de novo jogo ou de
+;; load descarta o jogo em andamento (e tudo dentro dele) e comeca outro.
+task Fluxo () {
+    var pedido = G.initial_request()      ;; -warp: comeca num nivel
+    loop {
+        if !pedido {
+            set pedido = await Titulo()
+        }
+        set pedido = par :any {
+            await Jogo(pedido)
+            false                         ;; jogo acabou: titulo
+        } with {
+            await <:jogo.novo || :jogo.carregar>   ;; descarta o jogo atual
+        } with {
+            await :jogo.fim
+            G.end_game()
+            false
+        }
+    }
+}
+
+;; ------------------------------------------------------------- entrada
+;; Passo 8c: a tecla que o menu pode usar vai primeiro a task Menu
+;; (:menu.tecla), que marca se usou; G.handle_input le essa marca.
+
+pin menu = spawn interface.Menu(G.game.menu, G)
+
+spawn {
+    loop ev on :input {
+        if G.tecla_para_menu(ev) {
+            emit @(menu) ([tag="menu.tecla", ev=ev])
+        }
+        G.handle_input(ev)
+        pedidos()
+    }
+}
+
+;; -------------------------------------------------------------- relogio
+;; Ordem dentro de um tic, igual a versao imperativa: menu, depois a tela
+;; atual (:game.tic). Durante uma transicao de tela (o wipe), so ela anda.
+;;
+;; Passo 6: antes, cada tic perguntava "if G.wiping()". Agora sao duas fases
+;; em sequencia: o tic normal, ate o quadro avisar que uma transicao comecou
+;; (:tela.transicao); depois so a transicao, ate ela terminar.
+
+spawn {
+    loop {
+        watching :tela.transicao {
+            loop on :tic {
+                emit @(menu) (:menu.tic)  ;; passo 8c: a caveira do menu
+                pedidos()
+                emit :game.tic
+                pedidos()
+            }
+        }
+        loop on :tic {                    ;; so a transicao anda
+            until (G.tic_wipe())          ;; true quando termina
+        }
+    }
+}
+
+;; --------------------------------------------------------- fluxo e quadro
+
+par :any {
+    await Fluxo()
+} with {
+    ;; O quadro (passo 6): a tela viva desenha a si mesma em :game.frame,
+    ;; entre quadro_antes (captura a tela antiga, se a tela mudou) e
+    ;; quadro_depois (tela nova, wipe, menu, paleta).
+    loop on :frame {
+        val modo = G.quadro_antes()       ;; "pintar" | "sobrepor" | nil
+        if modo {
+            if modo == :pintar {
+                emit :game.frame
+            }
+            if G.quadro_depois(modo == :pintar) {
+                emit :tela.transicao      ;; comecou um wipe: o relogio troca de fase
+            }
+        }
+        G.quadro_fim()
+    }
+} with {
+    await :jogo.sair
+    await :frame                          ;; o quadro atual ainda e desenhado
+}
+
+G.shutdown()
