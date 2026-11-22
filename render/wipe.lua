@@ -17,6 +17,7 @@ local COLW = SCREENWIDTH / 2
 local M = {}
 
 local framebuffer_c = require("framebuffer_c")
+local rng = require("random")
 -- Copia uma faixa de 2 pixels de largura (em C, src/v_draw.c).
 local function copy_span(dst, src, x0, y0, y1, src_y0)
   dst:copy_span(src, x0, y0, y1, src_y0)
@@ -55,8 +56,9 @@ function M.capture_end(self, fb)
 end
 
 function M.begin(self, fb, rand)
+  -- C7: wipe_initMelt sorteia com M_Random (antes, math.random)
   rand = rand or function(n)
-    return math.random(0, n - 1)
+    return rng.m_random() % n
   end
   self.start = as_fb(self.start)
   fb:copy_from(self.start)

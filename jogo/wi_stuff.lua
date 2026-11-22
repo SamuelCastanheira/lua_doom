@@ -13,6 +13,7 @@
 local v = require("v_video")
 local wad = require("wad")
 local compat = require("compat")
+local rng = require("random")
 
 local SCREENWIDTH = 320
 local SCREENHEIGHT = 200
@@ -150,7 +151,8 @@ local function init_animated(self)
       if span < 1 then
         span = 1
       end
-      a.nexttic = self.bcnt + 1 + math.random(0, span - 1)
+      -- C7: WI_initAnimatedBack sorteia com M_Random (antes, math.random)
+      a.nexttic = self.bcnt + 1 + (rng.m_random() % span)
     else
       a.nexttic = self.bcnt + 1
     end

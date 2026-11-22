@@ -14,6 +14,7 @@ local v = require("v_video")
 local wad = require("wad")
 local collision = require("collision")
 local compat = require("compat")
+local rng = require("random")
 
 local ST_AMMOX, ST_AMMOY = 44, 171
 local ST_HEALTHX, ST_HEALTHY = 90, 171
@@ -67,16 +68,6 @@ local WEAPON_AMMO = {
 }
 
 local M = {}
-
-local function u32_lcg(rnd)
-  local lo = rnd % 65536
-  local hi = math.floor(rnd / 65536)
-  local prod = lo * 20077
-  prod = prod + (lo * 16838) * 65536
-  prod = prod + (hi * 20077) * 65536
-  prod = (prod + 12345) % 4294967296
-  return prod
-end
 
 local function lump(w, name)
   local n = wad.check_num_for_name(w, name)
@@ -148,7 +139,6 @@ function M.reset(self, player)
   self.last_calc = 0
   self.last_attackdown = -1
   self.old_weapons_owned = copy_owned(player)
-  self.rnd = 1
 end
 
 local function face_patch(self, index)
@@ -270,8 +260,7 @@ function M.ticker(self, player)
   if player == nil then
     return
   end
-  self.rnd = u32_lcg(self.rnd)
-  local st_random = math.floor(self.rnd / 65536) % 256
+  local st_random = rng.m_random()      -- C7: ST_Ticker, M_Random
   update_face(self, player, st_random)
   self.old_health = player.health
 end

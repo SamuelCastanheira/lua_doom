@@ -24,9 +24,8 @@ local M = {}
 -- quadro = numero do poll, a partir de 1.
 local function replay_backend(path)
   local fbmod = require("framebuffer_c")
-  -- wipe.lua e wi_stuff.lua usam math.random (o original usava M_Random);
-  -- no replay a semente e fixa para que duas execucoes sejam iguais.
-  math.randomseed(1)
+  -- C7: o wipe, a intermissao e a barra usam M_Random (random.lua), e o
+  -- jogo nao usa math.random: o replay nao precisa fixar a semente.
   local script = {}
   for line in io.lines(path) do
     local n, key, dir = line:match("^%s*(%d+)%s+(%S+)%s*(%S*)")

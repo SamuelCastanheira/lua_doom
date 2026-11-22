@@ -8,13 +8,18 @@
 --
 -- www.vagucs.com.br
 --
--- P_Random. O indice avanca antes da leitura. O 0 nunca e o primeiro valor.
+-- P_Random e M_Random (m_random.c). O indice avanca antes da leitura. O 0
+-- nunca e o primeiro valor. Os dois leem a mesma tabela, cada um com o seu
+-- indice: P_Random e o do jogo (o que o replay e as demos do Doom seguem);
+-- M_Random e o do resto (wipe, intermissao, rosto da barra). C7: antes,
+-- o wipe e a intermissao usavam math.random e a barra um gerador proprio.
 
 local compat = require("compat")
 
 local M = {}
 local band = compat.band
 local index = 0
+local m_index = 0
 
 local RND = {
   [0] = 0, 8, 109, 220, 222, 241, 149, 107, 75, 248, 254, 140, 16, 66,
@@ -38,8 +43,10 @@ local RND = {
   120, 163, 236, 249,
 }
 
+-- M_ClearRandom: zera os dois indices.
 function M.clear()
   index = 0
+  m_index = 0
 end
 
 -- Posicao atual na tabela (so leitura; usado no teste de equivalencia).
@@ -49,6 +56,12 @@ end
 function M.p_random()
   index = band(index + 1, 255)
   return RND[index]
+end
+
+-- M_Random: a mesma tabela, com o indice do resto (C7).
+function M.m_random()
+  m_index = band(m_index + 1, 255)
+  return RND[m_index]
 end
 
 return M
