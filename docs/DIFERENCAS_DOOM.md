@@ -79,7 +79,8 @@ fase de correção.
 
 | Revisão | Onde | O que fazer |
 |---|---|---|
-| Rosto da barra fora do hash de estado | `G.state_string` (ferramenta de teste) | um efeito de um tic na barra pode cair num tic que não vira quadro (tics aos pares no replay, passo 3d); pôr `face_index` no hash. Muda os logs da referência: fazer junto com uma tag nova |
+
+(Nenhuma aberta. O rosto da barra entrou no hash no passo 8: seção "Corrigido".)
 
 ---
 
@@ -119,4 +120,5 @@ fase de correção.
 | Botão duplicado; botão sem som ao voltar; limite dos botões (specials) | um botão ativo para a linha impede outro; `swtchn` ao voltar; 16 botões, erro se estourar (C4f) | C4f, tag `c4` |
 | Descrição do save (save game) | escolher o slot começa a digitação da descrição, como no `M_SaveSelect`; `enter` só grava com descrição (C4g) | C4g, tag `c4` |
 | Load aplica os mobjs por índice (seção 5); tetos não gravados, pisos pela metade, luzes não gravadas (save game) | o save tem o conteúdo do save do Doom: grava o mobj inteiro, com o tipo, e o load apaga o que o nível montou e recria tudo a partir do save (`P_UnArchiveThinkers`, `P_UnArchiveSpecials`); grava os tetos (com o parado), as luzes (o fogo também) e os pisos inteiros. A task `Monstro` perdeu o caso `estranho` (`docs/registro/17-save-formato-doom.md`) | C5, tag `c5` |
+| Rosto da barra fora do hash de estado (seção 5) | `face_index` no `G.state_string` (`r<face_index>`), nos três lugares: `atmos`, `tests/ref-passo1.patch` e a branch `lua` (`docs/registro/10-interface-e-mundo.md`, passo 8b). Só teste: o jogo não mudou | passo 8 (tag `passo8`) |
 | Mutações pendentes de cobertura (seção 5) | roteiro `ordem` (E1M3): "use" no tic em que a linha entra no alcance; porta e elevador vizinhos no mesmo tic, com o jogador na fronteira (`docs/registro/12-mutacoes-pendentes.md`). Só teste: o jogo não mudou | B2 (sem tag nova) |
