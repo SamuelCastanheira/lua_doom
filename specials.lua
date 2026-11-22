@@ -318,6 +318,25 @@ function M.new(world, res, sound)
   return self
 end
 
+-- C5: recria uma luz gravada (P_UnArchiveSpecials), com a contagem (ou a
+-- direcao do brilho) gravada; nao sorteia nada
+function M.start_luz(self, rec, sector)
+  local light = {
+    sector = sector,
+    kind = rec.kind,
+    maxlight = rec.maxlight,
+    minlight = rec.minlight,
+    count = rec.count,
+    maxtime = rec.maxtime,
+    mintime = rec.mintime,
+    darktime = rec.darktime,
+    brighttime = rec.brighttime,
+    direction = rec.direction,
+  }
+  self.lights[#self.lights + 1] = light
+  return light
+end
+
 local function spawn_light_flash(self, sector)
   sector.special = 0
   local flash = {
@@ -740,6 +759,14 @@ local function remover_teto(self, ceil)
       return
     end
   end
+end
+
+-- C5: recria um teto gravado (P_UnArchiveSpecials)
+function M.start_teto_gravado(self, ceil)
+  ceil.sector.specialdata = ceil
+  self.thinkers[#self.thinkers + 1] = ceil
+  add_active_ceiling(self, ceil)
+  return ceil
 end
 
 function M.stop_ceiling(self, line)
