@@ -42,7 +42,8 @@ Atmos) e escreve em **português**. Responda em português.
 | tag `c3` (branch `lua`) | a branch `lua` com o C3 (a arma com `info.STATES` e o `p_pspr.c`, em `pspr.lua`) |
 | tag `c4` (branch `lua`) | a branch `lua` com o C4 (os specials do DIFERENCAS e a descrição do save) |
 | tag `c5` (branch `lua`) | a branch `lua` com o C5 (o save no formato do Doom: o load recria os mobjs e os specials) |
-| tag `c6` (branch `lua`) | a branch `lua` com o C6 (o elevador "desce, espera, sobe" a 4 por tic). **Referência de equivalência atual** (`REF_TAG` padrão) |
+| tag `c6` (branch `lua`) | a branch `lua` com o C6 (o elevador "desce, espera, sobe" a 4 por tic) |
+| tag `c7` (branch `lua`) | a branch `lua` com o C7 (o wipe, a intermissão e o rosto com `M_Random`). **Referência de equivalência atual** (`REF_TAG` padrão) |
 | tag `luaV.1` | marco antigo do usuário (sem relação com a migração) |
 | commit `522b06f` | renderer 100% Lua (referência pixel a pixel do renderer em C, usada por `make compare`) |
 
@@ -198,7 +199,8 @@ o nível termina, como o `break` do laço original).
 `DOOM_REPLAY=<roteiro>` substitui o `video_c`: sem janela nem som, cada
 `poll()` avança exatamente um tic, as teclas vêm do roteiro, e cada
 `present()` grava `quadro hash_framebuffer hash_estado` em `DOOM_REPLAY_OUT`.
-Também fixa `math.randomseed(1)`.
+Até o C6, também fixava `math.randomseed(1)`; desde o C7 o jogo não usa
+`math.random` (o wipe, a intermissão e o rosto usam `M_Random`).
 
 Formato do roteiro (uma linha por evento; quadro = número do `poll`, a
 partir de 1):
@@ -516,9 +518,11 @@ não aborta ninguém (regra 4.2).
 
 ### 4.4 Outras fontes de não determinismo
 
-- `math.random` (usado em `wipe.lua` e `wi_stuff.lua`): só é determinístico
-  porque o replay fixa a semente. Na lógica de jogo, use `random.p_random()`
-  ou `enemy.p_random()`.
+- **Não use `math.random`.** Desde o C7, o wipe, a intermissão e o rosto da
+  barra sorteiam com `random.m_random()` (o `M_Random` do Doom: a tabela do
+  `P_Random` com o índice próprio), e o replay não fixa mais a semente. Na
+  lógica de jogo, use `random.p_random()` ou `enemy.p_random()`; fora dela
+  (efeitos de tela), `random.m_random()`. `random.clear()` zera os dois.
 - **Saves são estado de entrada.** O jogo salva em `saves/doomsavN.dsg`, ao
   lado do IWAD (a pasta de onde roda; até a organização em pastas, na
   própria pasta do IWAD). Um arquivo deixado por uma execução
@@ -557,7 +561,7 @@ automapa, `-`/`=` mudam o tamanho da tela.
 ### 5.2 Equivalência da lógica (driver Atmos × referência)
 
 ```sh
-make test-drivers          # semantica do Atmos (P1-P9) + 14 roteiros contra a tag c6; saves comparados byte a byte
+make test-drivers          # semantica do Atmos (P1-P9) + 14 roteiros contra a tag c7; saves comparados byte a byte
 sh tests/test_drivers.sh 0 1 fluxo         # roteiro com todas as transicoes
 sh tests/test_drivers.sh 4000 1            # pseudoaleatorio, 4000 quadros, semente 1
 sh tests/test_drivers.sh 6000 2 exits      # tambem termina niveis
@@ -576,7 +580,7 @@ REF_TAG=passo1 sh tests/test_drivers.sh 0 1 fluxo   # outra referencia (passo1: 
 ```
 
 - Argumentos: `quadros semente [exits|fluxo] [args do jogo]`.
-- A referência é **`REF_TAG`** (padrão `c6`, desde o C6; antes, `c5`, `c4`, `c3`, `c2`, `c1` e `passo1`). O script cria um worktree
+- A referência é **`REF_TAG`** (padrão `c7`, desde o C7; antes, `c6`, `c5`, `c4`, `c3`, `c2`, `c1` e `passo1`). O script cria um worktree
   em `build/ref-<tag>`, aplica `tests/ref-<tag>.patch` se existir, compila e
   roda o `lua5.4 main.lua` de lá. Compara com `atmos main.atm` e com
   `lua5.4 main.lua` atuais.
@@ -658,7 +662,7 @@ em pastas; no Windows, compile com o `make` (MSYS2).
 | Sintoma | Causa | Como evitar |
 |---|---|---|
 | `unknown option '-n'` ao rodar `atmos` | faltou o `--` | `atmos main.atm -- -nosound` |
-| `main.lua` divergia de si mesmo no wipe | `math.random` sem semente | o replay fixa a semente; na lógica, use `P_Random` |
+| `main.lua` divergia de si mesmo no wipe | `math.random` sem semente | desde o C7, o wipe usa `M_Random`; na lógica, use `P_Random` |
 | Divergência só no framebuffer, a partir de um save | arquivo `.dsg` de outra execução aparecia no menu | executar em pasta isolada (o script já faz) |
 | Roteiro "não fazia" save, load ou End Game | menu aberto durante a intermissão; menu lembra a posição de cada submenu (`last_on`); o menu de load tem posição própria, separada da do save | esperar a tela terminar (padrão `exit_level` em `make_replay.lua`); conferir a cobertura |
 | `attempt to index a number (src)` em `damage_mobj` | ordem dos argumentos | `game.damage_mobj(alvo, origem, dano, inflictor)` |
@@ -748,6 +752,12 @@ revisões do próprio port na seção 5). No fim, as correções são feitas nas
   `elevadores` encurtaram (`ESPERA_B`, `ESPERA_C` e, no `ordem`,
   `ELEVADOR_DEPOIS` e `JOGADOR_DEPOIS` podem ser trocadas pelo ambiente
   para recalibrar). Registro: `docs/registro/19-correcoes-c6.md`.
+- **Corrigido no C7** (tag `c7`): o `M_Random` do Doom (`random.m_random`,
+  índice próprio sobre a tabela do `P_Random`) no derretimento do wipe, nas
+  animações do fundo da intermissão e no olhar do rosto da barra (a cada tic
+  da barra, como o `ST_Ticker`). Antes: `math.random` com a semente fixa do
+  replay, e um gerador próprio na barra. Registro:
+  `docs/registro/20-correcoes-c7.md`.
 - Sprites e arma usam a luz do setor (como o Doom); flashes de arma
   (`PISFA0`, `SHT2I0`…) são `FF_FULLBRIGHT`, lidos de `info.STATES`.
 

@@ -29,8 +29,8 @@
 #   ordem: "use" no tic em que a linha entra no alcance; porta e elevador vizinhos no mesmo tic, com o elevador DWUS a 4 por tic desde o C6 (rode com -warp 1 3; B2)
 #   correcoes: cenarios da fase de correcoes; C1: New Game na intermissao depois do idkfa; C2: pausa e menu, idclev na pausa, menu aberto no comeco do E1M3 (rode com -warp 1 1)
 #
-# REF_TAG=<tag> muda a referencia (padrao: c6, a branch lua com as correcoes
-# ate o C6; antes, c5, c4, c3, c2, c1 e passo1); REF_DIR=<pasta> aponta
+# REF_TAG=<tag> muda a referencia (padrao: c7, a branch lua com as correcoes
+# ate o C7; antes, c6, c5, c4, c3, c2, c1 e passo1); REF_DIR=<pasta> aponta
 # para uma pasta pronta (por exemplo, a branch lua: build/branch-lua).
 set -e
 cd "$(dirname "$0")/.."
@@ -43,7 +43,7 @@ while [ $# -gt 0 ] && [ $n -lt 3 ]; do
   shift
   n=$((n + 1))
 done
-REF_TAG=${REF_TAG:-c6}
+REF_TAG=${REF_TAG:-c7}
 # O hash de estado tambem cobre os lados (texturas e deslocamento) so com
 # esta variavel; tools/custo_drivers.py roda sem ela.
 export DOOM_REPLAY_SIDES=1
