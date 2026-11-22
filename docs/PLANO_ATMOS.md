@@ -46,7 +46,8 @@ os bugs de ciclo de vida na lógica de jogos, com custo aceitável?
 | C1. Revisões do port | concluído (tag `c1` na branch `lua`): o `carry`, o jogador esmagado | [registro/13-correcoes-c1.md](registro/13-correcoes-c1.md) |
 | C2. O menu e a tecla Pause param o mundo | concluído (tag `c2` na branch `lua`): `toggle` da task `Mundo` | [registro/14-correcoes-c2.md](registro/14-correcoes-c2.md) |
 | C3. A arma como no Doom (o 4b) | concluído (tag `c3` na branch `lua`): `pspr.lua` e a task `Arma` com as fases do Doom | [registro/15-correcoes-c3.md](registro/15-correcoes-c3.md) |
-| C4. O resto do DIFERENCAS | concluído (tag `c4` na branch `lua`, a referência nova): portas, tetos, esmagamento, elevadores, pisos, botões, descrição do save; parar tetos e elevadores com `toggle` | [registro/16-correcoes-c4.md](registro/16-correcoes-c4.md) |
+| C4. O resto do DIFERENCAS | concluído (tag `c4` na branch `lua`): portas, tetos, esmagamento, elevadores, pisos, botões, descrição do save; parar tetos e elevadores com `toggle` | [registro/16-correcoes-c4.md](registro/16-correcoes-c4.md) |
+| C5. O save no formato do Doom | concluído (tag `c5` na branch `lua`, a referência nova): o load recria os mobjs e os specials; tetos, luzes e pisos inteiros no save | [registro/17-save-formato-doom.md](registro/17-save-formato-doom.md) |
 | Depois do C4 (D, M) | planejado: correções, experimentos, escrita | seção 6, "Depois do passo 7" |
 
 Desvios em relação a este plano, decididos durante o passo 2:
@@ -673,11 +674,18 @@ documentada e uma tag nova de referência. Prioridade sugerida:
    elevadores e esmagadores em estase, escada, botões, limites, sons de piso
    e teto) e a descrição do save.
 
+5. **C5 (feito, tag `c5`). O save no formato do Doom**
+   (`docs/registro/17-save-formato-doom.md`): estava fora do escopo e voltou
+   por decisão do autor em 2026-11-21, depois de um load no E4M2 deixar itens
+   que não se deixavam apanhar e monstros que sumiam (o load por índice). O
+   load recria os mobjs e os specials a partir do save; o save grava tetos,
+   luzes e pisos inteiros, sem as perdas do Doom original (fogo, botões e
+   alvos continuam gravados).
+
 **Fora do escopo** (decisão do autor, 2026-11-20, por não serem relevantes
-para o TCC): o save no formato do Doom (recriar os mobjs a partir do save,
-o que corrigiria o load por índice; gravar tetos, luzes e pisos inteiros), o
-som posicional (estéreo, distância, canais por mobj) e as demos (gravar e
-reproduzir, alternando na tela de título). Continuam registrados em
+para o TCC): o som posicional (estéreo, distância, canais por mobj) e as
+demos (gravar e reproduzir, alternando na tela de título). O save no formato
+do Doom também estava aqui, e virou o C5. Continuam registrados em
 `docs/DIFERENCAS_DOOM.md`, como diferenças conhecidas, e podem aparecer na
 monografia como trabalho futuro.
 
@@ -700,7 +708,8 @@ monografia como trabalho futuro.
 **Feito no passo 9:** A4 (`docs/registro/11-familia-de-monstros.md`).
 **Feito depois:** B2 (`docs/registro/12-mutacoes-pendentes.md`), C1
 (`docs/registro/13-correcoes-c1.md`), C2 (`docs/registro/14-correcoes-c2.md`), C3
-(`docs/registro/15-correcoes-c3.md`) e C4 (`docs/registro/16-correcoes-c4.md`).
+(`docs/registro/15-correcoes-c3.md`), C4 (`docs/registro/16-correcoes-c4.md`) e C5
+(`docs/registro/17-save-formato-doom.md`).
 
 **Ordem sugerida para o que falta:** M1 (rápido, agora com os passos 7 a
 9); D1 (responde ao viés da equivalência); na fase de correções, C2

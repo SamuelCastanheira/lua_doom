@@ -49,11 +49,12 @@ desce até o piso) e 141 (esmagador silencioso).
 
 ## 2. Save game
 
+Os itens desta seção foram corrigidos no C5 (seção "Corrigido"): o save
+tem o conteúdo do save do Doom, sem as perdas do original (o fogo, os
+botões e os alvos dos monstros continuam gravados, por decisão do autor).
+
 | Falta ou difere | Onde | Efeito |
 |---|---|---|
-| Tetos e esmagadores não são gravados | `saveg.lua`, `dump_thinker` devolve `nil` para `ceiling` | um esmagador em movimento some ao carregar |
-| Pisos gravados pela metade | `dump_thinker`, `kind == "floor"` | só `direction`, `dest` e `speed`; faltam `crush` e a troca de textura no fim (donut, baixar e trocar) |
-| Luzes não são gravadas | `saveg.lua` | o Doom grava pisca, strobe e glow (o fogo também não, no original); aqui a fase recomeça no load |
 
 ## 3. Som
 
@@ -79,7 +80,6 @@ fase de correção.
 | Revisão | Onde | O que fazer |
 |---|---|---|
 | Rosto da barra fora do hash de estado | `G.state_string` (ferramenta de teste) | um efeito de um tic na barra pode cair num tic que não vira quadro (tics aos pares no replay, passo 3d); pôr `face_index` no hash. Muda os logs da referência: fazer junto com uma tag nova |
-| Load aplica os mobjs por índice | `saveg.apply` | os registros gravados vão para os mobjs que o nível acabou de criar, na ordem da lista; se ela mudou desde o save (itens apanhados, projéteis), um mobj recebe o estado de outro tipo (visto no passo 5: um zumbi com o estado 825; no passo 9, no E1M5, monstros dos quatro tipos com task recebem estados de outro tipo depois do load, e a task segue a tabela pelo caso `estranho`). O Doom recria os mobjs a partir do save (`P_UnArchiveThinkers`); corrigir isso muda o formato do save |
 
 ---
 
@@ -118,4 +118,5 @@ fase de correção.
 | Piso não troca o special; escada; sons de piso e teto (specials) | o donut e o "baixar e trocar" trocam o special (no hash de estado desde então); a escada do `EV_BuildStairs`; `stnmov` a cada 8 tics e `pstop` (C4e) | C4e, tag `c4` |
 | Botão duplicado; botão sem som ao voltar; limite dos botões (specials) | um botão ativo para a linha impede outro; `swtchn` ao voltar; 16 botões, erro se estourar (C4f) | C4f, tag `c4` |
 | Descrição do save (save game) | escolher o slot começa a digitação da descrição, como no `M_SaveSelect`; `enter` só grava com descrição (C4g) | C4g, tag `c4` |
+| Load aplica os mobjs por índice (seção 5); tetos não gravados, pisos pela metade, luzes não gravadas (save game) | o save tem o conteúdo do save do Doom: grava o mobj inteiro, com o tipo, e o load apaga o que o nível montou e recria tudo a partir do save (`P_UnArchiveThinkers`, `P_UnArchiveSpecials`); grava os tetos (com o parado), as luzes (o fogo também) e os pisos inteiros. A task `Monstro` perdeu o caso `estranho` (`docs/registro/17-save-formato-doom.md`) | C5, tag `c5` |
 | Mutações pendentes de cobertura (seção 5) | roteiro `ordem` (E1M3): "use" no tic em que a linha entra no alcance; porta e elevador vizinhos no mesmo tic, com o jogador na fronteira (`docs/registro/12-mutacoes-pendentes.md`). Só teste: o jogo não mudou | B2 (sem tag nova) |

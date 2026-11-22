@@ -44,6 +44,21 @@ ROTEIROS = {
 # Mutantes equivalentes: mudam o codigo mas nao o comportamento. Sobreviver
 # e o esperado; a justificativa fica registrada.
 EQUIVALENTES = {
+    "load-sem-task-monstro":
+        "C5: o monstro recriado sem a task Monstro cai no thinker Lua "
+        "(G.pensar_ate_task roda mobj_thinker para os mobjs sem task), que "
+        "interpreta a mesma tabela; a task e o thinker sao equivalentes desde "
+        "o passo 5, e o jogo e o mesmo. A mutacao mostra o que o teste de "
+        "equivalencia prova: a task nao muda o comportamento, so a forma",
+    "salto-sem-vencido":
+        "C5: o salto de fora que ja vence no mesmo tic so acontecia no load "
+        "por indice, que aplicava tics arbitrarios aos mobjs. Os estados que "
+        "podem ser postos de fora num monstro (dor, perseguicao, morte, "
+        "explosao, restos) tem 2 tics ou mais, ou -1 (conferido em "
+        "info.STATES para os quatro tipos): o salto desconta um tic e nao "
+        "vence. Desde o C5 a task nasce no estado gravado, e o vencido da "
+        "task Monstro ficou sem caminho (o da task Arma continua: a arma "
+        "solta na morte tem 1 tic, mutacao salto-vencido-espera)",
     "pronta-nao-repete":
         "C3: o fim de qualquer faixa da arma volta ao primeiro quadro da arma "
         "pronta (entrar(W.pronta@1)), e o proximo da arma pronta e ela mesma "
@@ -76,14 +91,6 @@ EQUIVALENTES = {
         "resto em Lua (linhas com scroll: textureoffset) e os movimentadores "
         "(alturas de setor) nao leem texturas de lado e nao consomem P_Random "
         "no tick: campos disjuntos, sem dependencia de leitura",
-    "spectre-com-tabela-do-soldado":
-        "a task Monstro com uma tabela que nao cobre os estados do mobj cai "
-        "no caso estranho, que segue o ponteiro proximo de info.STATES, como "
-        "o thinker Lua: o Spectre com a tabela do Shotgun Guy anda pela "
-        "tabela quadro a quadro, sem os comportamentos com nome, e faz o "
-        "mesmo. O caso estranho, criado para o load por indice, torna "
-        "silencioso um erro de cobertura da tabela do tipo (registro do "
-        "passo 9)"
 }
 
 # Mutantes NAO equivalentes que o roteiro ainda nao cobre. Sobreviver e
@@ -199,23 +206,23 @@ MUTACOES = [
     # --- passo 3a: luzes como tasks (roteiro "luzes": E4M1 e E1M2)
     ("pisca-sem-espera-inicial",
      "Luz que pisca age no proprio tic em que nasce (sem a espera inicial)",
-     "val task Pisca (setor, maxl, minl) {\n    espera(band(rng.p_random(), 64) + 1)\n",
-     "val task Pisca (setor, maxl, minl) {\n    rng.p_random()\n",
+     "    espera(pub, contagem || (band(rng.p_random(), 64) + 1))\n",
+     "    rng.p_random()\n",
      "setores.atm", "luzes"),
     ("fogo-intervalo-3",
      "Fogo tremula a cada 3 tics em vez de 4",
-     "        espera(4)\n",
-     "        espera(3)\n",
+     "    var n = contagem || 4\n    loop {\n        espera(pub, n)\n        set n = 4\n",
+     "    var n = contagem || 3\n    loop {\n        espera(pub, n)\n        set n = 3\n",
      "setores.atm", "luzes"),
     ("strobe-sincronizado-sorteia",
      "Strobe sincronizado sorteia a primeira espera (consome P_Random a mais)",
-     "    val primeira = if sincronizado => 1 => (band(rng.p_random(), 7) + 1)\n",
-     "    val primeira = band(rng.p_random(), 7) + 1\n",
+     "        sincronizado => 1\n",
+     "        sincronizado => (band(rng.p_random(), 7) + 1)\n",
      "setores.atm", "luzes"),
     ("brilho-nao-volta",
      "Glow inverte a direcao sem desfazer o ultimo passo (passa do minimo)",
-     "        set setor.lightlevel = setor.lightlevel + GLOWSPEED\n        loop {                                ;; clareia ate o maximo\n",
-     "        loop {                                ;; clareia ate o maximo\n",
+     "            set setor.lightlevel = setor.lightlevel + GLOWSPEED\n            set pub.direction = 1\n",
+     "            set pub.direction = 1\n",
      "setores.atm", "luzes"),
     ("luzes-ordem-inversa",
      "Luzes criadas na ordem inversa dos setores (ordem da pool trocada)",
@@ -246,7 +253,7 @@ MUTACOES = [
      "setores.atm", "botoes"),
     ("save-esquece-botoes",
      "Save nao grava os botoes ativos (a textura fica trocada depois do load)",
-     "      if btn and btn.timer > 0 then\n",
+     "      if btn and btn.timer > 0 and not btn.dead then\n",
      "      if false then\n",
      "saveg.lua", "botoes"),
     ("load-reinicia-timer",
@@ -341,12 +348,12 @@ MUTACOES = [
      "setores.atm", "pisos"),
     ("esmagador-nao-desacelera",
      "Esmagador que vai e volta nao desce devagar depois de esmagar",
-     "                set vel = devagar\n",
+     "                set teto.speed = devagar\n",
      "",
      "setores.atm", "pisos"),
     ("esmagador-sobe-devagar",
      "Esmagador nao volta a velocidade normal ao chegar embaixo",
-     "        if dir == -1 {                    ;; chegou embaixo: sobe na normal\n            set vel = normal\n        }\n",
+     "        if dir == -1 {                    ;; chegou embaixo: sobe na normal\n            set teto.speed = normal\n        }\n",
      "",
      "setores.atm", "pisos"),
     ("esmagador-para-no-fundo",
@@ -430,11 +437,6 @@ MUTACOES = [
      "    val lista = G.pensantes()\n    var i = G.pensar_ate_task(lista, 1)\n    loop {\n        until (i == 0)\n        val mo = lista@i\n        emit @(mo.task) (:mobj.tic)\n        set i = G.pensar_ate_task(lista, i + 1)\n    }\n",
      "    val lista = G.pensantes()\n    val zumbis = []\n    var i = G.pensar_ate_task(lista, 1)\n    loop {\n        until (i == 0)\n        set zumbis@(#zumbis + 1) = lista@i\n        set i = G.pensar_ate_task(lista, i + 1)\n    }\n    loop _, mo in zumbis {\n        emit @(mo.task) (:mobj.tic)\n    }\n",
      "main.atm", "monstro"),
-    ("estranho-congela",
-     "Zumbi com o estado de outro tipo (load por indice) para de pensar",
-     "        T.seguir_tabela(mo, game.world, game) => :aplicado\n",
-     "        true => :fora\n",
-     "monstro.atm", "arma"),
     # --- passo 6: wipe como fase do relogio e quadro por evento (roteiro "fluxo")
     ("transicao-sem-evento",
      "O quadro nao avisa o relogio do wipe (o tic normal continua durante a transicao)",
@@ -785,6 +787,33 @@ MUTACOES = [
      "    self.save_string_enter = true\n    self.save_slot = choice\n",
      "    self.save_string_enter = true\n    self.save_slot = choice\n    self.save_strings[choice + 1] = \"X\"\n    return M.responder(self, \"return\")\n",
      "menu.lua", "botoes"),
+    # --- C5: o save no formato do Doom (roteiros "familia", "luzes" e
+    # "correcoes")
+    ("load-sem-task-monstro",
+     "O load recria o mobj do monstro sem a task Monstro (ele para de pensar)",
+     "  collision.set_thing_position(world, mo)\n  criar_task(mo, game)\n  return mo\nend\n\nfunction M.remove_mobj",
+     "  collision.set_thing_position(world, mo)\n  return mo\nend\n\nfunction M.remove_mobj",
+     "thinker.lua", "familia"),
+    ("load-perde-spawnpoint",
+     "O load nao restaura o spawnpoint (o pesadelo nao faz o monstro renascer no lugar)",
+     "    campos.spawnpoint = { x = sp.x, y = sp.y, angle = sp.angle, type = sp.type, options = sp.options }\n",
+     "",
+     "saveg.lua", "familia"),
+    ("load-luz-sorteia",
+     "O load recria a luz que pisca sem a contagem gravada (sorteia de novo)",
+     "    return spawn_luz(self, \"Pisca\", sector, rec.maxlight, rec.minlight, rec.count)\n",
+     "    return spawn_luz(self, \"Pisca\", sector, rec.maxlight, rec.minlight)\n",
+     "specials.lua", "luzes"),
+    ("save-grava-luz-morta",
+     "O save grava tambem as luzes abortadas no load (que continuam na pool)",
+     "      if t.pub and t.pub.kind and not t.pub.dead then\n",
+     "      if t.pub and t.pub.kind then\n",
+     "saveg.lua", "elevadores"),         # um save depois de um load no mesmo nivel
+    ("load-teto-andando",
+     "O load recria o teto parado andando (sem desligar a task)",
+     "  if teto.parado and teto.task then\n    toggle(teto.task, false)\n  end\n  add_active_ceiling(self, teto)\n",
+     "  add_active_ceiling(self, teto)\n",
+     "specials.lua", "correcoes"),
     # --- passo 2 (continuacao): fluxo de telas (roteiro "fluxo")
     ("novo-nao-descarta",
      "New Game no meio do jogo e ignorado (o Jogo atual continua)",

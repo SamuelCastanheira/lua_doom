@@ -29,8 +29,8 @@
 #   ordem: "use" no tic em que a linha entra no alcance; porta e elevador vizinhos no mesmo tic (rode com -warp 1 3; B2)
 #   correcoes: cenarios da fase de correcoes; C1: New Game na intermissao depois do idkfa; C2: pausa e menu, idclev na pausa, menu aberto no comeco do E1M3 (rode com -warp 1 1)
 #
-# REF_TAG=<tag> muda a referencia (padrao: c4, a branch lua com as correcoes
-# ate o C4; antes, c3, c2, c1 e passo1); REF_DIR=<pasta> aponta
+# REF_TAG=<tag> muda a referencia (padrao: c5, a branch lua com as correcoes
+# ate o C5; antes, c4, c3, c2, c1 e passo1); REF_DIR=<pasta> aponta
 # para uma pasta pronta (por exemplo, a branch lua: build/branch-lua).
 set -e
 cd "$(dirname "$0")/.."
@@ -43,7 +43,7 @@ while [ $# -gt 0 ] && [ $n -lt 3 ]; do
   shift
   n=$((n + 1))
 done
-REF_TAG=${REF_TAG:-c4}
+REF_TAG=${REF_TAG:-c5}
 # O hash de estado tambem cobre os lados (texturas e deslocamento) so com
 # esta variavel; tools/custo_drivers.py roda sem ela.
 export DOOM_REPLAY_SIDES=1
@@ -162,7 +162,9 @@ if [ "$EXITS" = "luzes" ] && [ $status -eq 0 ]; then
       status=1
     fi
   done
-  [ $status -eq 0 ] && echo "  cobertura das luzes: E4M1 (fogo, flash) e E1M2 (glow, flash, strobes)"
+  n=$(grep -c "^pedido jogo.carregar" "$OUT/atm.out" || true)
+  [ "$n" -ge 2 ] || { echo "COBERTURA INCOMPLETA: $n loads nas luzes (esperado 2, C5)"; status=1; }
+  [ $status -eq 0 ] && echo "  cobertura das luzes: E4M1 (fogo, flash) e E1M2 (glow, flash, strobes); save e load em cada (C5)"
 fi
 # No roteiro "botoes" (passo 3e): o save tem de ter gravado um botao ativo,
 # e o jogo tem de ter carregado esse save e chegado ao E1M4.
@@ -280,6 +282,8 @@ if [ "$EXITS" = "correcoes" ] && [ $status -eq 0 ]; then
   grep -q "^intermissao" "$OUT/ref.out" || { echo "COBERTURA INCOMPLETA: sem intermissao"; status=1; }
   grep -q "^pedido nivel.trocar" "$OUT/atm.out" || { echo "COBERTURA INCOMPLETA: sem idclev na pausa"; status=1; }
   grep -q "^vista E1M3" "$OUT/ref.out" || { echo "COBERTURA INCOMPLETA: nao chegou ao E1M3"; status=1; }
+  n=$(grep -c "^pedido jogo.carregar" "$OUT/atm.out" || true)
+  [ "$n" -ge 2 ] || { echo "COBERTURA INCOMPLETA: $n loads no E2M2 (esperado 2, C5)"; status=1; }
   [ $status -eq 0 ] && echo "  cobertura das correcoes: New Game na intermissao (C1); pausa, idclev na pausa, menu no comeco do E1M3 (C2)"
 fi
 # No roteiro "telas" (passo 7): intermissoes acelerada (E1M1, no meio dos
