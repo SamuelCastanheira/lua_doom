@@ -286,40 +286,33 @@ local function mobj_index(mobjs, mo)
   return nil
 end
 
+-- C5: o mobj inteiro, como o P_ArchiveThinkers grava o mobj_t, com o tipo
+-- (o load recria o mobj a partir disto). target e tracer sao indices na
+-- lista; spawnpoint e o mapthing (o pesadelo, -respawn, o usa).
+local CAMPOS_MOBJ = {
+  "x", "y", "z", "angle", "momx", "momy", "momz", "radius", "height",
+  "floorz", "ceilingz", "flags", "health", "type", "doomednum", "sprite",
+  "frame", "tics", "istate", "alive", "reactiontime", "lastlook",
+  "threshold", "movedir", "movecount", "damage", "fx", "_easy_skip",
+}
+
 local function dump_mobj(mo, mobjs)
-  return {
-    { "x", mo.x or 0 },
-    { "y", mo.y or 0 },
-    { "z", mo.z or 0 },
-    { "angle", mo.angle or 0 },
-    { "momx", mo.momx or 0 },
-    { "momy", mo.momy or 0 },
-    { "momz", mo.momz or 0 },
-    { "radius", mo.radius or 0 },
-    { "height", mo.height or 0 },
-    { "floorz", mo.floorz or 0 },
-    { "ceilingz", mo.ceilingz or 0 },
-    { "flags", mo.flags or 0 },
-    { "health", mo.health or 0 },
-    { "type", mo.type or 0 },
-    { "sprite", mo.sprite or "" },
-    { "info", nil },
-    { "alive", mo.alive ~= false },
-    { "reactiontime", mo.reactiontime or 0 },
-    { "target", mobj_index(mobjs, mo.target) },
-    { "movedir", mo.movedir or 0 },
-    { "movecount", mo.movecount or 0 },
-    { "ai_state", "" },
-    { "istate", mo.istate or 0 },
-    { "frame", mo.frame or 0 },
-    { "tics", mo.tics or 0 },
-    { "chase_tics", mo.chase_tics or 0 },
-    { "just_attacked", mo.just_attacked and true or false },
-    { "damage", mo.damage or 0 },
-    { "attack_kind", mo.attack_kind or "" },
-    { "did_fire", mo.did_fire and true or false },
-    { "is_player", mo.player ~= nil },
-  }
+  local rec = {}
+  for i = 1, #CAMPOS_MOBJ do
+    local k = CAMPOS_MOBJ[i]
+    rec[#rec + 1] = { k, mo[k] }
+  end
+  rec[#rec + 1] = { "target", mobj_index(mobjs, mo.target) }
+  rec[#rec + 1] = { "tracer", mobj_index(mobjs, mo.tracer) }
+  local sp = mo.spawnpoint
+  if sp then
+    rec[#rec + 1] = { "spawnpoint", {
+      { "x", sp.x }, { "y", sp.y }, { "angle", sp.angle },
+      { "type", sp.type }, { "options", sp.options },
+    } }
+  end
+  rec[#rec + 1] = { "is_player", mo.player ~= nil }
+  return rec
 end
 
 local function dump_player(p)
@@ -614,35 +607,55 @@ local function apply_player(player, rec)
   end
 end
 
-local function apply_mobj(mo, rec)
-  mo.x = rec.x or mo.x
-  mo.y = rec.y or mo.y
-  mo.z = rec.z or mo.z
-  mo.angle = rec.angle or mo.angle
-  mo.momx = rec.momx or 0
-  mo.momy = rec.momy or 0
-  mo.momz = rec.momz or 0
-  mo.floorz = rec.floorz or mo.floorz
-  mo.ceilingz = rec.ceilingz or mo.ceilingz
-  mo.flags = rec.flags or mo.flags
-  mo.health = rec.health or mo.health
-  mo.sprite = rec.sprite or mo.sprite
-  if rec.alive == false then
-    mo.alive = false
-  else
-    mo.alive = true
+-- C5: os campos de um mobj gravado (sem target e tracer, ligados depois)
+local function campos_mobj(rec)
+  local campos = {}
+  for i = 1, #CAMPOS_MOBJ do
+    local k = CAMPOS_MOBJ[i]
+    campos[k] = rec[k]
   end
-  mo.reactiontime = rec.reactiontime or 0
-  mo.movedir = rec.movedir or mo.movedir
-  mo.movecount = rec.movecount or 0
-  mo.frame = rec.frame or 0
-  mo.tics = rec.tics or mo.tics
-  mo.damage = rec.damage or mo.damage
-  if type(rec.istate) == "number" then
-    mo.istate = rec.istate
+  if campos.alive == nil then
+    campos.alive = true
+  end
+  if rec.spawnpoint then
+    local sp = rec.spawnpoint
+    campos.spawnpoint = { x = sp.x, y = sp.y, angle = sp.angle, type = sp.type, options = sp.options }
+  end
+  return campos
+end
+
+
+-- C5: o load apaga o que o nivel acabou de criar (os mobjs, menos o do
+-- jogador, e os specials), como o P_UnArchiveThinkers e o
+-- P_UnArchiveSpecials, e recria tudo a partir do save.
+local function limpar_nivel(game)
+  local world = game.world
+  local thinker = require("thinker")
+  local lista = {}
+  for i = 1, #world.mobjs do
+    lista[i] = world.mobjs[i]
+  end
+  for i = 1, #lista do
+    local mo = lista[i]
+    if mo == game.player.mo then
+      collision.unset_thing_position(world, mo)
+      table.remove(world.mobjs, 1)
+    else
+      thinker.remove_mobj(world, mo)
+    end
+  end
+  for i = 1, #world.sectors do
+    world.sectors[i].specialdata = nil
+  end
+  if game.specials then
+    game.specials.thinkers = {}
+    game.specials.buttons = {}
+    game.specials.tetos_ativos = {}
+    game.specials.plats_ativos = {}
   end
 end
 
+-- Monta o nivel do save e aplica o estado gravado.
 function M.apply(game, data)
   if data == nil or game.start_level == nil then
     return false
@@ -655,6 +668,7 @@ function M.apply(game, data)
   if game.world == nil or game.player == nil then
     return false
   end
+  limpar_nivel(game)                      -- C5
   game.leveltime = data.leveltime or 0
   game.totalkills = data.totalkills or game.totalkills
   game.totalitems = data.totalitems or game.totalitems
@@ -751,19 +765,33 @@ function M.apply(game, data)
       end
     end
   end
+  -- C5: os mobjs sao recriados a partir do save, na ordem gravada (antes, os
+  -- registros eram aplicados por indice aos mobjs que o nivel acabou de
+  -- criar, e caiam nos mobjs errados quando a lista tinha mudado)
+  local thinker = require("thinker")
   local recs = data.mobjs or {}
-  local n = #recs
-  if n > #world.mobjs then
-    n = #world.mobjs
+  local novos = {}
+  for i = 1, #recs do
+    local campos = campos_mobj(recs[i])
+    if recs[i].is_player then
+      local mo = game.player.mo
+      for k, v in pairs(campos) do
+        mo[k] = v
+      end
+      world.mobjs[#world.mobjs + 1] = mo
+      collision.set_thing_position(world, mo)
+      novos[i] = mo
+    else
+      novos[i] = thinker.recriar_mobj(world, campos, game)
+    end
   end
-  for i = 1, n do
-    apply_mobj(world.mobjs[i], recs[i])
-    collision.set_thing_position(world, world.mobjs[i])
-  end
-  for i = 1, n do
-    local ti = recs[i].target
-    if type(ti) == "number" and ti >= 0 and ti < #world.mobjs then
-      world.mobjs[i].target = world.mobjs[ti + 1]
+  for i = 1, #recs do
+    local ti, tr = recs[i].target, recs[i].tracer
+    if type(ti) == "number" and ti >= 0 then
+      novos[i].target = novos[ti + 1]
+    end
+    if type(tr) == "number" and tr >= 0 then
+      novos[i].tracer = novos[tr + 1]
     end
   end
   apply_player(game.player, data.player)

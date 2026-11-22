@@ -109,6 +109,19 @@ function M.spawn_mobj(world, x, y, z, typ, game)
   return mo
 end
 
+-- C5: recria um mobj gravado (P_UnArchiveThinkers): todos os campos vem do
+-- save, e nada e sorteado (o P_SpawnMobj sorteia o lastlook). Os campos do
+-- blockmap nao vem do save: set_thing_position os refaz.
+function M.recriar_mobj(world, campos, game)
+  local mo = {}
+  for k, v in pairs(campos) do
+    mo[k] = v
+  end
+  world.mobjs[#world.mobjs + 1] = mo
+  collision.set_thing_position(world, mo)
+  return mo
+end
+
 function M.remove_mobj(world, mo)
   collision.unset_thing_position(world, mo)
   mo.alive = false
