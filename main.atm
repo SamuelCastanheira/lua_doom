@@ -28,6 +28,10 @@
 ;; pedidos). Assim nenhuma task e abortada no meio de uma chamada Lua.
 ;;
 ;; Equivalencia com a versao imperativa (tag passo1): tests/test_drivers.sh.
+;;
+;; Os modulos ficam em jogo/, render/ e ponte/ (caminhos.lua).
+
+require "caminhos"
 
 val env  = require "atmos.env.doom"
 val game = require "game"

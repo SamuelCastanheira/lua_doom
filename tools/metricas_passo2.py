@@ -21,13 +21,19 @@ FILES = ["game.lua", "menu.lua", "cheats.lua", "saveg.lua", "main.lua", "main.at
 
 
 def read(ref, path):
-    if ref is None:
-        try:
-            return open(path).read()
-        except FileNotFoundError:
-            return ""
-    r = subprocess.run(["git", "show", f"{ref}:{path}"], capture_output=True, text=True)
-    return r.stdout if r.returncode == 0 else ""
+    # o arquivo pelo nome: na raiz (as tags antigas) ou em jogo/, render/ e
+    # ponte/ (desde a organizacao em pastas)
+    caminhos = [path] + [p + "/" + path for p in ("jogo", "render", "ponte")]
+    for c in caminhos:
+        if ref is None:
+            try:
+                return open(c).read()
+            except FileNotFoundError:
+                continue
+        r = subprocess.run(["git", "show", f"{ref}:{c}"], capture_output=True, text=True)
+        if r.returncode == 0:
+            return r.stdout
+    return ""
 
 
 def code_lines(text, comment):

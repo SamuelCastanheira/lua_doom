@@ -28,6 +28,9 @@ import re
 import shutil
 import subprocess
 import sys
+import sys as _sys
+_sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import pastas
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 os.chdir(ROOT)
@@ -261,12 +264,8 @@ def memoria():
     print("|---|---|")
     for nome, src, cmd in drivers:
         path = os.path.join(ROOT, "build", "memoria", "run")
-        shutil.rmtree(path, ignore_errors=True)
-        os.makedirs(path)
         src = os.path.abspath(src)
-        for f in os.listdir(src):
-            if f.endswith((".lua", ".so", ".dll", ".atm", ".wad")) or f == "atmos":
-                os.symlink(os.path.join(src, f), os.path.join(path, f))
+        pastas.montar_execucao(src, path)
         env = dict(os.environ, DOOM_REPLAY=script, DOOM_REPLAY_OUT=os.path.join(path, "x.log"),
                    LUA_INIT_5_4=LUA_INIT)
         r = subprocess.run(cmd + ["-nosound", "-nomusic"], cwd=path, env=env,

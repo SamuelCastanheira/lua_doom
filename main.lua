@@ -18,6 +18,7 @@
 io.stdout:setvbuf("no")
 io.stderr:setvbuf("no")
 
+require("caminhos")                   -- jogo/, render/ e ponte/ no caminho
 atmos = require("atmos")
 require("atmos.lang.exec")
 require("atmos.lang.run")

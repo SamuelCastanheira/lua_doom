@@ -114,10 +114,11 @@ test_fixed_c_SRC  := tests/test_fixed_c.c src/fixed_c.c
 
 tables_c_LIBS := -lm
 
-TARGETS := $(addsuffix .$(EXT),$(MODULES))
+TARGETS := $(addprefix ponte/,$(addsuffix .$(EXT),$(MODULES)))
 
-# Os .so ficam na raiz para qualquer modo; o stamp muda quando o modo muda,
-# forcando o relink ao alternar entre debug e release.
+# Os .so ficam em ponte/ (a comunicacao com o C) para qualquer modo; o stamp
+# muda quando o modo muda, forcando o relink ao alternar entre debug e
+# release.
 MODE_STAMP := build/.mode-stamp
 $(shell mkdir -p build; [ "$$(cat $(MODE_STAMP) 2>/dev/null)" = "$(PLATFORM)-$(MODE)" ] || echo "$(PLATFORM)-$(MODE)" > $(MODE_STAMP))
 
@@ -135,7 +136,7 @@ debug:
 define MODULE_RULES
 $(1)_OBJ := $$(patsubst %.c,$(BUILD)/%.o,$$($(1)_SRC))
 
-$(1).$(EXT): $$($(1)_OBJ) $(MODE_STAMP)
+ponte/$(1).$(EXT): $$($(1)_OBJ) $(MODE_STAMP)
 	$$(CC) $$(filter %.o,$$^) -o $$@ $$(LDFLAGS_ALL) $$($(1)_LIBS) $$(MOD_LIBS)
 
 $$($(1)_OBJ): EXTRA_CFLAGS := $$($(1)_CFLAGS)
@@ -149,6 +150,12 @@ $(BUILD)/%.o: %.c
 -include $(shell find build -name '*.d' 2>/dev/null)
 
 # ------------------------------------------------------------- tarefas
+# Os modulos ficam em jogo/, render/ e ponte/ (caminhos.lua). main.lua e
+# main.atm acham os modulos sozinhos; os testes unitarios e as ferramentas
+# Lua rodados por aqui recebem os caminhos pelo ambiente.
+export LUA_PATH  := ./?.lua;./jogo/?.lua;./render/?.lua;./ponte/?.lua;./ponte/?/init.lua;;
+export LUA_CPATH := ./ponte/?.so;./ponte/?.dll;;
+
 # Em modo debug o ASan precisa ser carregado antes do interpretador.
 ifeq ($(MODE),debug)
   ifeq ($(PLATFORM),unix)
@@ -278,10 +285,10 @@ check-baseline: all
 
 clean:
 	rm -rf build/$(PLATFORM)-* build/compare build/check
-	rm -f $(addsuffix .so,$(MODULES)) $(addsuffix .dll,$(MODULES))
+	rm -f $(addprefix ponte/,$(addsuffix .so,$(MODULES))) $(addprefix ponte/,$(addsuffix .dll,$(MODULES)))
 
 distclean: clean
-	rm -f fixed_test.so src/*.so ./.\\doommus_*.mid
+	rm -f musica/*.mid
 
 help:
 	@echo "PLATFORM     = $(PLATFORM)"

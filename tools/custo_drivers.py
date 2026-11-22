@@ -21,6 +21,9 @@ import shutil
 import subprocess
 import sys
 import time
+import sys as _sys
+_sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import pastas
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 REF = os.path.join(ROOT, "build", "ref-passo1")
@@ -41,11 +44,7 @@ DRIVERS = [
 
 
 def mkrun(src, path):
-    shutil.rmtree(path, ignore_errors=True)
-    os.makedirs(path)
-    for name in os.listdir(src):
-        if name.endswith((".lua", ".so", ".dll", ".atm", ".wad")) or name == "atmos":
-            os.symlink(os.path.join(src, name), os.path.join(path, name))
+    pastas.montar_execucao(src, path)
 
 
 def run(src, cmd, script):

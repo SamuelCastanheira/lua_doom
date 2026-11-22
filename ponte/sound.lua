@@ -231,15 +231,23 @@ function M.change_music(self, name, looping)
     return
   end
   M.stop_music(self)
-  local sep = package.config:sub(1, 1)
-  local dir = os.getenv("TMPDIR") or os.getenv("TEMP") or os.getenv("TMP")
-  if not dir or dir == "" then
-    dir = sep == "/" and "/tmp" or "."
-  end
-  dir = string.gsub(dir, "[\\/]+$", "")
+  -- O MIDI temporario vai para a pasta musica/ (criada se faltar); so se
+  -- ela nao puder ser usada, para a pasta temporaria do sistema. A barra
+  -- "/" serve tambem no Windows (antes, ".\\" virava parte do nome fora dele).
   music_seq = music_seq + 1
-  local path = string.format("%s%sdoommus_%d_%d.mid", dir, sep, os.time(), music_seq)
+  local nome = string.format("doommus_%d_%d.mid", os.time(), music_seq)
+  local path = "musica/" .. nome
   local f = io.open(path, "wb")
+  if not f then
+    os.execute('mkdir "musica"')
+    f = io.open(path, "wb")
+  end
+  if not f then
+    local dir = os.getenv("TMPDIR") or os.getenv("TEMP") or os.getenv("TMP") or "/tmp"
+    dir = string.gsub(dir, "[\\/]+$", "")
+    path = dir .. "/" .. nome
+    f = io.open(path, "wb")
+  end
   if not f then
     return
   end

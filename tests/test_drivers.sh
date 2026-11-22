@@ -71,16 +71,26 @@ SCRIPT="$OUT/replay_$SEED$EXITS.txt"
 lua5.4 tools/make_replay.lua "$SCRIPT" "$FRAMES" "$SEED" "$EXITS" >/dev/null
 
 # Cada execucao roda numa pasta propria (links para o codigo, sem saves):
-# o jogo salva na pasta do IWAD, entao saves de teste nunca tocam os
-# arquivos do usuario e toda execucao comeca sem saves.
+# o jogo salva na pasta saves/ ao lado do IWAD (as tags antigas, na propria
+# pasta do IWAD), entao saves de teste nunca tocam os arquivos do usuario e
+# toda execucao comeca sem saves. Desde a organizacao em pastas, o codigo
+# fica em jogo/, render/ e ponte/; as tags antigas tem tudo na raiz (e o
+# ambiente Atmos em atmos/), e os dois jeitos funcionam.
 mkrun() {
   rm -rf "$2"
-  mkdir -p "$2"
+  mkdir -p "$2/saves" "$2/musica"
   for f in "$1"/*.lua "$1"/*.so "$1"/*.dll "$1"/*.atm "$1"/*.wad; do
     [ -e "$f" ] && ln -s "$f" "$2/"
   done
-  [ -d "$1/atmos" ] && ln -s "$1/atmos" "$2/atmos"
+  for d in atmos jogo render ponte; do
+    [ -d "$1/$d" ] && ln -s "$1/$d" "$2/$d"
+  done
   return 0
+}
+# O save N de uma execucao: em saves/ (desde a organizacao em pastas) ou na
+# raiz da pasta (as tags antigas)
+save_de() {
+  if [ -e "$1/saves/$2" ]; then echo "$1/saves/$2"; else echo "$1/$2"; fi
 }
 mkrun "$ROOT/$REF_DIR" "$ROOT/$OUT/run_ref"
 mkrun "$ROOT" "$ROOT/$OUT/run_atm"
@@ -95,7 +105,7 @@ fi
 cp "$OUT/ref.log" "$OUT/ref_$SEED$EXITS.log"
 rm -rf "$OUT/saves_$SEED$EXITS"
 mkdir -p "$OUT/saves_$SEED$EXITS"
-for f in "$OUT"/run_ref/doomsav*.dsg; do
+for f in "$OUT"/run_ref/doomsav*.dsg "$OUT"/run_ref/saves/doomsav*.dsg; do
   [ -e "$f" ] && cp "$f" "$OUT/saves_$SEED$EXITS/"
 done
 (cd "$OUT/run_atm" && DOOM_REPLAY="$ROOT/$SCRIPT" DOOM_REPLAY_OUT="$ROOT/$OUT/atm.log" \
@@ -106,9 +116,9 @@ done
 status=0
 # Saves sao parte do resultado: os arquivos gravados pelas duas versoes tem
 # de ser identicos byte a byte (o formato nao mudou na migracao).
-for f in "$OUT"/run_ref/doomsav*.dsg; do
+for f in "$OUT"/run_ref/doomsav*.dsg "$OUT"/run_ref/saves/doomsav*.dsg; do
   [ -e "$f" ] || continue
-  if ! cmp -s "$f" "$OUT/run_atm/$(basename "$f")"; then
+  if ! cmp -s "$f" "$(save_de "$OUT/run_atm" "$(basename "$f")")"; then
     echo "DIVERGENCIA no save $(basename "$f") (referencia x atmos)"
     status=1
   fi
@@ -170,7 +180,7 @@ fi
 # e o jogo tem de ter carregado esse save e chegado ao E1M4.
 if [ "$EXITS" = "botoes" ] && [ $status -eq 0 ]; then
   for run in run_ref run_atm; do
-    if ! grep -aq '"buttons":\[{' "$OUT/$run/doomsav5.dsg" 2>/dev/null; then
+    if ! grep -aq '"buttons":\[{' "$(save_de "$OUT/$run" doomsav5.dsg)" 2>/dev/null; then
       echo "COBERTURA INCOMPLETA: $run nao gravou um botao ativo no save (slot 5)"
       status=1
     fi
@@ -183,7 +193,7 @@ fi
 # abrindo, 4 esperando, 3 fechando), tres loads, E1M6 (30 s) e E1M2.
 if [ "$EXITS" = "portas" ] && [ $status -eq 0 ]; then
   fase() {
-    got=$(grep -ao '"kind":"door"[^}]*' "$OUT/run_atm/doomsav$1.dsg" 2>/dev/null | grep -c "\"direction\":$2,")
+    got=$(grep -ao '"kind":"door"[^}]*' "$(save_de "$OUT/run_atm" "doomsav$1.dsg")" 2>/dev/null | grep -c "\"direction\":$2,")
     if [ "$got" -lt 1 ]; then
       echo "COBERTURA INCOMPLETA: o slot $1 nao tem porta com direction $2"
       status=1
@@ -203,7 +213,7 @@ fi
 # enorme), quatro loads, E1M3 e E2M3.
 if [ "$EXITS" = "elevadores" ] && [ $status -eq 0 ]; then
   fase_p() {
-    got=$(grep -ao '"kind":"plat"[^}]*' "$OUT/run_atm/doomsav$1.dsg" 2>/dev/null | grep -c "\"status\":$2,")
+    got=$(grep -ao '"kind":"plat"[^}]*' "$(save_de "$OUT/run_atm" "doomsav$1.dsg")" 2>/dev/null | grep -c "\"status\":$2,")
     if [ "$got" -lt 1 ]; then
       echo "COBERTURA INCOMPLETA: o slot $1 nao tem elevador com status $2"
       status=1
@@ -222,7 +232,7 @@ fi
 # prints (registro do passo 3, secao 3d).
 if [ "$EXITS" = "pisos" ] && [ $status -eq 0 ]; then
   for d in 1 -1; do
-    got=$(grep -ao '"kind":"floor"[^}]*' "$OUT/run_atm/doomsav5.dsg" 2>/dev/null | grep -c "\"direction\":$d,")
+    got=$(grep -ao '"kind":"floor"[^}]*' "$(save_de "$OUT/run_atm" doomsav5.dsg)" 2>/dev/null | grep -c "\"direction\":$d,")
     [ "$got" -ge 1 ] || { echo "COBERTURA INCOMPLETA: o slot 5 nao tem piso com direction $d"; status=1; }
   done
   n=$(grep -c "^pedido jogo.carregar" "$OUT/atm.out" || true)
@@ -238,8 +248,8 @@ fi
 # municao e a morte atirando foram conferidas com prints (registro do passo
 # 4, secao 4a).
 if [ "$EXITS" = "arma" ] && [ $status -eq 0 ]; then
-  grep -aqE '"psp0_state":8[4-7][,}]' "$OUT/run_atm/doomsav5.dsg" 2>/dev/null || { echo "COBERTURA INCOMPLETA: o slot 5 nao tem a arma atirando"; status=1; }
-  grep -aq '"readyweapon":6' "$OUT/run_atm/doomsav5.dsg" 2>/dev/null || { echo "COBERTURA INCOMPLETA: o slot 5 nao tem o BFG"; status=1; }
+  grep -aqE '"psp0_state":8[4-7][,}]' "$(save_de "$OUT/run_atm" doomsav5.dsg)" 2>/dev/null || { echo "COBERTURA INCOMPLETA: o slot 5 nao tem a arma atirando"; status=1; }
+  grep -aq '"readyweapon":6' "$(save_de "$OUT/run_atm" doomsav5.dsg)" 2>/dev/null || { echo "COBERTURA INCOMPLETA: o slot 5 nao tem o BFG"; status=1; }
   n=$(grep -c "^pedido jogo.carregar" "$OUT/atm.out" || true)
   [ "$n" -ge 1 ] || { echo "COBERTURA INCOMPLETA: $n loads (esperado 1)"; status=1; }
   v=$(grep -c "^vista E1M1" "$OUT/ref.out" || true)
@@ -250,7 +260,7 @@ fi
 # Os comportamentos percorridos (procurar, correr, atacar, dor, morrer,
 # explodir, pesadelo) foram conferidos com prints (registro do passo 5).
 if [ "$EXITS" = "monstro" ] && [ $status -eq 0 ]; then
-  [ -e "$OUT/run_atm/doomsav5.dsg" ] || { echo "COBERTURA INCOMPLETA: sem o save do slot 5"; status=1; }
+  [ -e "$(save_de "$OUT/run_atm" doomsav5.dsg)" ] || { echo "COBERTURA INCOMPLETA: sem o save do slot 5"; status=1; }
   n=$(grep -c "^pedido jogo.carregar" "$OUT/atm.out" || true)
   [ "$n" -ge 1 ] || { echo "COBERTURA INCOMPLETA: $n loads (esperado 1)"; status=1; }
   [ $status -eq 0 ] && echo "  cobertura do monstro: save e load no meio da briga; E1M2 com -respawn"
@@ -260,7 +270,7 @@ fi
 # (procurar, correr, atacar, dor, morrer; explodir no Zombieman e no Shotgun
 # Guy) foram conferidos com prints (registro do passo 9).
 if [ "$EXITS" = "familia" ] && [ $status -eq 0 ]; then
-  [ -e "$OUT/run_atm/doomsav5.dsg" ] || { echo "COBERTURA INCOMPLETA: sem o save do slot 5"; status=1; }
+  [ -e "$(save_de "$OUT/run_atm" doomsav5.dsg)" ] || { echo "COBERTURA INCOMPLETA: sem o save do slot 5"; status=1; }
   n=$(grep -c "^pedido jogo.carregar" "$OUT/atm.out" || true)
   [ "$n" -ge 1 ] || { echo "COBERTURA INCOMPLETA: $n loads (esperado 1)"; status=1; }
   grep -q "^vista E1M5" "$OUT/ref.out" || { echo "COBERTURA INCOMPLETA: nao esta no E1M5"; status=1; }

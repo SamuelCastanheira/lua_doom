@@ -19,6 +19,9 @@ import os
 import shutil
 import subprocess
 import sys
+import sys as _sys
+_sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import pastas
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 OUT = os.path.join(ROOT, "build", "drivers")
@@ -823,15 +826,14 @@ MUTACOES = [
 
 
 def mkrun(path, mudados):
-    """mudados: {arquivo: conteudo mutado}."""
-    shutil.rmtree(path, ignore_errors=True)
-    os.makedirs(path)
-    for name in os.listdir(ROOT):
-        if name.endswith((".lua", ".so", ".dll", ".atm", ".wad")) or name == "atmos":
-            os.symlink(os.path.join(ROOT, name), os.path.join(path, name))
+    """mudados: {arquivo: conteudo mutado}. As pastas do codigo sao
+    copiadas com um link por arquivo, e o arquivo mutado troca o seu link
+    (o original nao e tocado)."""
+    pastas.montar_execucao(ROOT, path, copiar_pastas=True)
     for arquivo, conteudo in mudados.items():
-        os.remove(os.path.join(path, arquivo))
-        with open(os.path.join(path, arquivo), "w") as f:
+        destino = os.path.join(path, pastas.localizar(ROOT, arquivo))
+        os.remove(destino)
+        with open(destino, "w") as f:
             f.write(conteudo)
 
 
@@ -876,7 +878,7 @@ def main():
         mudados = {}
         aplicavel = True
         for arq, o, n in edits:
-            src = mudados.get(arq) or open(os.path.join(ROOT, arq)).read()
+            src = mudados.get(arq) or open(os.path.join(ROOT, pastas.localizar(ROOT, arq))).read()
             if src.count(o) != 1:
                 aplicavel = False
                 break
@@ -901,7 +903,7 @@ def main():
         if os.path.isdir(saves_ref):
             for nome_dsg in sorted(os.listdir(saves_ref)):
                 a_dsg = os.path.join(saves_ref, nome_dsg)
-                b_dsg = os.path.join(run, nome_dsg)
+                b_dsg = pastas.save_de(run, nome_dsg)
                 if not os.path.exists(b_dsg) or open(a_dsg, "rb").read() != open(b_dsg, "rb").read():
                     saves_dif.append(nome_dsg)
         if first is None and saves_dif:

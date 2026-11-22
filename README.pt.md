@@ -54,7 +54,7 @@ O que ele pretende ensinar:
 
 Caminho sugerido:
 
-1. Rode `run.bat`, depois `run.bat jit`, e leia `main.lua` — arranque, tic, entrada.
+1. Rode `make` e `lua5.4 main.lua`, e leia `main.lua` — arranque, tic, entrada.
 2. Compare `compat.lua` com `python_doom/doom/compat.py`.
 3. Abra `render.lua` ao lado de `python_doom/doom/render.py`.
 4. Siga uma porta do **Espaço** (`use_lines` em `collision.lua`) até `specials.lua`.
@@ -78,7 +78,7 @@ Listas em Python são 0-based. Tabelas do Lua usadas como array são 1-based. Lu
 | `a // b` | `math.floor` |
 | `fixed_mul` / `fixed_div` | `fixed_mul` / `fixed_div` |
 | framebuffer `bytearray` | tabela de bytes, 64000 posições |
-| pygame | SDL2: FFI no LuaJIT, `video_c.dll` no Lua 5.4 |
+| pygame | SDL2: FFI no LuaJIT, `ponte/video_c.so` (ou `.dll`) no Lua 5.4 |
 | `+=` | `x = x + ...` |
 
 Uma tabela é uma referência, então escrever um campo aparece para quem chamou, do mesmo jeito que um objeto em Python.
@@ -115,7 +115,7 @@ end
 | Blit da paleta / CRT | Lua, depois a textura da SDL | numpy |
 | MIDI (Windows) | winmm MCI | a mesma ideia, fora do pygame |
 | IWAD | os mesmos lumps | os mesmos lumps |
-| Build | nenhum no LuaJIT. `build_video.bat` só quando `src/video_c.c` muda | `pip install -r requirements.txt` |
+| Build | nenhum no LuaJIT. `make` compila os modulos em C | `pip install -r requirements.txt` |
 
 O renderer é Lua. O arquivo em C é só a ponte do Lua 5.4.
 
@@ -134,13 +134,13 @@ Ferramentas, no MSYS2 UCRT64:
 Neste diretório:
 
 ```
-run.bat
-run.bat jit
-run.bat -warp 1 1 -skill 2
-run.bat jit -fps -crt
+make
+lua5.4 main.lua
+lua5.4 main.lua -warp 1 1 -skill 2
+lua5.4 main.lua -fps -scale 4
 ```
 
-`run.bat` abre a janela com o Lua 5.4. `run.bat jit` abre o mesmo jogo com o LuaJIT. A janela é 640×400. Sem `-crt`, a textura de 320×200 é esticada em nearest-neighbor.
+`make` compila os modulos em C (em `ponte/`); `lua5.4 main.lua` abre a janela. A janela é 640×400. Sem `-crt`, a textura de 320×200 é esticada em nearest-neighbor.
 
 ---
 
@@ -213,48 +213,53 @@ Digite durante a fase, com o menu fechado. Sem Enter. No pesadelo só **IDCLEV**
 | `-nosound` | Sem efeitos |
 | `-nomusic` | Sem MIDI |
 
-Trocar de fase derrete a tela. Um jogo novo a partir do título não derrete. O mapa 8 do shareware escreve o `E1TEXT` em `FLOOR4_8`. Os saves vão de `doomsav0.dsg` a `doomsav5.dsg`, ao lado do IWAD, com o cabeçalho `DOOMPY01`.
+Trocar de fase derrete a tela. Um jogo novo a partir do título não derrete. O mapa 8 do shareware escreve o `E1TEXT` em `FLOOR4_8`. Os saves vão de `doomsav0.dsg` a `doomsav5.dsg`, na pasta `saves/` ao lado do IWAD, com o cabeçalho `DOOMPY01`.
 
 ---
 
 ## Estrutura
 
 ```
-main.lua             entrada
-run.bat              Lua 5.4, ou `jit` para o LuaJIT
-video_ffi.lua        SDL2 pela FFI do LuaJIT
-src/video_c.c        a mesma API para o Lua 5.4
-build_video.bat      recompila essa ponte
+main.lua             entrada (Lua 5.4)
+main.atm             o laco e o fluxo de telas em Atmos
+caminhos.lua         poe jogo/, render/ e ponte/ no caminho dos modulos
+jogo/                a logica do jogo (e as tasks Atmos, *.atm)
+render/              o lado Lua do renderer (render, sprites, r_data, v_video, wipe)
+ponte/               a ponte com o C: video, teclas, som, mus2mid, o ambiente Atmos (atmos/),
+                     e os modulos compilados (*.so / *.dll) gerados pelo `make`
+src/                 os fontes em C (renderer, video, framebuffer, tabelas)
+saves/               doomsav0.dsg .. doomsav5.dsg
+musica/              os MIDI temporarios enquanto a musica toca
 screenshot/doom.png  a imagem do topo
 ```
 
 | Caminho | Python |
 | --- | --- |
-| `compat.lua` | `doom/compat.py` |
-| `wad.lua` | `doom/wad.py` |
-| `video.lua` | `doom/video.py` |
-| `v_video.lua` | `doom/v_video.py` |
-| `tables.lua` | `doom/tables.py` |
-| `r_data.lua` | `doom/r_data.py` |
-| `render.lua` | `doom/render.py` |
-| `world.lua` | `doom/world.py` |
-| `collision.lua` | `doom/collision.py` |
-| `player.lua` | `doom/player.py` |
-| `specials.lua` | `doom/specials.py` |
-| `info.lua` | `doom/info.py` |
-| `sprites.lua` | `doom/sprites.py` |
-| `enemy.lua` | `doom/enemy.py` |
-| `thinker.lua` | `doom/thinker.py` |
-| `status.lua` | `doom/status.py` |
-| `sound.lua` | `doom/sound.py` |
-| `mus2mid.lua` | `doom/mus2mid.py` |
-| `menu.lua` | `doom/menu.py` |
-| `wi_stuff.lua` | `doom/wi_stuff.py` |
-| `wipe.lua` | `doom/wipe.py` |
-| `cheats.lua` | a máquina de truques em `doom/game.py` |
-| `am_map.lua` | `doom/am_map.py` |
-| `finale.lua` | `doom/finale.py` |
-| `saveg.lua` | `doom/saveg.py` |
+| `jogo/compat.lua` | `doom/compat.py` |
+| `jogo/wad.lua` | `doom/wad.py` |
+| `ponte/video.lua` | `doom/video.py` |
+| `render/v_video.lua` | `doom/v_video.py` |
+| `jogo/tables.lua` | `doom/tables.py` |
+| `render/r_data.lua` | `doom/r_data.py` |
+| `render/render.lua` | `doom/render.py` |
+| `jogo/world.lua` | `doom/world.py` |
+| `jogo/collision.lua` | `doom/collision.py` |
+| `jogo/player.lua` | `doom/player.py` |
+| `jogo/specials.lua` | `doom/specials.py` |
+| `jogo/info.lua` | `doom/info.py` |
+| `render/sprites.lua` | `doom/sprites.py` |
+| `jogo/enemy.lua` | `doom/enemy.py` |
+| `jogo/thinker.lua` | `doom/thinker.py` |
+| `jogo/status.lua` | `doom/status.py` |
+| `ponte/sound.lua` | `doom/sound.py` |
+| `ponte/mus2mid.lua` | `doom/mus2mid.py` |
+| `jogo/menu.lua` | `doom/menu.py` |
+| `jogo/wi_stuff.lua` | `doom/wi_stuff.py` |
+| `render/wipe.lua` | `doom/wipe.py` |
+| `jogo/cheats.lua` | a máquina de truques em `doom/game.py` |
+| `jogo/am_map.lua` | `doom/am_map.py` |
+| `jogo/finale.lua` | `doom/finale.py` |
+| `jogo/saveg.lua` | `doom/saveg.py` |
 | `main.lua` | a entrada do Python |
 
 ---

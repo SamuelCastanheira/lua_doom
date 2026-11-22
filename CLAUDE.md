@@ -65,11 +65,36 @@ Atmos) e escreve em **português**. Responda em português.
 
 ## 2. Arquitetura
 
+### 2.0 As pastas (desde a organização de 2026-11-22)
+
+| Pasta | O que tem |
+|---|---|
+| raiz | `main.lua` (lançador), `main.atm` (laço e fluxo de telas), `caminhos.lua`, `Makefile`, `doom.wad` |
+| `jogo/` | a lógica: `game.lua`, `player`, `enemy`, `thinker`, `specials`, `collision`, `pspr`, `saveg`, `menu`, `status`, `am_map`, `finale`, `wi_stuff`, `cheats`, `world`, `info`, `wad`, `random`, `compat`, `tables`… e as tasks `.atm` (`arma`, `barra`, `interface`, `jogador`, `monstro`, `setores`, `telas`) |
+| `render/` | o lado Lua do renderer: `render`, `sprites`, `r_data`, `v_video`, `wipe` |
+| `ponte/` | a comunicação com o C: `video`, `keys`, `sound`, `mus2mid`, o ambiente Atmos (`ponte/atmos/env/doom/init.lua`) e os `.so`/`.dll` que o `make` gera |
+| `src/` | os fontes em C |
+| `saves/` | `doomsav0.dsg`… (o `doomsav0.dsg` versionado é do usuário) |
+| `musica/` | os MIDI temporários (apagados ao trocar de música e ao sair) |
+
+`caminhos.lua` põe `jogo/`, `render/` e `ponte/` no `package.path` (o Atmos
+procura os `.atm` no mesmo caminho) e `ponte/` no `package.cpath`;
+`main.lua` e `main.atm` o carregam antes de tudo. Os caminhos são relativos
+à pasta de onde o jogo roda (a raiz). O `Makefile` exporta `LUA_PATH` e
+`LUA_CPATH` para os testes unitários e as ferramentas Lua (rodar um teste
+direto, fora do `make`, precisa dessas variáveis). As ferramentas Python
+usam `tools/pastas.py` (achar um arquivo pelo nome, na raiz ou nas pastas;
+montar a pasta isolada de uma execução). As tags antigas (`passo1` a `c5`)
+têm tudo na raiz e os saves na pasta do IWAD; `tests/test_drivers.sh` e
+`tools/pastas.py` lidam com os dois jeitos.
+
+### 2.0.1 O fluxo
+
 ```
  main.lua ──(lancador)──> main.atm  (Atmos: entrada, relogio, quadro, fluxo de telas)
                              │ require
-                             ├── atmos/env/doom/init.lua   (ambiente: poll, tics, frame)
-                             └── game.lua                  (estado, regras, fases, API G.*)
+                             ├── ponte/atmos/env/doom/init.lua (ambiente: poll, tics, frame)
+                             └── jogo/game.lua             (estado, regras, fases, API G.*)
                                    │ require
    menu  player  enemy  thinker  specials  collision  saveg  cheats  status
    am_map  finale  wi_stuff  wipe  sound  world  info  sprites  render  ...  (Lua)
@@ -78,7 +103,7 @@ Atmos) e escreve em **português**. Responda em português.
        video_c (SDL2 + SDL2_mixer: janela, paleta/gama, audio, musica)
 ```
 
-### 2.1 Módulos em C (`src/`, compilados como `.so` na raiz)
+### 2.1 Módulos em C (`src/`, compilados como `.so` em `ponte/`)
 
 | Módulo | Fonte | Papel |
 |---|---|---|
@@ -152,7 +177,7 @@ Mais três tasks no nível superior: **entrada** (`loop ev on :input`),
 **relógio** (`loop on :tic`) e **quadro** (`loop on :frame`), dentro de um
 `par :any` com o `Fluxo` e o tratamento do `:jogo.sair`.
 
-### 2.4 O ambiente `atmos/env/doom/init.lua`
+### 2.4 O ambiente `ponte/atmos/env/doom/init.lua`
 
 A cada `step()`, emite nesta ordem:
 1. um evento por entrada: `{tag="input.key.down"|"input.key.up"|"input.mouse"|"input.quit", key=, ...}`;
@@ -492,13 +517,14 @@ não aborta ninguém (regra 4.2).
 - `math.random` (usado em `wipe.lua` e `wi_stuff.lua`): só é determinístico
   porque o replay fixa a semente. Na lógica de jogo, use `random.p_random()`
   ou `enemy.p_random()`.
-- **Saves são estado de entrada.** O jogo salva em `doomsavN.dsg` na pasta
-  do IWAD (a pasta de onde roda). Um arquivo deixado por uma execução
+- **Saves são estado de entrada.** O jogo salva em `saves/doomsavN.dsg`, ao
+  lado do IWAD (a pasta de onde roda; até a organização em pastas, na
+  própria pasta do IWAD). Um arquivo deixado por uma execução
   aparece no menu da seguinte e muda o framebuffer. Por isso
   `tests/test_drivers.sh` e as ferramentas rodam cada execução numa **pasta
   isolada** (links para o código, sem `.dsg`).
-- **Nunca rode roteiros na raiz do repositório:** `doomsav0.dsg` é um save
-  versionado do usuário. Ele já foi sobrescrito uma vez por um teste e
+- **Nunca rode roteiros na raiz do repositório:** `saves/doomsav0.dsg` é um
+  save versionado do usuário. Ele já foi sobrescrito uma vez por um teste e
   restaurado do commit `75c5e67`.
 - Iterar com `pairs` sobre tabelas com chaves-objeto tem ordem que pode
   variar entre processos. Evite isso em código que afete o estado.
@@ -620,7 +646,8 @@ shareware (125 texturas, 467 vértices) ou o antigo `r_data.lua`. Compare
 | Fonte do Doom original | `github.com/id-Software/DOOM`, `linuxdoom-1.10/` (consultado para `p_spec.c`, `r_bsp.c`, `v_video.c`, `g_game.c`…) |
 
 O `Makefile` funciona em Linux, macOS e MSYS2 (Windows). O `video_c.dll`
-versionado é antigo (sem a gama); no Windows, recompile.
+antigo e os `run.bat`/`build_video.bat` saíram do repositório na organização
+em pastas; no Windows, compile com o `make` (MSYS2).
 
 ---
 
