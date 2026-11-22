@@ -12,7 +12,8 @@
 
 local compat = require("compat")
 local player_mod = require("player")
-local tables = require("tables")
+-- finesine, tantoangle e slope_div: as tabelas do Doom, em C (tables_c)
+local tabela = require("tables_c").padrao
 local v = require("v_video")
 local wad = require("wad")
 
@@ -112,11 +113,10 @@ local function thin_triangle()
 end
 
 local function cosine_at(i)
-  return tables.finesine[band(i + 2048, 8191)]
+  return tabela:get_finesine(band(i + 2048, 8191))
 end
 
 function M.new()
-  tables.init()
   local marks = {}
   for i = 1, AM_NUMMARKPOINTS do
     marks[i] = { x = -1, y = -1 }
@@ -606,7 +606,7 @@ end
 local function rotate(x, y, a)
   local n_fine = compat.ushr(compat.as_u32(a), ANGLETOFINESHIFT)
   local cs = cosine_at(n_fine)
-  local sn = tables.finesine[n_fine]
+  local sn = tabela:get_finesine(n_fine)
   local rx = compat.fixed_mul(x, cs) - compat.fixed_mul(y, sn)
   local ry = compat.fixed_mul(x, sn) + compat.fixed_mul(y, cs)
   return rx, ry

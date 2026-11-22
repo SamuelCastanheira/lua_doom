@@ -97,12 +97,12 @@ Lua (`player.lua`):
 
 ```lua
 function M.thrust(mo, angle, move)
-  mo.momx = mo.momx + fixed_mul(move, tables.fine_cos(angle))
-  mo.momy = mo.momy + fixed_mul(move, tables.fine_sin(angle))
+  mo.momx = mo.momx + fixed_mul(move, tabela:fine_cos(angle))
+  mo.momy = mo.momy + fixed_mul(move, tabela:fine_sin(angle))
 end
 ```
 
-`.` continua `.`. Não há `+=`. `mo` é uma tabela, então o impulso novo fica no mobj que quem chamou já tem.
+`.` continua `.`; as tabelas vêm do C (`tables_c`), por isso a chamada é de método (`tabela:fine_cos`). Não há `+=`. `mo` é uma tabela, então o impulso novo fica no mobj que quem chamou já tem.
 
 ---
 
@@ -223,7 +223,7 @@ Trocar de fase derrete a tela. Um jogo novo a partir do título não derrete. O 
 main.lua             entrada (Lua 5.4)
 caminhos.lua         poe jogo/, render/ e ponte/ no caminho dos modulos
 jogo/                a logica do jogo
-render/              o lado Lua do renderer (render, sprites, r_data, v_video, wipe)
+render/              o lado Lua do renderer (render, sprites, v_video, wipe)
 ponte/               a ponte com o C: video, teclas, som, mus2mid,
                      e os modulos compilados (*.so / *.dll) gerados pelo `make`
 src/                 os fontes em C (renderer, video, framebuffer, tabelas)
@@ -238,8 +238,8 @@ screenshot/doom.png  a imagem do topo
 | `jogo/wad.lua` | `doom/wad.py` |
 | `ponte/video.lua` | `doom/video.py` |
 | `render/v_video.lua` | `doom/v_video.py` |
-| `jogo/tables.lua` | `doom/tables.py` |
-| `render/r_data.lua` | `doom/r_data.py` |
+| `tests/referencia/tables.lua` (oráculo do `tables_c`) | `doom/tables.py` |
+| `tests/referencia/r_data.lua` (oráculo do `r_data_c`) | `doom/r_data.py` |
 | `render/render.lua` | `doom/render.py` |
 | `jogo/world.lua` | `doom/world.py` |
 | `jogo/collision.lua` | `doom/collision.py` |
