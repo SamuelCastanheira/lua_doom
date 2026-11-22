@@ -14,7 +14,8 @@ local compat = require("compat")
 local collision = require("collision")
 local info = require("info")
 local rng = require("random")
-local tables = require("tables")
+-- finesine, tantoangle e slope_div: as tabelas do Doom, em C (tables_c)
+local tabela = require("tables_c").padrao
 
 local M = {}
 
@@ -351,7 +352,6 @@ function M.apply_fast(game)
 end
 
 function M.spawn_map(world, skill, game)
-  tables.init()
   local bit = skill_bit(skill or 2)
   local kills, items = 0, 0
   world.mobjs = {}

@@ -14,7 +14,8 @@ local compat = require("compat")
 local collision = require("collision")
 local info = require("info")
 local rng = require("random")
-local tables = require("tables")
+-- finesine, tantoangle e slope_div: as tabelas do Doom, em C (tables_c)
+local tabela = require("tables_c").padrao
 
 local M = {}
 
@@ -174,8 +175,8 @@ function M.damage_mobj(game, target, source, damage, inflictor)
       ang = as_u32(ang + ANG180)
       thrust = thrust * 4
     end
-    target.momx = (target.momx or 0) + fixed_mul(thrust, tables.fine_cos(ang))
-    target.momy = (target.momy or 0) + fixed_mul(thrust, tables.fine_sin(ang))
+    target.momx = (target.momx or 0) + fixed_mul(thrust, tabela:fine_cos(ang))
+    target.momy = (target.momy or 0) + fixed_mul(thrust, tabela:fine_sin(ang))
   end
   if target.player then
     local player_mod = require("player")
@@ -607,8 +608,8 @@ function M.spawn_missile_mt(world, source, dest, typ, game, ang)
   local mo = thinker.spawn_mobj(world, source.x, source.y, source.z + 32 * FRACUNIT, typ, game)
   mo.target = source
   mo.angle = ang
-  mo.momx = fixed_mul(speed, tables.fine_cos(ang))
-  mo.momy = fixed_mul(speed, tables.fine_sin(ang))
+  mo.momx = fixed_mul(speed, tabela:fine_cos(ang))
+  mo.momy = fixed_mul(speed, tabela:fine_sin(ang))
   mo.momz = trunc((dest.z - source.z) / steps)
   check_missile_spawn(mo)
   return mo
@@ -628,8 +629,8 @@ function M.spawn_player_missile(world, source, kind)
   local mo = thinker.spawn_mobj(world, source.x, source.y, source.z + 32 * FRACUNIT, typ, nil)
   mo.target = source
   mo.angle = ang
-  mo.momx = fixed_mul(spd, tables.fine_cos(ang))
-  mo.momy = fixed_mul(spd, tables.fine_sin(ang))
+  mo.momx = fixed_mul(spd, tabela:fine_cos(ang))
+  mo.momy = fixed_mul(spd, tabela:fine_sin(ang))
   mo.momz = fixed_mul(spd, slope)
   check_missile_spawn(mo)
   return mo
@@ -869,8 +870,8 @@ local function skull_attack(mo, game)
   mo.flags = bor(mo.flags, MF_SKULLFLY)
   play(game, "sklatk")
   face_target(mo, dest)
-  mo.momx = fixed_mul(SKULLSPEED, tables.fine_cos(mo.angle))
-  mo.momy = fixed_mul(SKULLSPEED, tables.fine_sin(mo.angle))
+  mo.momx = fixed_mul(SKULLSPEED, tabela:fine_cos(mo.angle))
+  mo.momy = fixed_mul(SKULLSPEED, tabela:fine_sin(mo.angle))
   local dist = collision.approx_distance(dest.x - mo.x, dest.y - mo.y)
   local steps = 1
   if SKULLSPEED ~= 0 then
@@ -901,8 +902,8 @@ local function tracer_home(mo)
     end
   end
   local speed = mi(mo)[info.MI_SPEED]
-  mo.momx = fixed_mul(speed, tables.fine_cos(mo.angle))
-  mo.momy = fixed_mul(speed, tables.fine_sin(mo.angle))
+  mo.momx = fixed_mul(speed, tabela:fine_cos(mo.angle))
+  mo.momy = fixed_mul(speed, tabela:fine_sin(mo.angle))
   local dist = collision.approx_distance(dest.x - mo.x, dest.y - mo.y)
   local steps = 1
   if speed ~= 0 then
@@ -954,8 +955,8 @@ local function pain_shoot_skull(world, actor, game, ang)
     return
   end
   local pre = 4 * FRACUNIT + math.floor(3 * actor.radius / 2)
-  local x = actor.x + fixed_mul(pre, tables.fine_cos(ang))
-  local y = actor.y + fixed_mul(pre, tables.fine_sin(ang))
+  local x = actor.x + fixed_mul(pre, tabela:fine_cos(ang))
+  local y = actor.y + fixed_mul(pre, tabela:fine_sin(ang))
   local skull = thinker.spawn_mobj(world, x, y, actor.z, info.MT_SKULL, game)
   skull.angle = ang
   local chk = collision.check_position(world, skull, skull.x, skull.y)
@@ -1296,8 +1297,8 @@ function M.call_action(name, mo, world, game)
     M.spawn_missile_mt(world, mo, mo.target, info.MT_FATSHOT, game)
     local miss = M.spawn_missile_mt(world, mo, mo.target, info.MT_FATSHOT, game)
     miss.angle = as_u32(miss.angle + FATSPREAD)
-    miss.momx = fixed_mul(mi(miss)[info.MI_SPEED], tables.fine_cos(miss.angle))
-    miss.momy = fixed_mul(mi(miss)[info.MI_SPEED], tables.fine_sin(miss.angle))
+    miss.momx = fixed_mul(mi(miss)[info.MI_SPEED], tabela:fine_cos(miss.angle))
+    miss.momy = fixed_mul(mi(miss)[info.MI_SPEED], tabela:fine_sin(miss.angle))
   elseif name == "FatAttack2" then
     if mo.target == nil then
       return
@@ -1307,8 +1308,8 @@ function M.call_action(name, mo, world, game)
     M.spawn_missile_mt(world, mo, mo.target, info.MT_FATSHOT, game)
     local miss = M.spawn_missile_mt(world, mo, mo.target, info.MT_FATSHOT, game)
     miss.angle = as_u32(miss.angle - FATSPREAD * 2)
-    miss.momx = fixed_mul(mi(miss)[info.MI_SPEED], tables.fine_cos(miss.angle))
-    miss.momy = fixed_mul(mi(miss)[info.MI_SPEED], tables.fine_sin(miss.angle))
+    miss.momx = fixed_mul(mi(miss)[info.MI_SPEED], tabela:fine_cos(miss.angle))
+    miss.momy = fixed_mul(mi(miss)[info.MI_SPEED], tabela:fine_sin(miss.angle))
   elseif name == "FatAttack3" then
     if mo.target == nil then
       return
@@ -1316,12 +1317,12 @@ function M.call_action(name, mo, world, game)
     face_target(mo, mo.target)
     local miss = M.spawn_missile_mt(world, mo, mo.target, info.MT_FATSHOT, game)
     miss.angle = as_u32(mo.angle - math.floor(FATSPREAD / 2))
-    miss.momx = fixed_mul(mi(miss)[info.MI_SPEED], tables.fine_cos(miss.angle))
-    miss.momy = fixed_mul(mi(miss)[info.MI_SPEED], tables.fine_sin(miss.angle))
+    miss.momx = fixed_mul(mi(miss)[info.MI_SPEED], tabela:fine_cos(miss.angle))
+    miss.momy = fixed_mul(mi(miss)[info.MI_SPEED], tabela:fine_sin(miss.angle))
     miss = M.spawn_missile_mt(world, mo, mo.target, info.MT_FATSHOT, game)
     miss.angle = as_u32(mo.angle + math.floor(FATSPREAD / 2))
-    miss.momx = fixed_mul(mi(miss)[info.MI_SPEED], tables.fine_cos(miss.angle))
-    miss.momy = fixed_mul(mi(miss)[info.MI_SPEED], tables.fine_sin(miss.angle))
+    miss.momx = fixed_mul(mi(miss)[info.MI_SPEED], tabela:fine_cos(miss.angle))
+    miss.momy = fixed_mul(mi(miss)[info.MI_SPEED], tabela:fine_sin(miss.angle))
   elseif name == "BrainPain" then
     play(game, "bospn")
   elseif name == "BrainScream" then

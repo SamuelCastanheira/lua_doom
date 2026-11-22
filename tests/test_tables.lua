@@ -176,4 +176,36 @@ end
 
 print("slope_div: OK")
 
+-- =========================================================
+-- A instancia padrao (usada pela logica do jogo desde que o
+-- tables.lua saiu do jogo) e o dominio de collision.angle_to:
+-- num e den de 0 a 2^31 (o -y de y = -2^31 nao cabe em int32)
+-- =========================================================
+
+print("Testando a instancia padrao e slope_div ate 2^31...")
+
+local padrao = c_tables.padrao
+
+test_arrays(lua_tables.finesine, function(i) return padrao:get_finesine(i) end,
+0, lua_tables.FINEANGLES * 5 / 4 - 1, "padrao.finesine")
+test_arrays(lua_tables.tantoangle, function(i) return padrao:get_tantoangle(i) end,
+0, 2048, "padrao.tantoangle")
+
+local bordas = {0, 1, 511, 512, 513, 65535, 65536, 2147483647, 2147483648}
+for _, num in ipairs(bordas) do
+for _, den in ipairs(bordas) do
+equal(lua_tables.slope_div(num, den), padrao:slope_div(num, den),
+"padrao:slope_div(" .. num .. ", " .. den .. ")")
+end
+end
+
+for i = 1, 10000 do
+local num = math.random(0, 2147483648)
+local den = math.random(0, 2147483648)
+equal(lua_tables.slope_div(num, den), padrao:slope_div(num, den),
+"padrao:slope_div aleatorio #" .. i)
+end
+
+print("padrao: OK")
+
 print("\nTodos os testes passaram!")

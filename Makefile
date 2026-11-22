@@ -153,7 +153,7 @@ $(BUILD)/%.o: %.c
 # Os modulos ficam em jogo/, render/ e ponte/ (caminhos.lua). main.lua e
 # main.atm acham os modulos sozinhos; os testes unitarios e as ferramentas
 # Lua rodados por aqui recebem os caminhos pelo ambiente.
-export LUA_PATH  := ./?.lua;./jogo/?.lua;./render/?.lua;./ponte/?.lua;./ponte/?/init.lua;;
+export LUA_PATH  := ./?.lua;./jogo/?.lua;./render/?.lua;./ponte/?.lua;./ponte/?/init.lua;./tests/referencia/?.lua;;
 export LUA_CPATH := ./ponte/?.so;./ponte/?.dll;;
 
 # Em modo debug o ASan precisa ser carregado antes do interpretador.

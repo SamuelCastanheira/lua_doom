@@ -12,7 +12,8 @@
 
 local compat = require("compat")
 local world_mod = require("world")
-local tables = require("tables")
+-- finesine, tantoangle e slope_div: as tabelas do Doom, em C (tables_c)
+local tabela = require("tables_c").padrao
 local rng = require("random")
 
 local M = {}
@@ -180,7 +181,6 @@ function M.approx_distance(dx, dy)
 end
 
 function M.angle_to(x1, y1, x2, y2)
-  tables.init()
   local x = as_i32(x2 - x1)
   local y = as_i32(y2 - y1)
   if x == 0 and y == 0 then
@@ -189,28 +189,28 @@ function M.angle_to(x1, y1, x2, y2)
   if x >= 0 then
     if y >= 0 then
       if x > y then
-        return tables.tantoangle[tables.slope_div(y, x)]
+        return tabela:get_tantoangle(tabela:slope_div(y, x))
       end
-      return as_u32(ANG90 - 1 - tables.tantoangle[tables.slope_div(x, y)])
+      return as_u32(ANG90 - 1 - tabela:get_tantoangle(tabela:slope_div(x, y)))
     end
     y = -y
     if x > y then
-      return as_u32(-tables.tantoangle[tables.slope_div(y, x)])
+      return as_u32(-tabela:get_tantoangle(tabela:slope_div(y, x)))
     end
-    return as_u32(3221225472 + tables.tantoangle[tables.slope_div(x, y)])
+    return as_u32(3221225472 + tabela:get_tantoangle(tabela:slope_div(x, y)))
   end
   x = -x
   if y >= 0 then
     if x > y then
-      return as_u32(ANG180 - 1 - tables.tantoangle[tables.slope_div(y, x)])
+      return as_u32(ANG180 - 1 - tabela:get_tantoangle(tabela:slope_div(y, x)))
     end
-    return as_u32(ANG90 + tables.tantoangle[tables.slope_div(x, y)])
+    return as_u32(ANG90 + tabela:get_tantoangle(tabela:slope_div(x, y)))
   end
   y = -y
   if x > y then
-    return as_u32(ANG180 + tables.tantoangle[tables.slope_div(y, x)])
+    return as_u32(ANG180 + tabela:get_tantoangle(tabela:slope_div(y, x)))
   end
-  return as_u32(3221225472 - 1 - tables.tantoangle[tables.slope_div(x, y)])
+  return as_u32(3221225472 - 1 - tabela:get_tantoangle(tabela:slope_div(x, y)))
 end
 
 function M.unset_thing_position(world, thing)
@@ -771,8 +771,8 @@ local function hit_slide_line(thing, line, tmx, tmy)
   if delta > ANG180 then
     delta = as_u32(delta + ANG180)
   end
-  local newlen = fixed_mul(M.approx_distance(tmx, tmy), tables.fine_cos(delta))
-  return fixed_mul(newlen, tables.fine_cos(lineangle)), fixed_mul(newlen, tables.fine_sin(lineangle))
+  local newlen = fixed_mul(M.approx_distance(tmx, tmy), tabela:fine_cos(delta))
+  return fixed_mul(newlen, tabela:fine_cos(lineangle)), fixed_mul(newlen, tabela:fine_sin(lineangle))
 end
 
 local function slide_blocks(thing, li)
@@ -900,8 +900,8 @@ end
 function M.use_lines(world, player, game)
   local mo = player.mo
   local x1, y1 = mo.x, mo.y
-  local x2 = x1 + shar(USERANGE, FRACBITS) * tables.fine_cos(mo.angle)
-  local y2 = y1 + shar(USERANGE, FRACBITS) * tables.fine_sin(mo.angle)
+  local x2 = x1 + shar(USERANGE, FRACBITS) * tabela:fine_cos(mo.angle)
+  local y2 = y1 + shar(USERANGE, FRACBITS) * tabela:fine_sin(mo.angle)
   M.path_traverse(world, x1, y1, x2, y2, PT_ADDLINES, function(inn)
     local ln = inn.line
     if ln.special == 0 then
@@ -926,8 +926,8 @@ function M.use_lines(world, player, game)
 end
 
 local function shot_ends(source, angle, attackrange)
-  local x2 = source.x + shar(attackrange, FRACBITS) * tables.fine_cos(angle)
-  local y2 = source.y + shar(attackrange, FRACBITS) * tables.fine_sin(angle)
+  local x2 = source.x + shar(attackrange, FRACBITS) * tabela:fine_cos(angle)
+  local y2 = source.y + shar(attackrange, FRACBITS) * tabela:fine_sin(angle)
   local shootz = source.z + shar(source.height or 0, 1) + 8 * FRACUNIT
   return x2, y2, shootz
 end
@@ -1096,7 +1096,6 @@ local function spawn_blood(world, x, y, z, game, damage)
 end
 
 function M.line_attack(world, source, damage, game, attackrange, angle, slope)
-  tables.init()
   local ang = source.angle
   if angle ~= nil then
     ang = angle

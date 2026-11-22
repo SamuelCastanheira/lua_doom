@@ -31,7 +31,8 @@
 -- (P_SetupPsprites).
 
 local compat = require("compat")
-local tables = require("tables")
+-- finesine, tantoangle e slope_div: as tabelas do Doom, em C (tables_c)
+local tabela = require("tables_c").padrao
 local info = require("info")
 local rng = require("random")
 
@@ -41,7 +42,6 @@ local fixed_mul = compat.fixed_mul
 
 local M = {}
 
-tables.init()
 
 local FRACUNIT = 65536
 local FINEANGLES = 8192
@@ -295,9 +295,9 @@ ACOES = {
     end
     local angle = band(128 * ((game and game.leveltime) or 0), FINEMASK)
     psp.sx = FRACUNIT + fixed_mul(player.bob or 0,
-      tables.finesine[(angle + FINEANGLES // 4) % FINESINE_LEN])
+      tabela:get_finesine((angle + FINEANGLES // 4) % FINESINE_LEN))
     angle = band(angle, FINEANGLES // 2 - 1)
-    psp.sy = WEAPONTOP + fixed_mul(player.bob or 0, tables.finesine[angle])
+    psp.sy = WEAPONTOP + fixed_mul(player.bob or 0, tabela:get_finesine(angle))
   end,
 
   -- A_ReFire: gatilho ainda preso (sem troca pedida): atira de novo

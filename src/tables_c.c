@@ -137,14 +137,16 @@ static int32_t fine_cos(const Table *tb, int32_t angle)
     return tb->finesine[i];
 }
 
-static int64_t slope_div(int32_t num, int32_t den)
+/* num e den em 64 bits, como no Lua: em collision.angle_to, -y de um
+   y = -2^31 vale 2^31, que nao cabe em int32 */
+static int64_t slope_div(int64_t num, int64_t den)
 {
     if (den < 512)
         return TABLE_SLOPERANGE;
 
     uint32_t shifted_den = ((uint32_t)den) >> 8;
 
-    int64_t ans = idiv((int64_t)num * 8, shifted_den);
+    int64_t ans = idiv(num * 8, shifted_den);
 
     if (ans > TABLE_SLOPERANGE)
         return TABLE_SLOPERANGE;
@@ -202,8 +204,8 @@ static int l_slope_div(lua_State *L)
 {
     check_ready_table(L, 1);
 
-    int32_t num = (int32_t)luaL_checkinteger(L, 2);
-    int32_t den = (int32_t)luaL_checkinteger(L, 3);
+    int64_t num = (int64_t)luaL_checkinteger(L, 2);
+    int64_t den = (int64_t)luaL_checkinteger(L, 3);
 
     lua_pushinteger(L, (lua_Integer)slope_div(num, den));
 
@@ -322,6 +324,13 @@ int luaopen_tables_c(lua_State *L)
 
     lua_pushcfunction(L, l_new);
     lua_setfield(L, -2, "new");
+
+    /* Uma instancia pronta, compartilhada pela logica do jogo
+       (collision, player, pspr, thinker, enemy, am_map) e pelo renderer */
+    lua_pushcfunction(L, l_new);
+    lua_call(L, 0, 1);
+    init_tables(check_table(L, -1));
+    lua_setfield(L, -2, "padrao");
 
     return 1;
 }

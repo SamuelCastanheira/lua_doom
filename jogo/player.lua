@@ -11,7 +11,8 @@
 -- Jogador, gravidade e armas, a partir de player.py.
 
 local compat = require("compat")
-local tables = require("tables")
+-- finesine, tantoangle e slope_div: as tabelas do Doom, em C (tables_c)
+local tabela = require("tables_c").padrao
 local collision = require("collision")
 local rng = require("random")
 local pspr = require("pspr")
@@ -174,7 +175,6 @@ function M.damage_mobj(target, source, damage, inflictor)
 end
 
 function M.spawn(world, start, cheats)
-  tables.init()
   local x = start.x * FRACUNIT
   local y = start.y * FRACUNIT
   local sub = collision.point_in_subsector(world, x, y)
@@ -247,8 +247,8 @@ function M.spawn(world, start, cheats)
 end
 
 function M.thrust(mo, angle, move)
-  mo.momx = mo.momx + fixed_mul(move, tables.fine_cos(angle))
-  mo.momy = mo.momy + fixed_mul(move, tables.fine_sin(angle))
+  mo.momx = mo.momx + fixed_mul(move, tabela:fine_cos(angle))
+  mo.momy = mo.momy + fixed_mul(move, tabela:fine_sin(angle))
 end
 
 local function calc_height(player, leveltime)
@@ -266,7 +266,7 @@ local function calc_height(player, leveltime)
     return
   end
   local angle = band(math.floor(FINEANGLES / 20) * leveltime, FINEMASK)
-  local bob = fixed_mul(math.floor(player.bob / 2), tables.finesine[angle] or 0)
+  local bob = fixed_mul(math.floor(player.bob / 2), tabela:get_finesine(angle))
   if player.playerstate == PST_LIVE then
     player.viewheight = player.viewheight + player.deltaviewheight
     if player.viewheight > VIEWHEIGHT then

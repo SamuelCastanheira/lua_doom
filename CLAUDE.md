@@ -70,10 +70,11 @@ Atmos) e escreve em **português**. Responda em português.
 | Pasta | O que tem |
 |---|---|
 | raiz | `main.lua` (lançador), `main.atm` (laço e fluxo de telas), `caminhos.lua`, `Makefile`, `doom.wad` |
-| `jogo/` | a lógica: `game.lua`, `player`, `enemy`, `thinker`, `specials`, `collision`, `pspr`, `saveg`, `menu`, `status`, `am_map`, `finale`, `wi_stuff`, `cheats`, `world`, `info`, `wad`, `random`, `compat`, `tables`… e as tasks `.atm` (`arma`, `barra`, `interface`, `jogador`, `monstro`, `setores`, `telas`) |
-| `render/` | o lado Lua do renderer: `render`, `sprites`, `r_data`, `v_video`, `wipe` |
+| `jogo/` | a lógica: `game.lua`, `player`, `enemy`, `thinker`, `specials`, `collision`, `pspr`, `saveg`, `menu`, `status`, `am_map`, `finale`, `wi_stuff`, `cheats`, `world`, `info`, `wad`, `random`, `compat`… e as tasks `.atm` (`arma`, `barra`, `interface`, `jogador`, `monstro`, `setores`, `telas`) |
+| `render/` | o lado Lua do renderer: `render`, `sprites`, `v_video`, `wipe` |
 | `ponte/` | a comunicação com o C: `video`, `keys`, `sound`, `mus2mid`, o ambiente Atmos (`ponte/atmos/env/doom/init.lua`) e os `.so`/`.dll` que o `make` gera |
 | `src/` | os fontes em C |
+| `tests/referencia/` | `tables.lua` e `r_data.lua`: as versões Lua de `tables_c` e `r_data_c`, só como oráculo dos testes unitários (saíram do jogo em 2026-11-22; o `Makefile` põe a pasta no `LUA_PATH`) |
 | `saves/` | `doomsav0.dsg`… (o `doomsav0.dsg` versionado é do usuário) |
 | `musica/` | os MIDI temporários (apagados ao trocar de música e ao sair) |
 
@@ -109,7 +110,7 @@ têm tudo na raiz e os saves na pasta do IWAD; `tests/test_drivers.sh` e
 |---|---|---|
 | `render_c` | `src/render/r_*.c`, `r_local.h` | renderer 3D inteiro: BSP, `R_CheckBBox`, paredes, visplanes, céu, masked, sprites e arma; userdata `Renderer` |
 | `r_data_c` | `src/r_data_c.c`, `src/r_data.h` | texturas, flats, colormaps, sprites; `prepare_render`, `update_anims`, `set_sky` |
-| `tables_c` | `src/tables_c.c` | `finesine`, `finetangent`, `tantoangle` (idênticas às do `tables.lua`) |
+| `tables_c` | `src/tables_c.c` | `finesine`, `finetangent`, `tantoangle`, `slope_div` (idênticas às do `tests/referencia/tables.lua`); a instância `tables_c.padrao` serve à lógica (`tabela:get_finesine(i)`, `tabela:slope_div(n, d)`) e ao renderer |
 | `framebuffer_c` | `src/framebuffer_c.c`, `src/v_draw.c` | framebuffer 320×200 indexado; desenho 2D (`draw_patch`, `am_line`, `fill_flat`, `copy_span`…); `framebuffer_c.hash` (FNV-1a) |
 | `video_c` | `src/video_c.c`, `src/gammatable.h` | SDL2: janela, eventos, paleta com gama (`set_gamma`), áudio, MIDI |
 | `test_fixed_c` | `tests/test_fixed_c.c` | só testes |

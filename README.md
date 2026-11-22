@@ -97,12 +97,12 @@ Lua (`player.lua`):
 
 ```lua
 function M.thrust(mo, angle, move)
-  mo.momx = mo.momx + fixed_mul(move, tables.fine_cos(angle))
-  mo.momy = mo.momy + fixed_mul(move, tables.fine_sin(angle))
+  mo.momx = mo.momx + fixed_mul(move, tabela:fine_cos(angle))
+  mo.momy = mo.momy + fixed_mul(move, tabela:fine_sin(angle))
 end
 ```
 
-`.` stays `.`. There is no `+=`. `mo` is a table, so the new momentum stays on the mobj the caller already holds.
+`.` stays `.`; the tables come from C (`tables_c`), so they are called as methods (`tabela:fine_cos`). There is no `+=`. `mo` is a table, so the new momentum stays on the mobj the caller already holds.
 
 ---
 
@@ -224,7 +224,7 @@ main.lua             entry (Lua 5.4)
 main.atm             the game loop and the screen flow in Atmos
 caminhos.lua         puts jogo/, render/ and ponte/ on the module path
 jogo/                game logic (and the Atmos tasks, *.atm)
-render/              the renderer side in Lua (render, sprites, r_data, v_video, wipe)
+render/              the renderer side in Lua (render, sprites, v_video, wipe)
 ponte/               the bridge to C: video, keys, sound, mus2mid, the Atmos environment (atmos/),
                      and the compiled modules (*.so / *.dll) built by `make`
 src/                 the C sources (renderer, video, framebuffer, tables)
@@ -239,8 +239,8 @@ screenshot/doom.png  the picture at the top
 | `jogo/wad.lua` | `doom/wad.py` |
 | `ponte/video.lua` | `doom/video.py` |
 | `render/v_video.lua` | `doom/v_video.py` |
-| `jogo/tables.lua` | `doom/tables.py` |
-| `render/r_data.lua` | `doom/r_data.py` |
+| `tests/referencia/tables.lua` (oracle for `tables_c`) | `doom/tables.py` |
+| `tests/referencia/r_data.lua` (oracle for `r_data_c`) | `doom/r_data.py` |
 | `render/render.lua` | `doom/render.py` |
 | `jogo/world.lua` | `doom/world.py` |
 | `jogo/collision.lua` | `doom/collision.py` |

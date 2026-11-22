@@ -665,7 +665,7 @@ MUTACOES = [
      "pspr.lua", "arma"),
     ("sem-balanco",
      "A arma pronta nao balanca com o andar (A_WeaponReady)",
-     "    psp.sy = WEAPONTOP + fixed_mul(player.bob or 0, tables.finesine[angle])\n",
+     "    psp.sy = WEAPONTOP + fixed_mul(player.bob or 0, tabela:get_finesine(angle))\n",
      "    psp.sy = WEAPONTOP\n",
      "pspr.lua", "semente1"),
     ("clarao-sem-primeiro-tic",

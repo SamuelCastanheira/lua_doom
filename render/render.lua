@@ -12,8 +12,7 @@
 -- BSP, paredes, chao, teto, ceu, sprites e masked rodam em C. Este modulo
 -- so repassa chamadas e guarda o estado que o resto do jogo consulta.
 local render_c = require("render_c")
-local native_tables = require("tables_c").new()
-native_tables:init()
+local native_tables = require("tables_c").padrao
 
 local M = {}
 
