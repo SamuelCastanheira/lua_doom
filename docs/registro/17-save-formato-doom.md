@@ -363,7 +363,7 @@ roteiros, com os saves iguais byte a byte.
 ## Fechamento do C5
 
 Com os dois grupos commitados nas duas branches, a branch `lua` ganhou a
-tag **`c5`** (`8b0e3fa`), a referência padrão nova. A cobertura de
+tag **`c5`** (o commit da compatibilidade com os saves antigos, abaixo), a referência padrão nova. A cobertura de
 `tests/test_drivers.sh` passou a exigir os loads novos (2 no `luzes`, 2 no
 `correcoes`).
 
@@ -481,6 +481,21 @@ recriar as entidades a partir do save (notas, seção 7):
 - **Abortar no load.** Na `atmos`, apagar o que o nível montou é abortar
   tasks; as abortadas continuam na pool nesta versão do runtime, e tudo o
   que o save percorre precisou marcar `dead` num `defer`.
+
+### Os saves de antes do C5
+
+Depois da bateria, o save do autor (`doomsav0.dsg`, gravado no E4M2 com o
+formato antigo) foi carregado numa pasta isolada (uma cópia; o original não
+foi tocado), e o jogo parou com erro: o registro antigo do mobj não tem os
+campos novos (`lastlook`, `threshold`...). Também não tem as luzes, e o load
+novo apagaria as que o nível criou. A correção (um commit em cada branch):
+os campos que faltam ganham o valor de um mobj novo (`lastlook` 0,
+`threshold` 0, `doomednum` da `MOBJINFO`...), e um save sem `luzes` mantém
+as luzes que o nível criou. Com isso, o save antigo carrega nas duas
+branches, roda 300 quadros sem erro, e os hashes das duas são iguais. Os
+saves novos não passam por esse caminho; `familia`, `elevadores` e `luzes`
+continuam idênticos à branch `lua`. A tag `c5` foi movida para o commit com
+a correção (ela ainda não tinha sido enviada).
 
 ### Diferenças que ficam
 
