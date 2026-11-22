@@ -485,6 +485,12 @@ Pôr o rosto da barra no hash de estado teria pego a mutação em qualquer
 cenário. Fica registrado como limite do oráculo, junto com a lição do 3e
 (conferir que tudo o que o tipo migrado escreve está no hash).
 
+**O custo de recriar as entidades no load** (anotado em 2026-11-21, depois
+do C4). Corrigir dá um dado concreto para essa discussão: quanto custa, nas
+duas formas, recriar as entidades a partir do save. Na `lua`, recriar o
+mobj basta; no Atmos, é recriar também a task no comportamento certo, a
+partir do estado gravado.
+
 ### A migração por equivalência expõe o legado
 
 O roteiro previa que o jogador esmagado renascesse com "use", e a lista de

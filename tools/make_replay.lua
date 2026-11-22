@@ -450,12 +450,25 @@ if familia then
   play(400)
   goto_xy(144, 1056); wait(20)                         -- Spectres (288, 1104) e (0, 1376)
   play(600)
+  -- C5: apanha dois bonus antes do save (a lista de mobjs muda); depois do
+  -- load, apanha outros dois. Ate o C4, o load aplicava os registros por
+  -- indice, e com a lista mudada os itens deixavam de ser apanhados e
+  -- monstros sumiam. O "goto" poe o jogador em cima do item, e "andar"
+  -- (para onde ele estiver virado) faz o movimento que encosta no item.
+  local function apanhar(x, y)
+    goto_xy(x, y); wait(2)
+    hold("up", 8); wait(6)
+  end
+  apanhar(128, 992); apanhar(256, 992)
+  goto_xy(144, 1056); wait(10)
   -- Save no meio da briga, slot 5: main 0 -> 3 Save -> slot 0 -> 5
   keys({ "escape" }); down(3); keys({ "return" }); wait(10); down(5); keys({ "return" }); descricao()
   wait(10)
   -- Load: main 3 -> 2 Load -> slot 0 -> 5
   keys({ "escape" }); up(1); keys({ "return" }); wait(10); down(5); keys({ "return" })
   wait(20)
+  apanhar(128, 1152); apanhar(256, 1152)
+  goto_xy(144, 1056); wait(10)
   play(300)
   wait(500)                                            -- os corpos voltam (-respawn)
   play(300)

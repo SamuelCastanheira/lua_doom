@@ -52,6 +52,23 @@ local function skill_bit(skill)
   return 2
 end
 
+-- Monstro como task (passos 5 e 9): ver spawn_mobj. Desde o C5, tambem
+-- para os mobjs recriados pelo load (recriar_mobj).
+local function criar_task(mo, game)
+  -- Monstro como task (passos 5 e 9): os tipos de monstro.TIPOS (Zombieman,
+  -- Shotgun Guy, Demon, Spectre) ganham a task Monstro (monstro.atm), com a
+  -- tabela do tipo, na pool "monstros" do Nivel. Sem main.atm (testes
+  -- unitarios) nao ha pools, e eles ficam com o thinker Lua. O spawn e
+  -- sincrono (P8): a task roda ate o primeiro await, sem mexer no mobj.
+  if game and game.pools and game.pools.monstros then
+    monstro = monstro or require("monstro")
+    local tipo = monstro.TIPOS[mo.type]
+    if tipo ~= nil then
+      mo.task = spawn_in(game.pools.monstros, monstro.Monstro, mo, game, tipo)
+    end
+  end
+end
+
 function M.spawn_mobj(world, x, y, z, typ, game)
   local row = info.MOBJINFO[typ]
   local sub = collision.point_in_subsector(world, x, y)
@@ -108,18 +125,21 @@ function M.spawn_mobj(world, x, y, z, typ, game)
     mo.sprite = info.SPRNAMES[st[0]]
     mo.frame = st[1]
   end
-  -- Monstro como task (passos 5 e 9): os tipos de monstro.TIPOS (Zombieman,
-  -- Shotgun Guy, Demon, Spectre) ganham a task Monstro (monstro.atm), com a
-  -- tabela do tipo, na pool "monstros" do Nivel. Sem main.atm (testes
-  -- unitarios) nao ha pools, e eles ficam com o thinker Lua. O spawn e
-  -- sincrono (P8): a task roda ate o primeiro await, sem mexer no mobj.
-  if game and game.pools and game.pools.monstros then
-    monstro = monstro or require("monstro")
-    local tipo = monstro.TIPOS[typ]
-    if tipo ~= nil then
-      mo.task = spawn_in(game.pools.monstros, monstro.Monstro, mo, game, tipo)
-    end
+  criar_task(mo, game)
+  return mo
+end
+
+-- C5: recria um mobj gravado (P_UnArchiveThinkers): todos os campos vem do
+-- save, e nada e sorteado (o P_SpawnMobj sorteia o lastlook). Os campos do
+-- blockmap nao vem do save: set_thing_position os refaz.
+function M.recriar_mobj(world, campos, game)
+  local mo = {}
+  for k, v in pairs(campos) do
+    mo[k] = v
   end
+  world.mobjs[#world.mobjs + 1] = mo
+  collision.set_thing_position(world, mo)
+  criar_task(mo, game)
   return mo
 end
 

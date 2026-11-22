@@ -154,20 +154,13 @@ val func sequencia (mo, game, seq, vencido, repete) {
     }
 }
 
-;; Estado que nao e de nenhum comportamento do tipo. Acontece no load:
-;; saveg.apply aplica os registros gravados por indice aos mobjs recem-
-;; criados, e se a ordem da lista mudou desde o save (itens apanhados,
-;; projeteis), um monstro recebe o estado de outro tipo de mobj. O thinker Lua
-;; so segue a tabela dali em diante; aqui, o mesmo: conta os tics e segue o
-;; ponteiro "proximo", ate cair num comportamento conhecido.
-val func estranho (mo, game, vencido) {
-    val r = if vencido => :fim => contar(mo, game)
-    ifs {
-        (r != :fim) => r
-        T.seguir_tabela(mo, game.world, game) => :aplicado
-        else => :fora
-    }
-}
+;; Restos (S_GIBS, um quadro sem fim): o corpo esmagado (C4c) vira restos
+;; por set_mobj_state, de fora. Ate o C4, o caso "estranho" seguia a tabela
+;; para qualquer estado fora do tipo, porque o load aplicava os registros
+;; gravados por indice e um monstro podia receber o estado de outro tipo; o
+;; C5 recria os mobjs pelo tipo gravado, e um estado fora da tabela passou a
+;; ser erro (no passo 9, o "estranho" calou um erro de tabela).
+val RESTOS = [info.S_GIBS]
 
 val task Monstro (mo, game, C) {
     set pub = mo
@@ -186,7 +179,8 @@ val task Monstro (mo, game, C) {
             (indice(C.levantar, st) > 0) => sequencia(mo, game, C.levantar, vencido, false)
             (indice(C.morrer, st) > 0)   => sequencia(mo, game, C.morrer, vencido, false)
             (indice(C.explodir, st) > 0) => sequencia(mo, game, C.explodir, vencido, false)
-            else => estranho(mo, game, vencido)  ;; outro tipo (load por indice)
+            (indice(RESTOS, st) > 0)     => sequencia(mo, game, RESTOS, vencido, false)
+            else => error("monstro: estado " ++ tostring(st) ++ " fora da tabela do tipo " ++ tostring(mo.type))
         }
         set vencido = (r == :salto) && (mo.tics <= 0)  ;; trocado de fora, ja vencido
         val prox = ifs {
