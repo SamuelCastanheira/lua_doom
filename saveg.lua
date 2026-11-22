@@ -660,6 +660,27 @@ local function campos_mobj(rec)
   if campos.alive == nil then
     campos.alive = true
   end
+  -- um save de antes do C5 nao tem estes campos: os valores do mobj novo
+  if campos.lastlook == nil then
+    campos.lastlook = 0
+  end
+  if campos.threshold == nil then
+    campos.threshold = 0
+  end
+  if campos.reactiontime == nil then
+    campos.reactiontime = 0
+  end
+  if campos.movecount == nil then
+    campos.movecount = 0
+  end
+  if campos.movedir == nil then
+    campos.movedir = 8
+  end
+  if campos.doomednum == nil and campos.type then
+    local info = require("info")
+    local row = info.MOBJINFO[campos.type]
+    campos.doomednum = row and row[info.MI_DOOMEDNUM]
+  end
   if rec.spawnpoint then
     local sp = rec.spawnpoint
     campos.spawnpoint = { x = sp.x, y = sp.y, angle = sp.angle, type = sp.type, options = sp.options }
@@ -671,7 +692,7 @@ end
 -- C5: o load apaga o que o nivel acabou de criar (os mobjs, menos o do
 -- jogador, e os specials), como o P_UnArchiveThinkers e o
 -- P_UnArchiveSpecials, e recria tudo a partir do save.
-local function limpar_nivel(game)
+local function limpar_nivel(game, data)
   local world = game.world
   local thinker = require("thinker")
   local lista = {}
@@ -692,7 +713,9 @@ local function limpar_nivel(game)
   end
   if game.specials then
     game.specials.thinkers = {}
-    game.specials.lights = {}
+    if data.luzes ~= nil then             -- um save de antes do C5 nao tem as luzes
+      game.specials.lights = {}
+    end
     game.specials.buttons = {}
     game.specials.tetos_ativos = {}
     game.specials.plats_ativos = {}
@@ -712,7 +735,7 @@ function M.apply(game, data)
   if game.world == nil or game.player == nil then
     return false
   end
-  limpar_nivel(game)                      -- C5
+  limpar_nivel(game, data)                -- C5
   game.leveltime = data.leveltime or 0
   game.totalkills = data.totalkills or game.totalkills
   game.totalitems = data.totalitems or game.totalitems
