@@ -9,6 +9,7 @@
 -- www.vagucs.com.br
 --
 -- Laço a 35 Hz. A skill abre a vista e o jogador anda.
+require("caminhos")                   -- jogo/, render/ e ponte/ no caminho
 local atmos = require("atmos")
 
 io.stdout:setvbuf("no")

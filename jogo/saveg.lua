@@ -209,17 +209,18 @@ local function save_dir(game)
   return "."
 end
 
-function M.path(game, slot)
+-- Os saves ficam na pasta saves/, ao lado do IWAD (antes, na pasta do
+-- IWAD). A barra "/" serve tambem no Windows.
+local function pasta_saves(game)
   local dir = save_dir(game)
-  local sep = "\\"
-  if dir:find("/", 1, true) and not dir:find("\\", 1, true) then
-    sep = "/"
-  end
   if dir == "." then
-    sep = ""
-    dir = ""
+    return "saves"
   end
-  return dir .. sep .. "doomsav" .. tostring(slot) .. ".dsg"
+  return dir .. "/saves"
+end
+
+function M.path(game, slot)
+  return pasta_saves(game) .. "/doomsav" .. tostring(slot) .. ".dsg"
 end
 
 local function pad_desc(text)
@@ -546,6 +547,10 @@ function M.write(game, slot, description)
   local path = M.path(game, slot)
   local tmp = path .. ".tmp"
   local f = io.open(tmp, "wb")
+  if f == nil then
+    os.execute('mkdir "' .. pasta_saves(game) .. '"')  -- a pasta saves/ ainda nao existe
+    f = io.open(tmp, "wb")
+  end
   if f == nil then
     return false
   end
