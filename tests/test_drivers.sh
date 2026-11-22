@@ -26,11 +26,11 @@
 #   arma: cada arma atirando, trocas, sem municao, save e load, morte (rode com -warp 1 1; passo 4a)
 #   monstro: zumbis procurando, correndo, atirando, morrendo, save e load, -respawn (rode com -warp 1 2 -respawn; passo 5)
 #   familia: Zombieman, Shotgun Guy, Demon e Spectre, save e load, -respawn (rode com -warp 1 5 -respawn; passo 9)
-#   ordem: "use" no tic em que a linha entra no alcance; porta e elevador vizinhos no mesmo tic (rode com -warp 1 3; B2)
+#   ordem: "use" no tic em que a linha entra no alcance; porta e elevador vizinhos no mesmo tic, com o elevador DWUS a 4 por tic desde o C6 (rode com -warp 1 3; B2)
 #   correcoes: cenarios da fase de correcoes; C1: New Game na intermissao depois do idkfa; C2: pausa e menu, idclev na pausa, menu aberto no comeco do E1M3 (rode com -warp 1 1)
 #
-# REF_TAG=<tag> muda a referencia (padrao: c5, a branch lua com as correcoes
-# ate o C5; antes, c4, c3, c2, c1 e passo1); REF_DIR=<pasta> aponta
+# REF_TAG=<tag> muda a referencia (padrao: c6, a branch lua com as correcoes
+# ate o C6; antes, c5, c4, c3, c2, c1 e passo1); REF_DIR=<pasta> aponta
 # para uma pasta pronta (por exemplo, a branch lua: build/branch-lua).
 set -e
 cd "$(dirname "$0")/.."
@@ -43,7 +43,7 @@ while [ $# -gt 0 ] && [ $n -lt 3 ]; do
   shift
   n=$((n + 1))
 done
-REF_TAG=${REF_TAG:-c5}
+REF_TAG=${REF_TAG:-c6}
 # O hash de estado tambem cobre os lados (texturas e deslocamento) so com
 # esta variavel; tools/custo_drivers.py roda sem ela.
 export DOOM_REPLAY_SIDES=1
@@ -193,7 +193,7 @@ fi
 # abrindo, 4 esperando, 3 fechando), tres loads, E1M6 (30 s) e E1M2.
 if [ "$EXITS" = "portas" ] && [ $status -eq 0 ]; then
   fase() {
-    got=$(grep -ao '"kind":"door"[^}]*' "$(save_de "$OUT/run_atm" "doomsav$1.dsg")" 2>/dev/null | grep -c "\"direction\":$2,")
+    got=$(grep -ao '"kind":"door"[^}]*' "$(save_de "$OUT/run_atm" "doomsav$1.dsg")" 2>/dev/null | grep -c "\"direction\":$2," || true)
     if [ "$got" -lt 1 ]; then
       echo "COBERTURA INCOMPLETA: o slot $1 nao tem porta com direction $2"
       status=1
@@ -213,7 +213,7 @@ fi
 # enorme), quatro loads, E1M3 e E2M3.
 if [ "$EXITS" = "elevadores" ] && [ $status -eq 0 ]; then
   fase_p() {
-    got=$(grep -ao '"kind":"plat"[^}]*' "$(save_de "$OUT/run_atm" "doomsav$1.dsg")" 2>/dev/null | grep -c "\"status\":$2,")
+    got=$(grep -ao '"kind":"plat"[^}]*' "$(save_de "$OUT/run_atm" "doomsav$1.dsg")" 2>/dev/null | grep -c "\"status\":$2," || true)
     if [ "$got" -lt 1 ]; then
       echo "COBERTURA INCOMPLETA: o slot $1 nao tem elevador com status $2"
       status=1
@@ -232,7 +232,7 @@ fi
 # prints (registro do passo 3, secao 3d).
 if [ "$EXITS" = "pisos" ] && [ $status -eq 0 ]; then
   for d in 1 -1; do
-    got=$(grep -ao '"kind":"floor"[^}]*' "$(save_de "$OUT/run_atm" doomsav5.dsg)" 2>/dev/null | grep -c "\"direction\":$d,")
+    got=$(grep -ao '"kind":"floor"[^}]*' "$(save_de "$OUT/run_atm" doomsav5.dsg)" 2>/dev/null | grep -c "\"direction\":$d," || true)
     [ "$got" -ge 1 ] || { echo "COBERTURA INCOMPLETA: o slot 5 nao tem piso com direction $d"; status=1; }
   done
   n=$(grep -c "^pedido jogo.carregar" "$OUT/atm.out" || true)

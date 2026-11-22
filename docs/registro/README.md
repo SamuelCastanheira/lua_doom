@@ -17,6 +17,7 @@ do que mudou, do porquê e do que deu errado no caminho.
 | – | branch `lua` `09d8078` | [08-branch-lua-replay.md](08-branch-lua-replay.md) | modo replay na branch `lua`; as duas branches comparadas direto (`make test-branches`) |
 | 7 | `passo7` | [09-intermissao-e-finale.md](09-intermissao-e-finale.md) | a intermissão e o finale em tasks (`telas.atm`) |
 | 8 | `passo8` | [10-interface-e-mundo.md](10-interface-e-mundo.md) | a task `Mundo`, o rosto da barra, o menu e o automapa |
+| C6 | `c6` | [19-correcoes-c6.md](19-correcoes-c6.md) | o elevador "desce, espera, sobe" a 4 por tic; roteiros `ordem` e `elevadores` recalibrados |
 | – | – | [18-reducao-de-modulos.md](18-reducao-de-modulos.md) | menos módulos Lua no jogo: dois mortos apagados; `tables.lua` e `r_data.lua` viram oráculos em `tests/referencia/`; a lógica usa `tables_c` |
 
 ## Cadeia de equivalência

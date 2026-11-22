@@ -41,7 +41,8 @@ Atmos) e escreve em **português**. Responda em português.
 | tag `c2` (branch `lua`) | a branch `lua` com o C2 (o menu e a tecla Pause param o mundo) |
 | tag `c3` (branch `lua`) | a branch `lua` com o C3 (a arma com `info.STATES` e o `p_pspr.c`, em `pspr.lua`) |
 | tag `c4` (branch `lua`) | a branch `lua` com o C4 (os specials do DIFERENCAS e a descrição do save) |
-| tag `c5` (branch `lua`) | a branch `lua` com o C5 (o save no formato do Doom: o load recria os mobjs e os specials). **Referência de equivalência atual** (`REF_TAG` padrão) |
+| tag `c5` (branch `lua`) | a branch `lua` com o C5 (o save no formato do Doom: o load recria os mobjs e os specials) |
+| tag `c6` (branch `lua`) | a branch `lua` com o C6 (o elevador "desce, espera, sobe" a 4 por tic). **Referência de equivalência atual** (`REF_TAG` padrão) |
 | tag `luaV.1` | marco antigo do usuário (sem relação com a migração) |
 | commit `522b06f` | renderer 100% Lua (referência pixel a pixel do renderer em C, usada por `make compare`) |
 
@@ -556,7 +557,7 @@ automapa, `-`/`=` mudam o tamanho da tela.
 ### 5.2 Equivalência da lógica (driver Atmos × referência)
 
 ```sh
-make test-drivers          # semantica do Atmos (P1-P9) + 14 roteiros contra a tag c5; saves comparados byte a byte
+make test-drivers          # semantica do Atmos (P1-P9) + 14 roteiros contra a tag c6; saves comparados byte a byte
 sh tests/test_drivers.sh 0 1 fluxo         # roteiro com todas as transicoes
 sh tests/test_drivers.sh 4000 1            # pseudoaleatorio, 4000 quadros, semente 1
 sh tests/test_drivers.sh 6000 2 exits      # tambem termina niveis
@@ -575,7 +576,7 @@ REF_TAG=passo1 sh tests/test_drivers.sh 0 1 fluxo   # outra referencia (passo1: 
 ```
 
 - Argumentos: `quadros semente [exits|fluxo] [args do jogo]`.
-- A referência é **`REF_TAG`** (padrão `c5`, desde o C5; antes, `c4`, `c3`, `c2`, `c1` e `passo1`). O script cria um worktree
+- A referência é **`REF_TAG`** (padrão `c6`, desde o C6; antes, `c5`, `c4`, `c3`, `c2`, `c1` e `passo1`). O script cria um worktree
   em `build/ref-<tag>`, aplica `tests/ref-<tag>.patch` se existir, compila e
   roda o `lua5.4 main.lua` de lá. Compara com `atmos main.atm` e com
   `lua5.4 main.lua` atuais.
@@ -740,6 +741,13 @@ revisões do próprio port na seção 5). No fim, as correções são feitas nas
   `speed`). **Tasks abortadas continuam na pool** (o runtime desta versão
   não as recolhe): toda task gravada pelo save marca `dead` num `defer`, e o
   save pula as mortas. Registro: `docs/registro/17-save-formato-doom.md`.
+- **Corrigido no C6** (tag `c6`): o elevador "desce, espera, sobe"
+  (`do_plat_dwus`, linhas 10, 21, 62 e 88) anda a `PLATSPEED * 4`, como o
+  `EV_DoPlat`. Só a velocidade muda (as tasks não). O cenário 2 do roteiro
+  `ordem` passou a usar o fim da abertura da porta, e as esperas do roteiro
+  `elevadores` encurtaram (`ESPERA_B`, `ESPERA_C` e, no `ordem`,
+  `ELEVADOR_DEPOIS` e `JOGADOR_DEPOIS` podem ser trocadas pelo ambiente
+  para recalibrar). Registro: `docs/registro/19-correcoes-c6.md`.
 - Sprites e arma usam a luz do setor (como o Doom); flashes de arma
   (`PISFA0`, `SHT2I0`…) são `FF_FULLBRIGHT`, lidos de `info.STATES`.
 

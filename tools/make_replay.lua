@@ -199,6 +199,11 @@ if elevadores then
   end
   local function down(n) for _ = 1, n do tap("down") end end
   local function up(n) for _ = 1, n do tap("up") end end
+  -- C6: a linha 178 e um DWUS, que desde o C6 anda a 4 por tic (antes, 1):
+  -- as esperas ate o save B (esperando) e o save C (subindo) encurtaram
+  -- (antes, 180 e 130)
+  local ESPERA_B = tonumber(os.getenv("ESPERA_B") or "") or 80
+  local ESPERA_C = tonumber(os.getenv("ESPERA_C") or "") or 75
   local E = 178
   wait(40)
   type_text("iddqd")
@@ -209,13 +214,13 @@ if elevadores then
   wait(10)
   -- Load A: main 3 -> 2 Load -> slot 0 -> 5
   keys({ "escape" }); up(1); keys({ "return" }); wait(10); down(5); keys({ "return" })
-  wait(180)                                            -- chega embaixo; espera
+  wait(ESPERA_B)                                       -- chega embaixo; espera
   -- Save B (esperando), slot 4: main 2 -> 3 Save -> slot 5 -> 4
   keys({ "escape" }); down(1); keys({ "return" }); wait(10); up(1); keys({ "return" }); descricao()
   wait(10)
   -- Load B: main 3 -> 2 Load -> slot 5 -> 4
   keys({ "escape" }); up(1); keys({ "return" }); wait(10); up(1); keys({ "return" })
-  wait(130)                                            -- termina a espera; sobe
+  wait(ESPERA_C)                                       -- termina a espera; sobe
   -- Save C (subindo), slot 3: main 2 -> 3 Save -> slot 4 -> 3
   keys({ "escape" }); down(1); keys({ "return" }); wait(10); up(1); keys({ "return" }); descricao()
   wait(10)
@@ -408,6 +413,8 @@ if correcoes then
 end
 
 if ordem then
+  local ELEVADOR_DEPOIS = tonumber(os.getenv("ELEVADOR_DEPOIS") or "") or 40
+  local JOGADOR_DEPOIS = tonumber(os.getenv("JOGADOR_DEPOIS") or "") or 6
   local function goto_xy(x, y)
     lines[#lines + 1] = string.format("%d goto %d %d", f, x, y)
     f = f + 1
@@ -428,12 +435,21 @@ if ordem then
   wait(100)
   -- 2. porta (setor 167) e elevador (setor 165) vizinhos. A porta e criada
   -- antes do elevador (na pool movers, anda antes dele) e sobe 2 por tic
-  -- (128 -> 236); o elevador desce 1 por tic (176 -> 128). O jogador entra
+  -- (128 -> 236); o elevador desce 4 por tic (176 -> 128). O jogador entra
   -- quando cabe entre o chao do elevador (o mais alto dos dois) e o teto da
   -- porta; enquanto os dois andam, o chao que ele ve e o do elevador, lido
   -- quando a porta anda: antes ou depois do elevador andar no mesmo tic.
+  -- C6: o elevador (DWUS, a linha 116) desce a 4 por tic desde o C6 e chega
+  -- embaixo em 12 tics. A porta (linha 231) abre e fica aberta: sobe 2 por
+  -- tic durante 54 tics. O elevador e cruzado ELEVADOR_DEPOIS quadros
+  -- depois da porta, para descer enquanto a porta ainda sobe, e o jogador e
+  -- posto na fronteira JOGADOR_DEPOIS quadros depois, quando ja cabe entre o
+  -- chao do elevador e o teto da porta. A porta continua criada antes do
+  -- elevador (anda antes dele na pool movers).
   cmd("cross 231")                               -- a porta abre (128 -> 236)
-  cmd("cross 116"); wait(37)                     -- o elevador desce (176 -> 128)
+  wait(ELEVADOR_DEPOIS)
+  cmd("cross 116")                               -- o elevador desce (176 -> 128)
+  wait(JOGADOR_DEPOIS)
   goto_xy(-2707, -1317)                          -- centro na porta, corpo no elevador
   wait(120)
   lines[#lines + 1] = string.format("%d quit", f + 20)

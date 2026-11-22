@@ -35,12 +35,7 @@ Até lá, cada passo só acrescenta itens aqui. Na hora de corrigir:
 
 ## 1. Specials de setor
 
-Os itens desta seção foram corrigidos no C4 (seção "Corrigido"). Fica o
-achado durante o C4:
-
-| Falta ou difere | Onde | No Doom original | Aqui |
-|---|---|---|---|
-| Velocidade do elevador "desce, espera, sobe" | `do_plat_dwus` | `EV_DoPlat` (`downWaitUpStay`): `PLATSPEED * 4` (4 unidades por tic) | `PLATSPEED` (1 por tic). Achado no C4d; corrigir muda o cenário do roteiro `ordem` (B2) |
+Os itens desta seção foram corrigidos no C4 e no C6 (seção "Corrigido").
 
 Caminhos sem cobertura possível no `doom.wad` (migrados, mas nenhum mapa os
 usa): linha 17 (strobe criado por linha), setores 10 e 14 (portas que
@@ -120,5 +115,6 @@ fase de correção.
 | Botão duplicado; botão sem som ao voltar; limite dos botões (specials) | um botão ativo para a linha impede outro; `swtchn` ao voltar; 16 botões, erro se estourar (C4f) | C4f, tag `c4` |
 | Descrição do save (save game) | escolher o slot começa a digitação da descrição, como no `M_SaveSelect`; `enter` só grava com descrição (C4g) | C4g, tag `c4` |
 | Load aplica os mobjs por índice (seção 5); tetos não gravados, pisos pela metade, luzes não gravadas (save game) | o save tem o conteúdo do save do Doom: grava o mobj inteiro, com o tipo, e o load apaga o que o nível montou e recria tudo a partir do save (`P_UnArchiveThinkers`, `P_UnArchiveSpecials`); grava os tetos (com o parado), as luzes (o fogo também) e os pisos inteiros. A task `Monstro` perdeu o caso `estranho` (`docs/registro/17-save-formato-doom.md`) | C5, tag `c5` |
+| Velocidade do elevador "desce, espera, sobe" (specials) | `do_plat_dwus` anda a `PLATSPEED * 4`, como o `EV_DoPlat` (`downWaitUpStay`); antes, `PLATSPEED`. Achado no C4d. O cenário 2 do roteiro `ordem` e as esperas do roteiro `elevadores` foram recalibrados (`docs/registro/19-correcoes-c6.md`) | C6, tag `c6` |
 | Rosto da barra fora do hash de estado (seção 5) | `face_index` no `G.state_string` (`r<face_index>`), nos três lugares: `atmos`, `tests/ref-passo1.patch` e a branch `lua` (`docs/registro/10-interface-e-mundo.md`, passo 8b). Só teste: o jogo não mudou | passo 8 (tag `passo8`) |
 | Mutações pendentes de cobertura (seção 5) | roteiro `ordem` (E1M3): "use" no tic em que a linha entra no alcance; porta e elevador vizinhos no mesmo tic, com o jogador na fronteira (`docs/registro/12-mutacoes-pendentes.md`). Só teste: o jogo não mudou | B2 (sem tag nova) |
