@@ -22,8 +22,8 @@ Feito nas duas branches, em grupos, com a referência nova **`c5`** no fim.
 
 | Grupo | O que muda | Commits (`atmos` / `lua`) | Situação |
 |---|---|---|---|
-| C5a. Mobjs | o save grava o mobj inteiro, com o tipo; o load apaga os mobjs do nível montado e recria os gravados, na ordem gravada; a task `Monstro` sem o caso `estranho` | (este) | concluído |
-| C5b. Specials | o save grava os tetos, as luzes (com o fogo) e os pisos inteiros; o load os recria | – | a fazer |
+| C5a. Mobjs | o save grava o mobj inteiro, com o tipo; o load apaga os mobjs do nível montado e recria os gravados, na ordem gravada; a task `Monstro` sem o caso `estranho` | `bc8d848` / `18782bc` | concluído |
+| C5b. Specials | o save grava os tetos, as luzes (com o fogo) e os pisos inteiros; o load os recria | (este) | concluído |
 
 ---
 
@@ -209,3 +209,151 @@ da tabela (o `error` da task `Monstro` não disparou).
 C5a): idêntico nos 14 roteiros, com os saves iguais byte a byte e a
 cobertura de todos (os roteiros com save: `elevadores`, `portas`, `monstro`,
 `familia`, `arma`, `pisos`, `botoes`, `fluxo`).
+
+---
+
+## C5b: tetos, luzes e pisos inteiros no save
+
+### Resumo
+
+O `P_ArchiveSpecials` do Doom grava os tetos (`tc_ceiling`), as portas, os
+pisos, os elevadores e as luzes (`tc_flash`, `tc_strobe`, `tc_glow`). Este
+port gravava as portas, os elevadores, os pisos pela metade (sem `crush`,
+textura e special do fim) e os botões, e **não gravava** tetos nem luzes: um
+esmagador em movimento sumia no load, e as luzes recomeçavam do zero (o
+nível as criava de novo). Agora o save grava os tetos (com o `parado` do
+C4b), as luzes (o fogo também, que o Doom não grava, por decisão do autor) e
+os pisos inteiros, e o load os recria.
+
+### A régua da fase, de novo
+
+As notas da monografia (seção 8) chamam de "régua da fase" o critério de
+onde a fase de uma entidade pode ficar: só na posição do código, ou num
+campo. Uma das exigências que a devolvem aos dados é o save. As luzes e o
+teto eram os casos em que a fase ficava só no código, porque nada de fora
+a lia:
+
+- as luzes contavam o tempo com `espera(n)`, um `loop in n`: a contagem era
+  o contador do laço; o brilho sabia se escurecia ou clareava pelo laço em
+  que estava;
+- o teto guardava a direção e a velocidade em variáveis da task (C4b
+  mostrou a vantagem: parar com `toggle` não custou nenhuma linha).
+
+Com o save, cada luz expõe os campos do registro do Doom no `pub` (`kind`,
+`maxlight`, `minlight`, `count` e os do tipo), `espera` desconta
+`luz.count`, e o brilho tem `pub.direction`; o teto voltou a usar
+`teto.direction` e `teto.speed`. No load, a task nasce com a contagem (ou a
+direção) gravada, sem sortear:
+
+```
+;; antes (bc8d848)
+val func espera (n) {
+    loop in n {
+        await :game.specials
+    }
+}
+val task Pisca (setor, maxl, minl) {
+    espera(band(rng.p_random(), 64) + 1)
+    ...
+
+;; depois (C5b)
+val func espera (luz, n) {
+    set luz.count = n
+    loop {
+        await :game.specials
+        set luz.count = luz.count - 1
+        until (luz.count <= 0)
+    }
+}
+val task Pisca (setor, maxl, minl, contagem) {
+    set pub = [kind="flash", setor=setor, maxlight=maxl, minlight=minl,
+               maxtime=64, mintime=7, count=0]
+    defer {
+        set pub.dead = true               ;; C5: abortada no load, nao e gravada
+    }
+    espera(pub, contagem || (band(rng.p_random(), 64) + 1))
+    ...
+```
+
+Na branch `lua`, nada mudou nas luzes: o registro de cada luz já tinha a
+contagem e a direção, porque o `tick_lights` despacha por elas. O load só
+acrescenta o registro gravado à lista (`start_luz`).
+
+| | Antes | Depois |
+|---|---|---|
+| `atmos`: `espera` | 5 | 8 |
+| `atmos`: `Pisca`, `Strobe`, `Brilho`, `Fogo` | 12, 13, 16, 7 (48) | 17, 22, 26, 13 (78) |
+| `atmos`: `Teto` | 40 | 39 |
+| `lua`: `tick_lights` | 51 | 51 |
+
+(linhas de código, sem comentários, contadas por script sobre `bc8d848` e
+`18782bc`). É o mesmo resultado das portas e dos elevadores no passo 3: a
+exigência do save devolve a fase aos dados, e o ganho da task (a fase como
+posição no código) some; as luzes, que eram o melhor caso da régua, viraram
+um caso como os outros. O teto ficou do mesmo tamanho porque a direção e a
+velocidade só trocaram de lugar.
+
+### Um tropeço: as tasks abortadas continuam na pool
+
+A primeira rodada deu saves diferentes nas duas branches nos roteiros
+`elevadores` e `portas`: a `atmos` gravava 12 luzes no E1M3, onde há 4. A
+pool `luzes` crescia a cada load (12, 24, 36 tasks no E1M3, com prints do
+tamanho da pool): as tasks abortadas pelo `limpar_nivel` continuam na lista
+da pool (o runtime desta versão não as recolhe), e o save, que percorre a
+pool, gravava também o `pub` das mortas. As portas não tinham o problema,
+porque o `defer` delas já marcava `dead` e o save as pulava. As luzes e o
+botão ganharam o mesmo `defer` (`pub.dead = true`), e o save e o
+`start_button` pulam as mortas. As tasks mortas ficam na pool até o fim do
+nível; não acordam (a corrotina está fechada), mas cada `emit` na pool passa
+por elas. Fica registrado como custo do load na versão `atmos`.
+
+### Diagramas
+
+**A task `Brilho`, antes e depois:**
+
+```mermaid
+stateDiagram-v2
+    state "antes (fase so no codigo)" as A {
+        [*] --> Escurece
+        Escurece --> Escurece: luz - 8
+        Escurece --> Clareia: no minimo (posicao no codigo)
+        Clareia --> Clareia: luz + 8
+        Clareia --> Escurece: no maximo
+    }
+    state "depois (C5b, fase em pub.direction)" as D {
+        [*] --> Escurece2: direction -1 (ou a gravada)
+        [*] --> Clareia2: direction 1 (gravada)
+        Escurece2 --> Escurece2: luz - 8
+        Escurece2 --> Clareia2: no minimo, direction = 1
+        Clareia2 --> Clareia2: luz + 8
+        Clareia2 --> Escurece2: no maximo, direction = -1
+    }
+```
+
+**O load dos specials, depois do C5:**
+
+```mermaid
+flowchart TD
+    L["limpar_nivel: aborta as tasks das pools<br/>luzes, movers e botoes (atmos) ou esvazia<br/>as listas (lua); solta os setores"] --> T["para cada registro de thinkers, na ordem:<br/>porta, elevador, piso, teto (C5b)"]
+    T --> TP{"teto parado?"}
+    TP -->|sim| TG["start_teto_gravado: a task nasce<br/>e e desligada (toggle false)"]
+    TP -->|nao| TN["start_teto_gravado"]
+    L --> LU["para cada luz gravada, na ordem:<br/>start_luz com a contagem ou a direcao"]
+    L --> B["para cada botao: start_button com o timer"]
+```
+
+### Validação
+
+**Roteiros.**
+
+- `luzes` (mudado): um save e um load com as luzes andando no E4M1 (o fogo
+  e o flash) e outro no E1M2 (o brilho e os strobes), cada um seguido de
+  300 quadros olhando em volta.
+- `correcoes`, no E2M2 (mudado): um save e um load com o esmagador da tag 16
+  descendo, e outro com ele parado (linha 687); a linha 728 o reativa
+  depois do segundo load. Conferido com prints (o teto do setor 2 e o
+  `parado`): depois do primeiro load, o esmagador continua de onde estava;
+  depois do segundo, volta parado em 99, e a 728 o põe para andar.
+
+**Contra a branch `lua`** (`make test-branches`): idêntico nos 14
+roteiros, com os saves iguais byte a byte.

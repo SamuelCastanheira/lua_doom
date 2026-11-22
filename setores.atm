@@ -23,70 +23,113 @@ val band   = compat.band
 val GLOWSPEED    = 8
 val STROBEBRIGHT = 5
 
-;; Espera n fases de specials (n tics de nivel).
-val func espera (n) {
-    loop in n {
+;; Espera n fases de specials (n tics de nivel). C5: a contagem fica em
+;; luz.count (o pub da task), porque o save a grava; antes, era so o
+;; contador do "loop in n".
+val func espera (luz, n) {
+    set luz.count = n
+    loop {
         await :game.specials
+        set luz.count = luz.count - 1
+        until (luz.count <= 0)
     }
 }
 
 ;; ---------------------------------------------------------------- luzes
 ;; Passo 3a. Antes: um item em self.lights com "kind" e "count", e um
 ;; despacho por kind em tick_lights (specials.lua, tag passo2). Agora: cada
-;; tipo e um programa linear; o contador virou o argumento de espera().
+;; tipo e um programa linear.
+;;
+;; C5: o save grava as luzes (o Doom grava pisca, strobe e brilho; o fogo,
+;; nao, mas este port grava, por decisao do autor). O pub de cada task tem os
+;; campos do registro do Doom (kind, maxlight, minlight, count e os do tipo);
+;; a contagem e a direcao do brilho, que eram so a posicao no codigo, viraram
+;; campos (a regua da fase: o save devolve a fase aos dados). No load, a
+;; task nasce com a contagem gravada ("contagem"), sem sortear.
 
 ;; Luz que pisca ao acaso (setor tipo 1; P_SpawnLightFlash, T_LightFlash).
-val task Pisca (setor, maxl, minl) {
-    espera(band(rng.p_random(), 64) + 1)
+val task Pisca (setor, maxl, minl, contagem) {
+    set pub = [kind="flash", setor=setor, maxlight=maxl, minlight=minl,
+               maxtime=64, mintime=7, count=0]
+    defer {
+        set pub.dead = true               ;; C5: abortada no load, nao e gravada
+    }
+    espera(pub, contagem || (band(rng.p_random(), 64) + 1))
     loop {
         if setor.lightlevel == maxl {
             set setor.lightlevel = minl
-            espera(band(rng.p_random(), 7) + 1)
+            espera(pub, band(rng.p_random(), 7) + 1)
         } else {
             set setor.lightlevel = maxl
-            espera(band(rng.p_random(), 64) + 1)
+            espera(pub, band(rng.p_random(), 64) + 1)
         }
     }
 }
 
 ;; Luz estroboscopica (setores 2, 3, 4, 12, 13; P_SpawnStrobeFlash,
 ;; T_StrobeFlash). Sincronizada: todas comecam juntas, sem P_Random.
-val task Strobe (setor, maxl, minl, escuro, sincronizado) {
-    val primeira = if sincronizado => 1 => (band(rng.p_random(), 7) + 1)
-    espera(primeira)
+val task Strobe (setor, maxl, minl, escuro, sincronizado, contagem) {
+    set pub = [kind="strobe", setor=setor, maxlight=maxl, minlight=minl,
+               darktime=escuro, brighttime=STROBEBRIGHT, count=0]
+    defer {
+        set pub.dead = true               ;; C5: abortada no load, nao e gravada
+    }
+    val primeira = ifs {
+        contagem => contagem
+        sincronizado => 1
+        else => (band(rng.p_random(), 7) + 1)
+    }
+    espera(pub, primeira)
     loop {
         if setor.lightlevel == minl {
             set setor.lightlevel = maxl
-            espera(STROBEBRIGHT)
+            espera(pub, STROBEBRIGHT)
         } else {
             set setor.lightlevel = minl
-            espera(escuro)
+            espera(pub, escuro)
         }
     }
 }
 
-;; Luz que pulsa devagar (setor tipo 8; P_SpawnGlowingLight, T_Glow).
-val task Brilho (setor, maxl, minl) {
+;; Luz que pulsa devagar (setor tipo 8; P_SpawnGlowingLight, T_Glow). C5: a
+;; direcao (escurecendo ou clareando) virou pub.direction.
+val task Brilho (setor, maxl, minl, direcao) {
+    set pub = [kind="glow", setor=setor, maxlight=maxl, minlight=minl,
+               direction=(direcao || -1)]
+    defer {
+        set pub.dead = true               ;; C5: abortada no load, nao e gravada
+    }
     loop {
-        loop {                                ;; escurece ate o minimo
-            await :game.specials
-            set setor.lightlevel = setor.lightlevel - GLOWSPEED
-            until (setor.lightlevel <= minl)
-        }
-        set setor.lightlevel = setor.lightlevel + GLOWSPEED
-        loop {                                ;; clareia ate o maximo
-            await :game.specials
+        if pub.direction == -1 {
+            loop {                            ;; escurece ate o minimo
+                await :game.specials
+                set setor.lightlevel = setor.lightlevel - GLOWSPEED
+                until (setor.lightlevel <= minl)
+            }
             set setor.lightlevel = setor.lightlevel + GLOWSPEED
-            until (setor.lightlevel >= maxl)
+            set pub.direction = 1
+        } else {
+            loop {                            ;; clareia ate o maximo
+                await :game.specials
+                set setor.lightlevel = setor.lightlevel + GLOWSPEED
+                until (setor.lightlevel >= maxl)
+            }
+            set setor.lightlevel = setor.lightlevel - GLOWSPEED
+            set pub.direction = -1
         }
-        set setor.lightlevel = setor.lightlevel - GLOWSPEED
     }
 }
 
 ;; Fogo tremulo (setor tipo 17; P_SpawnFireFlicker, T_FireFlicker).
-val task Fogo (setor, maxl, minl) {
+val task Fogo (setor, maxl, minl, contagem) {
+    set pub = [kind="fire", setor=setor, maxlight=maxl, minlight=minl, count=0]
+    defer {
+        set pub.dead = true               ;; C5: abortada no load, nao e gravada
+    }
+    var n = contagem || 4
     loop {
-        espera(4)
+        espera(pub, n)
+        set n = 4
         val amount = band(rng.p_random(), 3) * 16
         set setor.lightlevel = if (setor.lightlevel - amount) < minl => minl => (maxl - amount)
     }
@@ -102,6 +145,9 @@ val task Fogo (setor, maxl, minl) {
 ;; espera(timer). O load recria a task com o timer gravado.
 val task Botao (sp, linha, attr, textura, timer) {
     set pub = [linha=linha, attr=attr, textura=textura, timer=timer]
+    defer {
+        set pub.dead = true               ;; C5: abortada no load, nao e gravada
+    }
     loop {
         await :game.specials
         set pub.timer = pub.timer - 1
@@ -316,10 +362,11 @@ val task Piso (sp, piso) {
     S.play(sp, "pstop")                   ;; C4e: chegou
 }
 
-;; Teto e esmagador (EV_DoCeiling, T_MoveCeiling). Passo 3d. Os tetos nao
-;; sao gravados no save e ninguem escreve no registro de fora. Por isso a
-;; fase fica so no codigo: direcao e velocidade sao variaveis locais, e o
-;; registro so marca o setor.
+;; Teto e esmagador (EV_DoCeiling, T_MoveCeiling). Passo 3d. Ate o C4, os
+;; tetos nao eram gravados no save e ninguem escrevia no registro de fora, e
+;; a fase ficava so no codigo (direcao e velocidade eram variaveis locais).
+;; Desde o C5 o save grava o teto, e a direcao e a velocidade voltaram ao
+;; registro.
 ;;
 ;; Teto simples: anda ate o destino e acaba. Esmagador que vai e volta
 ;; (CRUSHANDRAISE, FASTCRUSH, SILENTCRUSH): desce, sobe, desce... para
@@ -345,20 +392,22 @@ val task Teto (sp, teto) {
     val desacelera = (t == C.CRUSHANDRAISE) || (t == C.SILENTCRUSH) || (t == C.LOWERANDCRUSH)
     val normal = if t == C.FASTCRUSH => (S.CEILSPEED * 2) => S.CEILSPEED
     val devagar = math.floor(S.CEILSPEED / 8)
-    var dir = teto.direction
-    var vel = teto.speed
+    ;; C5: a direcao e a velocidade ficam no registro (teto.direction,
+    ;; teto.speed), porque o save grava o teto; ate o C4 eram variaveis da
+    ;; task (os tetos nao eram gravados).
     loop {
+        val dir = teto.direction
         val destino = if dir == 1 => teto.topheight => teto.bottomheight
         val esmaga = (dir == -1) && teto.crush    ;; subindo, nunca esmaga
         loop {                            ;; anda ate o destino
             await :game.specials
-            val r = S.move_plane(sp.world, teto.sector, vel, destino, 1, dir, esmaga)
+            val r = S.move_plane(sp.world, teto.sector, teto.speed, destino, 1, dir, esmaga)
             if t != C.SILENTCRUSH {
                 S.som_de_pedra(sp)        ;; C4e: a cada 8 tics andando
             }
             until (r == S.RESULT_PASTDEST)
             if desacelera && (dir == -1) && (r == S.RESULT_CRUSHED) {
-                set vel = devagar
+                set teto.speed = devagar
             }
         }
         until (!vai_e_volta)
@@ -366,9 +415,9 @@ val task Teto (sp, teto) {
             S.play(sp, "pstop")
         }
         if dir == -1 {                    ;; chegou embaixo: sobe na normal
-            set vel = normal
+            set teto.speed = normal
         }
-        set dir = if dir == 1 => -1 => 1
+        set teto.direction = if dir == 1 => -1 => 1
     }
 }
 

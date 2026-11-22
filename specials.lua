@@ -411,6 +411,17 @@ function M.remover_teto(self, teto)
   end
 end
 
+-- C5: recria um teto gravado (P_UnArchiveSpecials): parado no save, a task
+-- nasce e e desligada em seguida
+function M.start_teto_gravado(self, teto)
+  teto.task = start_ceiling(self, teto)
+  if teto.parado and teto.task then
+    toggle(teto.task, false)
+  end
+  add_active_ceiling(self, teto)
+  return teto.task
+end
+
 function M.stop_ceiling(self, line)
   local ok = false
   for i = 1, MAXCEILINGS do
@@ -506,6 +517,20 @@ local function activate_in_stasis(self, tag)
         toggle(plat.task, true)
       end
     end
+  end
+end
+
+-- C5: recria uma luz gravada (P_UnArchiveSpecials), com a contagem (ou a
+-- direcao do brilho) gravada; nao sorteia nada
+function M.start_luz(self, rec, sector)
+  if rec.kind == "flash" then
+    return spawn_luz(self, "Pisca", sector, rec.maxlight, rec.minlight, rec.count)
+  elseif rec.kind == "strobe" then
+    return spawn_luz(self, "Strobe", sector, rec.maxlight, rec.minlight, rec.darktime, true, rec.count)
+  elseif rec.kind == "glow" then
+    return spawn_luz(self, "Brilho", sector, rec.maxlight, rec.minlight, rec.direction)
+  elseif rec.kind == "fire" then
+    return spawn_luz(self, "Fogo", sector, rec.maxlight, rec.minlight, rec.count)
   end
 end
 
@@ -1188,7 +1213,7 @@ function M.start_button(self, line, attr, texture, timer)
   if pool then
     local ativos = 0
     for _, t in pairs(pool) do
-      if type(t) == "table" and t.pub and t.pub.timer and t.pub.timer > 0 then
+      if type(t) == "table" and t.pub and t.pub.timer and t.pub.timer > 0 and not t.pub.dead then
         if t.pub.linha == line then
           return nil
         end

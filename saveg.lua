@@ -404,9 +404,46 @@ local function dump_thinker(th, world)
       { "direction", th.direction or 0 },
       { "dest", th.dest or 0 },
       { "speed", th.speed or 0 },
+      { "crush", th.crush and true or false },    -- C5: o piso inteiro
+      { "floorpic", th.floorpic },
+      { "newspecial", th.newspecial },
+    }
+  end
+  if th.kind == "ceiling" then                  -- C5: os tetos (P_ArchiveSpecials)
+    return {
+      { "kind", "ceiling" },
+      { "sector", sec_i },
+      { "ctype", th.ctype or 0 },
+      { "direction", th.direction or 0 },
+      { "speed", th.speed or 0 },
+      { "crush", th.crush and true or false },
+      { "topheight", th.topheight or 0 },
+      { "bottomheight", th.bottomheight or 0 },
+      { "parado", th.parado and true or false },
     }
   end
   return nil
+end
+
+-- C5: uma luz (P_ArchiveSpecials: tc_flash, tc_strobe, tc_glow; o fogo
+-- tambem, que o Doom nao grava), com os campos do registro do Doom
+local function dump_luz(l, world)
+  local sec_i = sector_index(world, l.sector or l.setor)
+  local rec = { { "kind", l.kind }, { "sector", sec_i },
+    { "maxlight", l.maxlight }, { "minlight", l.minlight } }
+  if l.kind == "glow" then
+    rec[#rec + 1] = { "direction", l.direction }
+  else
+    rec[#rec + 1] = { "count", l.count }
+  end
+  if l.kind == "flash" then
+    rec[#rec + 1] = { "maxtime", l.maxtime }
+    rec[#rec + 1] = { "mintime", l.mintime }
+  elseif l.kind == "strobe" then
+    rec[#rec + 1] = { "darktime", l.darktime }
+    rec[#rec + 1] = { "brighttime", l.brighttime }
+  end
+  return rec
 end
 
 local function dump_state(game)
@@ -465,6 +502,17 @@ local function dump_state(game)
       end
     end
   end
+  -- C5: as luzes, tasks na pool "luzes", na ordem de criacao (o pub de cada
+  -- uma tem os campos do registro)
+  local luzes = {}
+  local pool_luzes = game.pools and game.pools.luzes
+  if pool_luzes then
+    for _, t in pairs(pool_luzes) do
+      if t.pub and t.pub.kind and not t.pub.dead then
+        luzes[#luzes + 1] = dump_luz(t.pub, world)
+      end
+    end
+  end
   -- Botoes (passo 3e): tasks Botao na pool "botoes" do Nivel; o estado de
   -- cada um esta no pub da task (linha, attr, textura, timer). A ordem da
   -- pool e a de criacao, a mesma da antiga lista specials.buttons.
@@ -473,7 +521,7 @@ local function dump_state(game)
   if botoes then
     for _, t in pairs(botoes) do
       local btn = t.pub
-      if btn and btn.timer > 0 then
+      if btn and btn.timer > 0 and not btn.dead then
         local line = btn.linha
         local idx = -1
         if line and line.i_line ~= nil then
@@ -499,6 +547,7 @@ local function dump_state(game)
     { "lines", arr(lines) },
     { "mobjs", arr(mobj_rows) },
     { "thinkers", arr(thinkers) },
+    { "luzes", arr(luzes) },
     { "buttons", arr(buttons) },
     { "totalkills", game.totalkills or 0 },
     { "totalitems", game.totalitems or 0 },
@@ -660,7 +709,7 @@ local function limpar_nivel(game)
       thinker.remove_mobj(world, mo)
     end
   end
-  for _, nome in ipairs({ "movers", "botoes" }) do
+  for _, nome in ipairs({ "luzes", "movers", "botoes" }) do
     local pool = game.pools and game.pools[nome]
     if pool and abort then
       local tasks = {}
@@ -767,6 +816,12 @@ function M.apply(game, data)
           count = rec.count or 0,
           oldstatus = rec.oldstatus or 0,
           dest = rec.dest or 0,
+          ctype = rec.ctype or 0,                -- C5: tetos e pisos inteiros
+          crush = rec.crush and true or false,
+          bottomheight = rec.bottomheight or 0,
+          parado = rec.parado and true or false,
+          floorpic = rec.floorpic,
+          newspecial = rec.newspecial,
           dead = false,
         }
         -- passo 3b: recria a task na pool "movers", na ordem gravada
@@ -777,7 +832,17 @@ function M.apply(game, data)
           sp.start_plat(game.specials, th)       -- idem (passo 3c)
         elseif th.kind == "floor" then
           sp.start_floor(game.specials, th)      -- idem (passo 3d)
+        elseif th.kind == "ceiling" then
+          sp.start_teto_gravado(game.specials, th)  -- C5
         end
+      end
+    end
+    -- C5: as luzes, na ordem gravada
+    local luzes = data.luzes or {}
+    for i = 1, #luzes do
+      local sector = world.sectors[(luzes[i].sector or -1) + 1]
+      if sector then
+        require("specials").start_luz(game.specials, luzes[i], sector)
       end
     end
     local buttons = data.buttons or {}

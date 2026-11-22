@@ -382,7 +382,22 @@ if correcoes then
   end
   type_text("idclev22"); wait(40); type_text("iddqd"); wait(20)
   cross(728); wait(60)
+  -- C5: save e load com o esmagador descendo (antes, os tetos nao eram
+  -- gravados e o esmagador sumia no load). O menu: main 0 -> 3 Save -> slot
+  -- 0 -> 5 (o primeiro save do roteiro); Load: main 3 -> 2 Load -> slot 0 -> 5
+  local function down(n) for _ = 1, n do tap("down") end end
+  local function up(n) for _ = 1, n do tap("up") end end
+  keys({ "escape" }); down(3); keys({ "return" }); wait(10); down(5); keys({ "return" }); descricao()
+  wait(10)
+  keys({ "escape" }); up(1); keys({ "return" }); wait(10); down(5); keys({ "return" })
+  wait(30)
   cross(687); wait(80)
+  -- e com ele parado (o load o recria parado; a linha 728 o reativa depois):
+  -- main 2 -> 3 Save -> slot 5; Load: main 3 -> 2 Load -> slot 5
+  keys({ "escape" }); down(1); keys({ "return" }); wait(10); keys({ "return" }); descricao()
+  wait(10)
+  keys({ "escape" }); up(1); keys({ "return" }); wait(10); keys({ "return" })
+  wait(30)
   cross(728); wait(120)
   lines[#lines + 1] = string.format("%d quit", f + 20)
   local fh = assert(io.open(out_path, "w"))
@@ -729,13 +744,29 @@ if luzes then
       f = f + 26
     end
   end
+  local function down(n) for _ = 1, n do tap("down") end end
+  local function up(n) for _ = 1, n do tap("up") end end
   wait(40)
   type_text("iddqd")
   olha_em_volta(frames)                                -- E4M1
+  -- C5: save e load com as luzes andando (o fogo e o flash do E4M1): o save
+  -- grava a contagem de cada luz, e o load as recria no mesmo ponto
+  -- (antes, as luzes recomecavam). Save: main 0 -> 3 Save -> slot 0 -> 5
+  keys({ "escape" }); down(3); keys({ "return" }); wait(10); down(5); keys({ "return" }); descricao()
+  wait(10)
+  -- Load: main 3 -> 2 Load -> slot 0 -> 5
+  keys({ "escape" }); up(1); keys({ "return" }); wait(10); down(5); keys({ "return" })
+  olha_em_volta(300)
   type_text("idclev12")                                -- nivel.trocar -> E1M2
   wait(40)
   type_text("iddqd")
   olha_em_volta(frames)                                -- E1M2
+  -- C5: de novo no E1M2 (o brilho, os strobes): main 2 -> 3 Save -> slot 5
+  keys({ "escape" }); down(1); keys({ "return" }); wait(10); keys({ "return" }); descricao()
+  wait(10)
+  -- Load: main 3 -> 2 Load -> slot 5
+  keys({ "escape" }); up(1); keys({ "return" }); wait(10); keys({ "return" })
+  olha_em_volta(300)
   lines[#lines + 1] = string.format("%d quit", f + 20)
   local fh = assert(io.open(out_path, "w"))
   fh:write(table.concat(lines, "\n"), "\n")
